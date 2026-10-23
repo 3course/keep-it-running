@@ -1,0 +1,629 @@
+import { CONFIG, type ConsumableKey, type UpgradeId } from '../config.js';
+import { FAULTS } from '../data/faults.js';
+import { Rng } from './rng.js';
+import type {
+  ActiveFault, DayStats, Distraction, DistractionKind, FaultDef, FixPath, Job, LogEntry, MachineState,
+} from './types.js';
+
+export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
+
+const JOB_NAMES = [
+  'Kitchen carcasses — Thornbury', 'Drawer fronts — Brunswick reno', 'Wardrobe doors — Kew',
+  'Laundry cabinets — Preston', 'TV unit — Fitzroy North', 'Vanity — Northcote', 'Pantry — Coburg',
+  'Shop fit-out panels — Collingwood', 'Bookcase — Malvern East', 'Island bench — Thomastown joiner',
+  'Office pods — Richmond', 'Bar front — Footscray',
+];
+
+function emptyStats(day: number): DayStats {
+  return {
+    day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
+    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, beers: 0, faults: 0, wrongCalls: 0,
+  };
+}
+
+export class Game {
+  rng: Rng;
+  phase: Phase = 'day';
+
+  // clock
+  day = 1;
+  minute = CONFIG.clock.startHour * 60; // minutes since midnight
+  overtime = false;
+
+  // economy
+  cash = CONFIG.economy.startingCash;
+  rapport: number = CONFIG.rapport.start;
+  today: DayStats = emptyStats(1);
+  week: DayStats[] = [];
+  weekOverheads = 0;
+
+  // machine
+  machine: MachineState = 'idle';
+  loadingRemaining = 0;
+  jobs: Job[] = [];
+  current: Job | null = null;
+  fault: ActiveFault | null = null;
+  courierPenaltyPending = false;
+
+  // consumables 0..1 (1 = fresh)
+  wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
+  replacing: { key: ConsumableKey; remaining: number } | null = null;
+
+  // people
+  distractions: Distraction[] = [];
+  busy: { label: string; remaining: number } | null = null; // on the phone etc.
+  nextDistractionId = 1;
+
+  // competence
+  competence: number = CONFIG.competence.start;
+  beersToday = 0;
+
+  upgrades = new Set<UpgradeId>();
+  log: LogEntry[] = [];
+  private nextJobId = 1;
+
+  constructor(seed?: number) {
+    this.rng = new Rng(seed);
+    this.startDay();
+  }
+
+  // ---------- helpers ----------
+
+  get hour(): number { return this.minute / 60; }
+  get isOvertimeHours(): boolean { return this.minute >= CONFIG.clock.endHour * 60; }
+  get margin(): number {
+    const r = this.today.revenue;
+    return r > 0 ? (r - this.today.costs) / r : (this.today.costs > 0 ? -1 : 0);
+  }
+  get weekRevenue(): number { return this.week.reduce((s, d) => s + d.revenue, 0) + (this.phase === 'weekSummary' ? 0 : this.today.revenue); }
+  get weekCosts(): number { return this.week.reduce((s, d) => s + d.costs, 0) + (this.phase === 'weekSummary' ? 0 : this.today.costs) + this.weekOverheads; }
+  get weekMargin(): number { const r = this.weekRevenue; return r > 0 ? (r - this.weekCosts) / r : 0; }
+  get friendPresent(): boolean { return this.distractions.some(d => d.kind === 'friend' && d.engaged); }
+  get canAct(): boolean { return this.busy === null; }
+  get fridgeOpen(): boolean { return this.hour >= CONFIG.competence.fridgeUnlockHour; }
+  get queued(): Job[] { return this.jobs.filter(j => j.status === 'queued'); }
+
+  formatTime(m = this.minute): string {
+    const h = Math.floor(m / 60), mm = Math.floor(m % 60);
+    const ap = h >= 12 ? 'pm' : 'am';
+    const h12 = ((h + 11) % 12) + 1;
+    return `${h12}:${mm.toString().padStart(2, '0')}${ap}`;
+  }
+
+  private say(text: string, tone: LogEntry['tone'] = 'info') {
+    this.log.push({ minute: this.minute, text, tone });
+    if (this.log.length > 200) this.log.shift();
+  }
+
+  private spend(amount: number, bucket: keyof DayStats, note?: string) {
+    if (amount <= 0) return;
+    this.cash -= amount;
+    if (bucket !== 'upgrades') this.today.costs += amount; // capex stays out of operating margin
+    (this.today as unknown as Record<string, number>)[bucket] += amount;
+    if (note) this.say(`-$${amount.toFixed(0)} ${note}`, 'money');
+  }
+
+  private earn(amount: number, note: string) {
+    this.cash += amount;
+    this.today.revenue += amount;
+    this.say(`+$${amount.toFixed(0)} ${note}`, 'money');
+  }
+
+  stepDurationMult(): number {
+    const c = CONFIG.competence;
+    let m = 1 + (c.max - this.competence) / c.durationPenaltyDivisor;
+    if (this.friendPresent) m *= CONFIG.faults.attentionSplitDurationMult;
+    return m;
+  }
+  misclickChance(): number {
+    const c = CONFIG.competence;
+    return Math.max(0, (c.misclickThreshold - this.competence) / c.misclickDivisor);
+  }
+  inputDelayMs(): number {
+    return (CONFIG.competence.max - this.competence) * CONFIG.competence.inputDelayMsPerPoint;
+  }
+
+  // ---------- day lifecycle ----------
+
+  private startDay() {
+    this.phase = 'day';
+    this.minute = CONFIG.clock.startHour * 60;
+    this.overtime = false;
+    this.today = emptyStats(this.day);
+    this.beersToday = 0;
+    this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
+    this.distractions = [];
+    this.busy = null;
+    this.fault = null;
+    this.current = null;
+    this.machine = 'idle';
+    this.jobs = this.generateJobs();
+    this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board. Roller door's up.`);
+  }
+
+  private generateJobs(): Job[] {
+    const n = this.rng.int(CONFIG.jobs.perDayMin, CONFIG.jobs.perDayMax);
+    const jobs: Job[] = [];
+    const names = [...JOB_NAMES].sort(() => this.rng.next() - 0.5);
+    const first = CONFIG.clock.startHour * 60 + CONFIG.jobs.firstDeadlineMinutesAfterOpen;
+    const last = CONFIG.clock.endHour * 60 + CONFIG.jobs.lastDeadlineMinutesAfterClose;
+    const gap = (last - first) / Math.max(1, n - 1);
+    for (let i = 0; i < n; i++) {
+      const mat = this.rng.pick(CONFIG.materials);
+      const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax);
+      const cost = Math.round(mat.cost * this.materialMult());
+      const price = this.priceFor(mat.cost, cut);
+      jobs.push({
+        id: this.nextJobId++,
+        name: names[i % names.length],
+        material: mat.name,
+        materialCost: cost,
+        price,
+        cutMinutes: cut,
+        deadlineMinute: Math.round(first + gap * i),
+        progress: 0,
+        status: 'queued',
+        paidLate: false,
+        chipRisk: mat.chipRisk,
+      });
+    }
+    return jobs;
+  }
+
+  private materialMult(): number {
+    return this.upgrades.has('nesting') ? this.upgradeEffect('nesting') : 1;
+  }
+  private upgradeEffect(id: UpgradeId): number {
+    return CONFIG.upgrades.find(u => u.id === id)!.effect;
+  }
+  private priceFor(boardCost: number, cutMinutes: number): number {
+    const j = CONFIG.jobs;
+    return Math.round(boardCost * this.rng.range(j.priceMarkupMin, j.priceMarkupMax) + cutMinutes * j.machineRatePerMinute);
+  }
+  private addRapport(n: number) {
+    this.rapport = Math.max(CONFIG.rapport.min, Math.min(CONFIG.rapport.max, this.rapport + n));
+  }
+
+  /** Advance one game minute. No-op outside the working day. */
+  tick() {
+    if (this.phase !== 'day') return;
+    this.minute += 1;
+
+    // labour
+    const rate = CONFIG.labour.hourlyRate / 60 * (this.isOvertimeHours ? CONFIG.labour.overtimeMultiplier : 1);
+    this.spend(rate, 'labour');
+
+    // competence recovery
+    this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.recoveryPerMinute);
+
+    // you, busy
+    if (this.busy) {
+      this.busy.remaining -= 1;
+      if (this.busy.remaining <= 0) { this.say(`Done: ${this.busy.label}`); this.busy = null; }
+    }
+
+    // replacing a consumable
+    if (this.replacing) {
+      this.replacing.remaining -= 1;
+      if (this.replacing.remaining <= 0) {
+        this.wear[this.replacing.key] = 1;
+        this.say(`New ${this.replacing.key} fitted.`, 'good');
+        this.replacing = null;
+        if (this.machine === 'paused' && this.current) this.machine = 'cutting';
+      }
+    }
+
+    // machine
+    if (this.machine === 'loading') {
+      this.loadingRemaining -= 1;
+      if (this.loadingRemaining <= 0) {
+        this.machine = 'cutting';
+        this.say(`Cutting: ${this.current!.name}`);
+        this.maybeFault(true);
+      }
+    } else if (this.machine === 'cutting' && this.current) {
+      this.current.progress += 1;
+      this.wearConsumables();
+      if (this.current.progress >= this.current.cutMinutes) this.finishJob();
+      else this.maybeFault(false);
+    }
+
+    // fault timers
+    if (this.fault) this.tickFault();
+
+    // people
+    this.tickDistractions();
+    this.maybeDistraction();
+
+    // end of day
+    if (!this.overtime && this.minute >= CONFIG.clock.endHour * 60) {
+      this.phase = 'endOfDayPrompt';
+    } else if (this.overtime && this.minute >= CONFIG.clock.overtimeEndHour * 60) {
+      this.say("That's it, lights off.");
+      this.endDay();
+    }
+  }
+
+  private wearConsumables() {
+    const c = CONFIG.consumables;
+    this.wear.bit = Math.max(0, this.wear.bit - c.bit.wearPerMinute * (this.current?.chipRisk ?? 1));
+    this.wear.spoilboard = Math.max(0, this.wear.spoilboard - c.spoilboard.wearPerMinute);
+    const filterMult = this.upgrades.has('extractor') ? this.upgradeEffect('extractor') : 1;
+    this.wear.filter = Math.max(0, this.wear.filter - c.filter.wearPerMinute * filterMult);
+  }
+
+  private faultWeight(def: FaultDef, atStart: boolean): number {
+    if (def.onlyAtJobStart && !atStart) return 0;
+    if (!def.onlyAtJobStart && atStart) return 0;
+    let w = def.weight;
+    if (def.consumable) {
+      const health = this.wear[def.consumable];
+      w *= 1 + (1 - health) * CONFIG.consumables[def.consumable].faultBoostAtZero;
+    }
+    if (def.id === 'chipping' && this.current) w *= this.current.chipRisk;
+    if (def.id === 'extraction' && this.upgrades.has('extractor')) w *= this.upgradeEffect('extractor');
+    if (def.id === 'partLifted' && this.upgrades.has('vacuumZone')) w *= this.upgradeEffect('vacuumZone');
+    return w;
+  }
+
+  private maybeFault(atStart: boolean) {
+    if (this.fault || !this.current) return;
+    let p = atStart ? CONFIG.faults.wrongMaterialChanceAtStart : CONFIG.faults.baseChancePerMinute;
+    if (!atStart) {
+      // overall chance scales with worst consumable
+      const worst = Math.min(this.wear.bit, this.wear.spoilboard, this.wear.filter);
+      p *= 1 + (1 - worst) * CONFIG.faults.worstConsumableChanceBoost;
+      if (this.friendPresent) p *= CONFIG.faults.attentionSplitChanceMult;
+    }
+    if (!this.rng.chance(p)) return;
+    const def = this.rng.weighted(FAULTS, d => this.faultWeight(d, atStart));
+    if (!def) return;
+    this.fault = {
+      def, phase: 'diagnose', minutesOpen: 0, triedDiagnoses: [], busyRemaining: 0, busyLabel: '',
+      stepIndex: 0, sheetScrapped: false,
+    };
+    this.machine = def.id === 'partLifted' ? 'estop' : 'fault';
+    this.today.faults += 1;
+    this.say(`FAULT: ${def.name}`, 'bad');
+  }
+
+  private tickFault() {
+    const f = this.fault!;
+    // Neglect clock: runs whenever you're not actively working the fix.
+    if (f.phase !== 'working') f.minutesOpen += 1;
+    if (f.phase === 'wrongCall' || f.phase === 'working') {
+      f.busyRemaining -= 1;
+      if (f.busyRemaining <= 0) {
+        if (f.phase === 'wrongCall') {
+          f.phase = 'diagnose';
+          this.say("Nope. That wasn't it.", 'bad');
+        } else {
+          this.say(`Done: ${f.busyLabel}`);
+          f.stepIndex += 1;
+          if (f.path && f.stepIndex >= f.path.steps.length) this.resolveFault();
+          else f.phase = 'step';
+        }
+      }
+    }
+    if (!f.sheetScrapped && this.current && f.minutesOpen > f.def.scrapAfterMinutes) {
+      f.sheetScrapped = true;
+      this.scrapCurrent(`Left too long — ${this.current.name} is scrap.`);
+    }
+  }
+
+  private resolveFault() {
+    const f = this.fault!;
+    if (f.def.restores) this.wear[f.def.restores] = 1;
+    if (f.path?.slowsJobBy && this.current) {
+      const remaining = this.current.cutMinutes - this.current.progress;
+      this.current.cutMinutes += Math.ceil(remaining * f.path.slowsJobBy);
+    }
+    this.say(`Fixed: ${f.def.name}.`, 'good');
+    this.fault = null;
+    if (this.current && this.current.status === 'cutting') {
+      this.machine = 'cutting';
+    } else {
+      this.machine = 'idle';
+      this.current = null;
+    }
+  }
+
+  private scrapCurrent(reason: string) {
+    if (!this.current) return;
+    this.current.status = 'scrapped';
+    this.today.sheetsScrapped += 1;
+    this.say(`${reason} $${this.current.materialCost} of ${this.current.material} in the skip.`, 'bad');
+    // the fault still needs fixing, but there's no job to resume
+    if (!this.fault) { this.current = null; this.machine = 'idle'; }
+  }
+
+  private finishJob() {
+    const j = this.current!;
+    j.status = 'done';
+    const late = this.minute > j.deadlineMinute;
+    j.paidLate = late;
+    const pay = Math.round(late ? j.price * CONFIG.economy.latePayFraction : j.price);
+    this.today.sheetsDone += 1;
+    if (late) this.today.sheetsLate += 1;
+    this.earn(pay, `${j.name}${late ? ' (late, 70%)' : ''}`);
+    this.current = null;
+    this.machine = 'idle';
+  }
+
+  // ---------- distractions ----------
+
+  private maybeDistraction() {
+    if (this.distractions.length >= CONFIG.distractions.maxActive) return;
+    if (!this.rng.chance(CONFIG.distractions.chancePerMinute)) return;
+    const d = CONFIG.distractions;
+    const kinds: { kind: DistractionKind; w: number }[] = [
+      { kind: 'friend', w: d.friend.weight },
+      { kind: 'phone', w: d.phone.weight },
+      { kind: 'courier', w: d.courier.weight },
+      { kind: 'bank', w: this.cash < 0 ? d.bank.weight : 0 },
+    ];
+    if (this.distractions.some(x => x.kind === 'friend')) kinds[0].w = 0;
+    const pick = this.rng.weighted(kinds, k => k.w);
+    if (!pick) return;
+    this.spawnDistraction(pick.kind);
+  }
+
+  private spawnDistraction(kind: DistractionKind) {
+    const d = CONFIG.distractions;
+    const id = this.nextDistractionId++;
+    let dist: Distraction;
+    switch (kind) {
+      case 'friend': {
+        const who = this.rng.pick(['Macca', 'Jules', 'Big Tony', 'Sal from next door', 'Your brother-in-law']);
+        let dur = this.rng.int(d.friend.durationMin, d.friend.durationMax);
+        if (this.beersToday > 0) dur = Math.round(dur * CONFIG.competence.beerFriendDurationMult);
+        dist = { id, kind, title: `${who} wandered in`, line: '"Mate. Got a sec?"', remaining: dur, engaged: false, hover: d.friend.hoverMinutes };
+        break;
+      }
+      case 'phone':
+        dist = { id, kind, title: 'Phone ringing', line: 'A customer. Could be a quote.', remaining: d.phone.window, engaged: false, hover: 0 };
+        break;
+      case 'courier':
+        dist = { id, kind, title: 'Courier at the door', line: 'Board delivery. Needs a signature.', remaining: d.courier.window, engaged: false, hover: 0 };
+        break;
+      case 'bank':
+      default:
+        dist = { id, kind, title: 'The bank is calling', line: "Overdrawn. They'd like a word.", remaining: d.bank.window, engaged: false, hover: 0 };
+        break;
+    }
+    this.distractions.push(dist);
+    this.say(dist.title, 'info');
+  }
+
+  private tickDistractions() {
+    const d = CONFIG.distractions;
+    for (const dist of [...this.distractions]) {
+      if (dist.kind === 'friend' && !dist.engaged) {
+        // hovering by the bench; after a bit they start talking regardless
+        dist.hover -= 1;
+        if (dist.hover <= 0) { dist.engaged = true; this.say('"...so anyway, did I tell you about the boat?"'); }
+      }
+      dist.remaining -= 1;
+      if (dist.remaining > 0) continue;
+      this.removeDistraction(dist.id);
+      switch (dist.kind) {
+        case 'friend':
+          this.addRapport(d.friend.chatRapportGain);
+          this.say(`"Righto, I'll let you get back to it." (+${d.friend.chatRapportGain} rapport)`, 'good');
+          break;
+        case 'phone': this.addRapport(-d.phone.ignoreRapportCost); this.say('Missed the call. They went elsewhere.', 'bad'); break;
+        case 'courier': this.courierPenaltyPending = true; this.say('Courier left. Re-delivery fee on the next sheet.', 'bad'); break;
+        case 'bank': this.addRapport(-d.bank.ignoreRapportCost); this.spend(CONFIG.economy.bankFee, 'fees', 'dishonour fee'); break;
+      }
+    }
+  }
+
+  private removeDistraction(id: number) {
+    this.distractions = this.distractions.filter(x => x.id !== id);
+  }
+
+  // ---------- player actions ----------
+
+  loadNextSheet(): boolean {
+    if (this.phase !== 'day' || !this.canAct || this.machine !== 'idle' || this.fault) return false;
+    const next = this.queued.sort((a, b) => a.deadlineMinute - b.deadlineMinute)[0];
+    if (!next) return false;
+    next.status = 'cutting';
+    this.current = next;
+    let cost = next.materialCost;
+    if (this.courierPenaltyPending) {
+      cost = Math.round(cost * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
+      this.courierPenaltyPending = false;
+    }
+    this.spend(cost, 'materials', `board for ${next.name}`);
+    this.machine = 'loading';
+    this.loadingRemaining = Math.ceil(CONFIG.jobs.loadMinutes * this.stepDurationMult());
+    this.say(`Loading ${next.material}...`);
+    return true;
+  }
+
+  diagnose(diagId: string): boolean {
+    const f = this.fault;
+    if (!f || f.phase !== 'diagnose' || !this.canAct) return false;
+    let chosen = f.def.diagnoses.find(d => d.id === diagId);
+    if (!chosen) return false;
+    if (this.rng.chance(this.misclickChance())) {
+      const others = f.def.diagnoses.filter(d => d.id !== diagId && !f.triedDiagnoses.includes(d.id));
+      if (others.length) { chosen = this.rng.pick(others); this.say('Fumbled it. Wrong button.', 'bad'); }
+    }
+    f.triedDiagnoses.push(chosen.id);
+    if (chosen.correct) {
+      f.phase = 'choosePath';
+      this.say(`Diagnosis: ${chosen.label}.`, 'good');
+    } else {
+      f.phase = 'wrongCall';
+      f.busyRemaining = Math.ceil(CONFIG.faults.wrongDiagnosisMinutes * this.stepDurationMult());
+      f.busyLabel = `Checking ${chosen.label.toLowerCase()}...`;
+      this.today.wrongCalls += 1;
+      this.say(f.busyLabel);
+    }
+    return true;
+  }
+
+  availablePaths(): FixPath[] {
+    if (!this.fault) return [];
+    return this.fault.def.paths.filter(p => !p.requiresUpgrade || this.upgrades.has(p.requiresUpgrade));
+  }
+
+  choosePath(pathId: string): boolean {
+    const f = this.fault;
+    if (!f || f.phase !== 'choosePath' || !this.canAct) return false;
+    const path = this.availablePaths().find(p => p.id === pathId);
+    if (!path) return false;
+    f.path = path;
+    f.stepIndex = 0;
+    f.phase = 'step';
+    this.say(`Plan: ${path.label}`);
+    return true;
+  }
+
+  doStep(): boolean {
+    const f = this.fault;
+    if (!f || f.phase !== 'step' || !f.path || !this.canAct) return false;
+    const step = f.path.steps[f.stepIndex];
+    if (step.cost > 0) this.spend(step.cost, 'fixes', step.label.toLowerCase());
+    f.phase = 'working';
+    f.busyLabel = step.label;
+    f.busyRemaining = Math.max(1, Math.ceil(step.minutes * this.stepDurationMult()));
+    this.say(`${step.label} (${f.busyRemaining} min)`);
+    return true;
+  }
+
+  replaceConsumable(key: ConsumableKey): boolean {
+    if (this.phase !== 'day' || !this.canAct || this.replacing || this.fault) return false;
+    if (this.machine === 'loading') return false;
+    const c = CONFIG.consumables[key];
+    this.spend(c.replaceCost, 'consumables', `new ${key}`);
+    this.replacing = { key, remaining: Math.ceil(c.replaceMinutes * this.stepDurationMult()) };
+    if (this.machine === 'cutting') this.machine = 'paused';
+    this.say(`Swapping ${key} (${this.replacing.remaining} min)`);
+    return true;
+  }
+
+  respond(id: number, action: 'chat' | 'disengage' | 'answer' | 'sign'): boolean {
+    const dist = this.distractions.find(d => d.id === id);
+    if (!dist) return false;
+    const d = CONFIG.distractions;
+    switch (dist.kind) {
+      case 'friend':
+        if (action === 'disengage') {
+          this.addRapport(-d.friend.disengageRapportCost);
+          this.removeDistraction(id);
+          this.say(`"Sorry mate, flat out." (-${d.friend.disengageRapportCost} rapport)`);
+        } else if (!dist.engaged) {
+          dist.engaged = true;
+          this.say('"Yeah go on, what\'s up?"');
+        }
+        return true;
+      case 'phone':
+        if (!this.canAct) return false;
+        this.removeDistraction(id);
+        this.busy = { label: 'on the phone', remaining: d.phone.busyMinutes };
+        this.addRapport(d.phone.answerRapportGain);
+        if (this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
+        else this.say('Just a quote. Followed up later.');
+        return true;
+      case 'courier':
+        if (!this.canAct) return false;
+        this.removeDistraction(id);
+        this.busy = { label: 'signing for delivery', remaining: d.courier.busyMinutes };
+        this.addRapport(d.courier.signRapportGain);
+        this.say('Board delivered.', 'good');
+        return true;
+      case 'bank':
+        if (!this.canAct) return false;
+        this.removeDistraction(id);
+        this.busy = { label: 'on the phone with the bank', remaining: d.bank.busyMinutes };
+        this.say('Talked them round. For now.');
+        return true;
+    }
+    return false;
+  }
+
+  private addRushJob() {
+    const r = CONFIG.jobs.rush;
+    const mat = this.rng.pick(CONFIG.materials);
+    const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax - r.cutMinutesLess);
+    const j: Job = {
+      id: this.nextJobId++,
+      name: `RUSH — ${this.rng.pick(JOB_NAMES)}`,
+      material: mat.name,
+      materialCost: Math.round(mat.cost * this.materialMult()),
+      price: Math.round(this.priceFor(mat.cost, cut) * r.priceMult),
+      cutMinutes: cut,
+      deadlineMinute: this.minute + cut + r.deadlineSlackMinutes,
+      progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
+    };
+    this.jobs.push(j);
+    this.say(`Rush job added: ${j.name} ($${j.price})`, 'good');
+  }
+
+  drinkBeer(): boolean {
+    if (this.phase !== 'day' || !this.fridgeOpen || !this.canAct) return false;
+    this.spend(CONFIG.competence.beerCost, 'beer', 'beer');
+    this.beersToday += 1;
+    this.today.beers += 1;
+    this.competence = Math.max(0, this.competence - CONFIG.competence.beerPenalty);
+    this.say(this.beersToday === 1 ? 'Cold one. Well earned.' : `Beer #${this.beersToday}. Things feel… fine.`);
+    return true;
+  }
+
+  knockOff() {
+    if (this.phase !== 'endOfDayPrompt') return;
+    this.say('Knocked off at 5.');
+    this.endDay();
+  }
+
+  startOvertime() {
+    if (this.phase !== 'endOfDayPrompt') return;
+    this.overtime = true;
+    this.phase = 'day';
+    this.say('Overtime. Double rate. Watch yourself.', 'bad');
+  }
+
+  private endDay() {
+    // unfinished sheet on the bed is lost
+    if (this.current && this.current.status === 'cutting') {
+      this.current.status = 'scrapped';
+      this.today.sheetsScrapped += 1;
+      this.say(`${this.current.name} left half-cut. Scrap.`, 'bad');
+    }
+    this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
+    this.phase = 'daySummary';
+  }
+
+  buyUpgrade(id: UpgradeId): boolean {
+    if (this.phase !== 'daySummary' || this.upgrades.has(id)) return false;
+    const u = CONFIG.upgrades.find(x => x.id === id)!;
+    if (this.cash < u.cost) return false;
+    this.spend(u.cost, 'upgrades', u.name);
+    this.upgrades.add(id);
+    return true;
+  }
+
+  nextDay() {
+    if (this.phase !== 'daySummary') return;
+    this.week.push(this.today);
+    if (this.day >= CONFIG.week.days) {
+      this.cash -= CONFIG.economy.weeklyOverheads;
+      this.weekOverheads = CONFIG.economy.weeklyOverheads;
+      this.phase = 'weekSummary';
+      return;
+    }
+    this.day += 1;
+    this.startDay();
+  }
+
+  nextWeek() {
+    if (this.phase !== 'weekSummary') return;
+    this.week = [];
+    this.weekOverheads = 0;
+    this.day = 1;
+    this.startDay();
+  }
+}
