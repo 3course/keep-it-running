@@ -6,13 +6,14 @@ import type { DayStats } from './types.js';
 
 type Policy = (g: Game) => void;
 
-// The competent operator's rough sense of a day's output (the sim's measured ~14 sheets), not a game rule.
-const COMPETENT_SHEETS_PER_DAY = 14;
+// The competent operator's rule of thumb for one sheet, start to finish, faults included. Not a game rule.
+const COMPETENT_MINUTES_PER_SHEET = 40;
 
-/** Open sheets due today (or overdue) already exceed what's left of today's capacity. */
+/** Open sheets due today (or overdue) already exceed what can be cut before 5pm. */
 function overCommitted(g: Game): boolean {
   const dueToday = g.jobs.filter(j => (j.status === 'queued' || j.status === 'cutting') && j.dueDay <= g.dayIndex).length;
-  return dueToday > COMPETENT_SHEETS_PER_DAY - g.today.sheetsDone;
+  const capacity = Math.max(0, CONFIG.clock.endHour * 60 - g.minute) / COMPETENT_MINUTES_PER_SHEET;
+  return dueToday > capacity;
 }
 
 const competent: Policy = (g) => {
