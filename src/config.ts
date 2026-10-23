@@ -25,8 +25,9 @@ export const CONFIG = {
     perDayMin: 3,
     perDayMax: 4,
     orders: {
-      callsMin: 2, callsMax: 4,           // order calls per day
-      firstHour: 9, lastHour: 15,    // calls land at random times in this window
+      callsMin: 2, callsMax: 4,           // order calls per day, including the guaranteed first one
+      firstCallFromHour: 8.25, firstCallToHour: 9.5, // the first call always lands in this window
+      firstHour: 9, lastHour: 15,         // the rest land at random times in this window
       sheetsMin: 1, sheetsMax: 3,         // sheets per order
       slackMinutes: 150,                  // due = call time + the order's cut time + this
       missedKeepChance: 0.5,              // unanswered: chance they leave a message instead of going elsewhere

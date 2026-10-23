@@ -148,8 +148,8 @@ export class Game {
   private scheduleOrderCalls(): number[] {
     const o = CONFIG.jobs.orders;
     const n = this.rng.int(o.callsMin, o.callsMax);
-    const calls: number[] = [];
-    for (let i = 0; i < n; i++) calls.push(Math.round(this.rng.range(o.firstHour * 60, o.lastHour * 60)));
+    const calls = [Math.round(this.rng.range(o.firstCallFromHour * 60, o.firstCallToHour * 60))];
+    for (let i = 1; i < n; i++) calls.push(Math.round(this.rng.range(o.firstHour * 60, o.lastHour * 60)));
     return calls.sort((a, b) => a - b);
   }
 
