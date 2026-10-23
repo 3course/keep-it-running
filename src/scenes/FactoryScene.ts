@@ -252,7 +252,7 @@ export class FactoryScene extends Phaser.Scene {
       else if (late) { col = PALETTE.bad; }
       const name = j.name.length > 28 ? j.name.slice(0, 27) + '…' : j.name;
       this.keep(label(this, x, y, `${mark} ${name}`, 11, col));
-      this.keep(label(this, x + 12, y + 13, `${g.dueLabel(j)} · ${money(j.price)}`, 10, PALETTE.dim));
+      this.keep(label(this, x + 12, y + 13, `${g.dueLabel(j)} · ${j.material} · ${money(j.price)}`, 10, PALETTE.dim));
       y += 27;
     }
     if (jobs.length > rows) this.keep(label(this, x, y, `+ ${jobs.length - (rows - 1)} more`, 11, PALETTE.dim));

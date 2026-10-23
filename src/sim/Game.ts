@@ -1,4 +1,4 @@
-import { CONFIG, type ConsumableKey, type UpgradeId } from '../config.js';
+import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Rng } from './rng.js';
 import type {
@@ -198,26 +198,31 @@ export class Game {
     const last = CONFIG.clock.endHour * 60 + CONFIG.jobs.lastDeadlineMinutesAfterClose;
     const gap = (last - first) / Math.max(1, n - 1);
     for (let i = 0; i < n; i++) {
-      const mat = this.rng.pick(CONFIG.materials);
-      const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax);
-      const cost = Math.round(mat.cost * this.materialMult());
-      const price = this.priceFor(mat.cost, cut);
-      jobs.push({
-        id: this.nextJobId++,
-        name: names[i % names.length],
-        material: mat.name,
-        materialCost: cost,
-        price,
-        cutMinutes: cut,
-        deadlineMinute: Math.round(first + gap * i),
-        dueDay: this.dayIndex,
-        progress: 0,
-        status: 'queued',
-        paidLate: false,
-        chipRisk: mat.chipRisk,
-      });
+      jobs.push(this.makeJob(this.pickType(), names[i % names.length], this.dayIndex, Math.round(first + gap * i)));
     }
     return jobs;
+  }
+
+  private pickType(): JobType {
+    return this.rng.weighted(CONFIG.jobs.types, t => t.weight)!;
+  }
+  jobType(j: Job): JobType {
+    return CONFIG.jobs.types.find(t => t.id === j.type)!;
+  }
+
+  /** One sheet of the given type. Price is set off the standard cut time, then the type's multipliers apply. */
+  private makeJob(t: JobType, name: string, dueDay: number, deadlineMinute: number, opts: { priceMult?: number; cutMinutesLess?: number } = {}): Job {
+    const baseCut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax - (opts.cutMinutesLess ?? 0));
+    return {
+      id: this.nextJobId++,
+      name,
+      material: t.material,
+      materialCost: Math.round(t.boardCost * this.materialMult()),
+      price: Math.round(this.priceFor(t.boardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1)),
+      cutMinutes: Math.max(1, Math.round(baseCut * t.cutMult)),
+      deadlineMinute, dueDay,
+      progress: 0, status: 'queued', paidLate: false, chipRisk: t.chipRisk, type: t.id,
+    };
   }
 
   private materialMult(): number {
@@ -304,7 +309,8 @@ export class Game {
     const c = CONFIG.consumables;
     this.wear.bit = Math.max(0, this.wear.bit - c.bit.wearPerMinute * (this.current?.chipRisk ?? 1));
     this.wear.spoilboard = Math.max(0, this.wear.spoilboard - c.spoilboard.wearPerMinute);
-    const filterMult = this.upgrades.has('extractor') ? this.upgradeEffect('extractor') : 1;
+    let filterMult = this.upgrades.has('extractor') ? this.upgradeEffect('extractor') : 1;
+    if (this.current) filterMult *= this.jobType(this.current).bagFillMult;
     this.wear.filter = Math.max(0, this.wear.filter - c.filter.wearPerMinute * filterMult);
   }
 
@@ -318,6 +324,7 @@ export class Game {
     }
     if (def.id === 'chipping' && this.current) w *= this.current.chipRisk;
     if (def.id === 'extraction' && this.upgrades.has('extractor')) w *= this.upgradeEffect('extractor');
+    if (def.id === 'extraction' && this.current) w *= this.jobType(this.current).fireChanceMult;
     if (def.id === 'partLifted' && this.upgrades.has('vacuumZone')) w *= this.upgradeEffect('vacuumZone');
     return w;
   }
@@ -341,6 +348,11 @@ export class Game {
     this.machine = def.id === 'partLifted' ? 'estop' : 'fault';
     this.today.faults += 1;
     this.say(`FAULT: ${def.name}`, 'bad');
+    // a dull bit fuzzes most boards, but melts acrylic: the sheet's gone before you can do anything
+    if (def.id === 'chipping' && this.current && this.jobType(this.current).dullBitRuinsSheet) {
+      this.fault.sheetScrapped = true;
+      this.scrapCurrent(`Dull bit melted the edge on ${this.current.material} — ${this.current.name} is scrap.`);
+    }
   }
 
   private tickFault() {
@@ -453,19 +465,20 @@ export class Game {
 
   /** Scheduled order calls ring regardless of the distraction cap — it's the job coming in. */
   private spawnOrderCall(sheets: number) {
+    const t = this.pickType();
     this.today.sheetsDemanded += sheets;
     this.distractions.push({
       id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — new order',
-      line: `A joiner with ${sheets} sheet${sheets > 1 ? 's' : ''} to cut.`,
-      remaining: CONFIG.distractions.phone.window, engaged: false, hover: 0, order: sheets,
+      line: `${t.name}: ${sheets} sheet${sheets > 1 ? 's' : ''} of ${t.material}.`,
+      remaining: CONFIG.distractions.phone.window, engaged: false, hover: 0, order: sheets, orderType: t.id,
     });
-    this.say('Phone ringing — new order', 'info');
+    this.say(`Phone ringing — ${t.name.toLowerCase()} order, ${sheets} × ${t.material}`, 'info');
   }
 
-  private addOrder(sheets: number) {
+  private addOrder(sheets: number, typeId: JobTypeId) {
     const o = CONFIG.jobs.orders;
+    const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
     const name = this.rng.pick(JOB_NAMES);
-    const mat = this.rng.pick(CONFIG.materials);
     const kind = this.rng.weighted(['today', 'tomorrow', 'rush'] as const, k => o.deadlineMix[k])!;
     const close = CONFIG.clock.endHour * 60;
     const due = kind === 'rush' ? { day: this.dayIndex, minute: this.minute + o.rushMinutes }
@@ -473,20 +486,10 @@ export class Game {
     const label = kind === 'rush' ? `RUSH — ${name}` : name;
     const priceMult = kind === 'rush' ? CONFIG.jobs.rush.priceMult : 1;
     for (let i = 0; i < sheets; i++) {
-      const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax);
-      this.jobs.push({
-        id: this.nextJobId++,
-        name: sheets > 1 ? `${label} (${i + 1}/${sheets})` : label,
-        material: mat.name,
-        materialCost: Math.round(mat.cost * this.materialMult()),
-        price: Math.round(this.priceFor(mat.cost, cut) * priceMult),
-        cutMinutes: cut,
-        deadlineMinute: due.minute, dueDay: due.day,
-        progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
-      });
+      this.jobs.push(this.makeJob(t, sheets > 1 ? `${label} (${i + 1}/${sheets})` : label, due.day, due.minute, { priceMult }));
     }
     const when = kind === 'tomorrow' ? `tomorrow ${this.formatTime(close)}` : this.formatTime(due.minute);
-    this.say(`Order in: ${label}, ${sheets} × ${mat.name}, due ${when}.`, kind === 'rush' ? 'bad' : 'good');
+    this.say(`Order in: ${label}, ${sheets} × ${t.material}, due ${when}.`, kind === 'rush' ? 'bad' : 'good');
   }
 
   private tickDistractions() {
@@ -508,7 +511,7 @@ export class Game {
         case 'phone':
           if (dist.order && this.rng.chance(CONFIG.jobs.orders.missedKeepChance)) {
             this.say('Missed the call, but they left a message.');
-            this.addOrder(dist.order);
+            this.addOrder(dist.order, dist.orderType!);
           } else {
             this.addRapport(-d.phone.ignoreRapportCost);
             if (dist.order) this.today.sheetsMissed += dist.order;
@@ -634,7 +637,7 @@ export class Game {
           return true;
         }
         this.addRapport(d.phone.answerRapportGain);
-        if (dist.order) this.addOrder(dist.order);
+        if (dist.order) this.addOrder(dist.order, dist.orderType!);
         else if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
         else this.say('Just a quote. Followed up later.');
         return true;
@@ -657,18 +660,9 @@ export class Game {
 
   private addRushJob() {
     const r = CONFIG.jobs.rush;
-    const mat = this.rng.pick(CONFIG.materials);
-    const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax - r.cutMinutesLess);
-    const j: Job = {
-      id: this.nextJobId++,
-      name: `RUSH — ${this.rng.pick(JOB_NAMES)}`,
-      material: mat.name,
-      materialCost: Math.round(mat.cost * this.materialMult()),
-      price: Math.round(this.priceFor(mat.cost, cut) * r.priceMult),
-      cutMinutes: cut,
-      deadlineMinute: this.minute + cut + r.deadlineSlackMinutes, dueDay: this.dayIndex,
-      progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
-    };
+    const j = this.makeJob(this.pickType(), `RUSH — ${this.rng.pick(JOB_NAMES)}`, this.dayIndex, 0,
+      { priceMult: r.priceMult, cutMinutesLess: r.cutMinutesLess });
+    j.deadlineMinute = this.minute + j.cutMinutes + r.deadlineSlackMinutes;
     this.jobs.push(j);
     this.today.sheetsDemanded += 1;
     this.rushJobsToday += 1;
@@ -676,18 +670,8 @@ export class Game {
   }
 
   private addLateDrop() {
-    const mat = this.rng.pick(CONFIG.materials);
-    const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax);
-    const j: Job = {
-      id: this.nextJobId++,
-      name: `DROP-OFF — ${this.rng.pick(JOB_NAMES)}`,
-      material: mat.name,
-      materialCost: Math.round(mat.cost * this.materialMult()),
-      price: Math.round(this.priceFor(mat.cost, cut) * CONFIG.jobs.lateDrop.priceMult),
-      cutMinutes: cut,
-      deadlineMinute: CONFIG.clock.overtimeEndHour * 60, dueDay: this.dayIndex,
-      progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
-    };
+    const j = this.makeJob(this.pickType(), `DROP-OFF — ${this.rng.pick(JOB_NAMES)}`, this.dayIndex,
+      CONFIG.clock.overtimeEndHour * 60, { priceMult: CONFIG.jobs.lateDrop.priceMult });
     this.jobs.push(j);
     this.today.sheetsDemanded += 1;
     this.say(`A joiner dropped off ${j.material}: ${j.name}. $${j.price} if it's cut tonight.`, 'good');

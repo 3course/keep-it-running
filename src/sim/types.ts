@@ -1,4 +1,4 @@
-import type { ConsumableKey, UpgradeId } from '../config.js';
+import type { ConsumableKey, JobTypeId, UpgradeId } from '../config.js';
 
 export type MachineState = 'idle' | 'loading' | 'cutting' | 'paused' | 'fault' | 'estop';
 
@@ -17,6 +17,7 @@ export interface Job {
   status: JobStatus;
   paidLate: boolean;
   chipRisk: number;
+  type: JobTypeId;
 }
 
 export interface FaultStep {
@@ -77,6 +78,7 @@ export interface Distraction {
   engaged: boolean;       // friend: you're chatting (attention split)
   hover: number;          // friend: minutes they hang back before starting to talk
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
+  orderType?: JobTypeId;  // phone: what kind of job the order is
 }
 
 export interface DayStats {
