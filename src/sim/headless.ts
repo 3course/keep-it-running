@@ -116,6 +116,16 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
     `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} declined=${wk('sheetsDeclined')} | ` +
     `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
   );
+  // Per job type, whole week: contribution = revenue - boards (incl. ruined) - fault fixes while it was on the bed.
+  // Labour, consumables and overheads are shared and not split, so these margins sit above the week margin.
+  const byType = CONFIG.jobs.types.map(t => {
+    const l = g.typeLedger[t.id];
+    const contrib = l.revenue - l.boards - l.fixes;
+    const m = l.revenue > 0 ? `${((contrib / l.revenue) * 100).toFixed(0)}%` : '—';
+    const perHour = l.minutes > 0 ? `$${((contrib / l.minutes) * 60).toFixed(0)}/machine-hr` : '—';
+    return `${t.id} cut=${l.cut} ruined=${l.scrapped} rev=$${l.revenue.toFixed(0)} contrib=$${contrib.toFixed(0)} (${m}, ${perHour})`;
+  });
+  console.log(`${''.padEnd(13)}by type: ${byType.join(' | ')}`);
 }
 
 console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash})`);

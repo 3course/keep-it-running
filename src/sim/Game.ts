@@ -65,6 +65,9 @@ export class Game {
   beersToday = 0;
 
   upgrades = new Set<UpgradeId>();
+  /** Running totals per job type since the game started (for the balance sim; shared costs like labour aren't split). */
+  typeLedger = Object.fromEntries(CONFIG.jobs.types.map(t => [t.id, { revenue: 0, boards: 0, fixes: 0, cut: 0, scrapped: 0, minutes: 0 }])) as
+    Record<JobTypeId, { revenue: number; boards: number; fixes: number; cut: number; scrapped: number; minutes: number }>;
   log: LogEntry[] = [];
   private nextJobId = 1;
 
@@ -210,7 +213,7 @@ export class Game {
     return CONFIG.jobs.types.find(t => t.id === j.type)!;
   }
 
-  /** One sheet of the given type. Price is set off the standard cut time, then the type's multipliers apply. */
+  /** One sheet of the given type. Price is a standard sheet's (basis board, standard cut time) times the type's priceMult. */
   private makeJob(t: JobType, name: string, dueDay: number, deadlineMinute: number, opts: { priceMult?: number; cutMinutesLess?: number } = {}): Job {
     const baseCut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax - (opts.cutMinutesLess ?? 0));
     return {
@@ -218,7 +221,7 @@ export class Game {
       name,
       material: t.material,
       materialCost: Math.round(t.boardCost * this.materialMult()),
-      price: Math.round(this.priceFor(t.boardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1)),
+      price: Math.round(this.priceFor(CONFIG.jobs.priceBasisBoardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1)),
       cutMinutes: Math.max(1, Math.round(baseCut * t.cutMult)),
       deadlineMinute, dueDay,
       progress: 0, status: 'queued', paidLate: false, chipRisk: t.chipRisk, type: t.id,
@@ -278,6 +281,7 @@ export class Game {
       }
     } else if (this.machine === 'cutting' && this.current) {
       this.current.progress += 1;
+      this.typeLedger[this.current.type].minutes += 1;
       this.wearConsumables();
       if (this.current.progress >= this.current.cutMinutes) this.finishJob();
       else this.maybeFault(false);
@@ -400,6 +404,7 @@ export class Game {
     if (!this.current) return;
     this.current.status = 'scrapped';
     this.today.sheetsScrapped += 1;
+    this.typeLedger[this.current.type].scrapped += 1;
     this.say(`${reason} $${this.current.materialCost} of ${this.current.material} in the skip.`, 'bad');
     // the fault still needs fixing, but there's no job to resume
     if (!this.fault) { this.current = null; this.machine = 'idle'; }
@@ -413,6 +418,8 @@ export class Game {
     const pay = Math.round(late ? j.price * CONFIG.economy.latePayFraction : j.price);
     this.today.sheetsDone += 1;
     if (late) this.today.sheetsLate += 1;
+    this.typeLedger[j.type].revenue += pay;
+    this.typeLedger[j.type].cut += 1;
     this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
     this.current = null;
     this.machine = 'idle';
@@ -542,6 +549,7 @@ export class Game {
       this.courierPenaltyPending = false;
     }
     this.spend(cost, 'materials', `board for ${next.name}`);
+    this.typeLedger[next.type].boards += cost;
     this.machine = 'loading';
     this.loadingRemaining = Math.ceil(CONFIG.jobs.loadMinutes * this.stepDurationMult());
     this.say(`Loading ${next.material}...`);
@@ -593,6 +601,7 @@ export class Game {
     if (!f || f.phase !== 'step' || !f.path || !this.canAct) return false;
     const step = f.path.steps[f.stepIndex];
     if (step.cost > 0) this.spend(step.cost, 'fixes', step.label.toLowerCase());
+    if (this.current) this.typeLedger[this.current.type].fixes += step.cost;
     f.phase = 'working';
     f.busyLabel = step.label;
     f.busyRemaining = Math.max(1, Math.ceil(step.minutes * this.stepDurationMult()));
@@ -705,6 +714,7 @@ export class Game {
     if (this.current && this.current.status === 'cutting') {
       this.current.status = 'scrapped';
       this.today.sheetsScrapped += 1;
+      this.typeLedger[this.current.type].scrapped += 1;
       this.say(`${this.current.name} left half-cut. Scrap.`, 'bad');
     }
     // anything still queued a full day past its due date is gone, and the word gets around

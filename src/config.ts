@@ -49,15 +49,17 @@ export const CONFIG = {
     rush: { priceMult: 1.2, cutMinutesLess: 10, deadlineSlackMinutes: 90, maxPerDay: 2 },
     // a joiner drops a sheet off mid-afternoon: premium if it's cut tonight, otherwise it's gone
     lateDrop: { hour: 15, chance: 0.6, priceMult: 1.3 },
-    // Job archetypes, picked by weight for every sheet. Multipliers are against a standard formwork sheet.
-    // boardCost is the same for all three ($98 = the old five-material average) so the mix moves price and
-    // time, not material spend. chipRisk (bit wear and chipping odds) is likewise the old average, 1.1, for all three.
+    // Job archetypes, picked by weight for every sheet. Types differ in cost and risk, barely in speed.
+    // Price: a standard sheet (markup on priceBasisBoardCost + machine time) times the type's priceMult.
+    // boardCost is what the type's sheet costs to buy, and what a ruined one loses.
+    // chipRisk (bit wear and chipping odds) is the old five-material average, 1.1, for all three.
     // fireChanceMult applies to the extraction alarm (the exhaust fault) until a spot-fire fault exists.
     // dullBitRuinsSheet: a dull-bit (chipping) fault scraps the sheet outright — acrylic melts instead of fuzzing.
+    priceBasisBoardCost: 98,
     types: [
-      { id: 'formwork', name: 'Formwork',       material: '18mm formply', weight: 0.50, boardCost: 98, priceMult: 1.0, cutMult: 1.0,  bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: false },
-      { id: 'joinery',  name: 'Joinery panels', material: '18mm MDF',     weight: 0.35, boardCost: 98, priceMult: 0.9, cutMult: 0.85, bagFillMult: 1.5, fireChanceMult: 1.5, chipRisk: 1.1, dullBitRuinsSheet: false },
-      { id: 'signage',  name: 'Signage',        material: '6mm acrylic',  weight: 0.15, boardCost: 98, priceMult: 1.4, cutMult: 0.7,  bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: true },
+      { id: 'formwork', name: 'Formwork',       material: '18mm formply', weight: 0.50, boardCost: 95,  priceMult: 1.0, cutMult: 1.0,  bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: false },
+      { id: 'joinery',  name: 'Joinery panels', material: '18mm MDF',     weight: 0.35, boardCost: 55,  priceMult: 0.8, cutMult: 1.0,  bagFillMult: 1.5, fireChanceMult: 1.5, chipRisk: 1.1, dullBitRuinsSheet: false },
+      { id: 'signage',  name: 'Signage',        material: '6mm acrylic',  weight: 0.15, boardCost: 190, priceMult: 1.7, cutMult: 0.85, bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: true },
     ],
   },
 
