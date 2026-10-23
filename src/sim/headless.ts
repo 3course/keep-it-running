@@ -1,7 +1,8 @@
 // Headless balance check: plays a week with a simple "competent operator" policy
 // and a "sloppy operator" policy, prints the P&L for each. Run with `npm run sim`.
-import { Game } from './Game.js';
+import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
+import type { DayStats } from './types.js';
 
 type Policy = (g: Game) => void;
 
@@ -61,11 +62,19 @@ const sloppy: Policy = (g) => {
 function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) {
   const g = new Game(seed);
   let guard = 0;
-  const workAt3pm: boolean[] = []; // per day: anything queued or on the bed at 3pm
+  // Per day: minutes the bed sat empty (machine 'idle') while labour was on the clock, and the longest such run.
+  // Fault downtime and consumable swaps aren't counted — this measures pacing, not breakdowns.
+  const idle: { total: number; longest: number }[] = [];
+  let idleDay: DayStats | null = null, run = 0;
   while (g.phase !== 'weekSummary' && guard++ < 100000) {
     if (g.phase === 'day') {
+      if (idleDay !== g.today) { idleDay = g.today; idle.push({ total: 0, longest: 0 }); run = 0; }
       policy(g); g.tick();
-      if (g.minute === 15 * 60) workAt3pm.push(!!g.current || g.queued.length > 0);
+      const today = idle[idle.length - 1];
+      const phaseAfter = g.phase as Phase; // tick() can end the day; don't count the 7pm lights-off minute
+      if (phaseAfter !== 'daySummary' && g.machine === 'idle') {
+        today.total += 1; run += 1; today.longest = Math.max(today.longest, run);
+      } else run = 0;
     }
     // a half-cut sheet on the bed counts as work left: knocking off would scrap it
     else if (g.phase === 'endOfDayPrompt') { overtime && (g.current || g.queued.length) ? g.startOvertime() : g.knockOff(); }
@@ -83,11 +92,13 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   const margin = rev > 0 ? (rev - cost) / rev : 0;
   const d1 = g.week[0];
   const d1Margin = d1.revenue > 0 ? (d1.revenue - d1.costs) / d1.revenue : 0;
+  const avg = (f: (d: { total: number; longest: number }) => number) => idle.reduce((s, d) => s + f(d), 0) / idle.length;
+  const worstGap = Math.max(...idle.map(d => d.longest));
   console.log(
-    `${name.padEnd(10)} seed=${seed} day1=${(d1Margin * 100).toFixed(0).padStart(4)}% (work@3pm ${workAt3pm[0] ? 'yes' : 'no '}) ` +
-    `week: margin=${(margin * 100).toFixed(0).padStart(4)}% cash=$${g.cash.toFixed(0).padStart(6)} rev=$${rev.toFixed(0).padStart(5)} ` +
-    `cost=$${cost.toFixed(0).padStart(5)} done=${done} late=${late} scrap=${scrap} faults=${faults} ` +
-    `work@3pm=${workAt3pm.filter(Boolean).length}/${workAt3pm.length} rapport=${g.rapport}`,
+    `${name.padEnd(10)} seed=${seed} day1: margin=${(d1Margin * 100).toFixed(0).padStart(4)}% idle=${String(idle[0].total).padStart(3)}m gap=${String(idle[0].longest).padStart(3)}m | ` +
+    `week: margin=${(margin * 100).toFixed(0).padStart(4)}% avg idle=${avg(d => d.total).toFixed(0).padStart(3)}m avg gap=${avg(d => d.longest).toFixed(0).padStart(3)}m worst gap=${String(worstGap).padStart(3)}m | ` +
+    `cash=$${g.cash.toFixed(0).padStart(6)} rev=$${rev.toFixed(0).padStart(5)} cost=$${cost.toFixed(0).padStart(5)} ` +
+    `done=${done} late=${late} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
   );
 }
 
