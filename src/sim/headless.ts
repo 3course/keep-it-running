@@ -61,8 +61,12 @@ const sloppy: Policy = (g) => {
 function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) {
   const g = new Game(seed);
   let guard = 0;
+  const workAt3pm: boolean[] = []; // per day: anything queued or on the bed at 3pm
   while (g.phase !== 'weekSummary' && guard++ < 100000) {
-    if (g.phase === 'day') { policy(g); g.tick(); }
+    if (g.phase === 'day') {
+      policy(g); g.tick();
+      if (g.minute === 15 * 60) workAt3pm.push(!!g.current || g.queued.length > 0);
+    }
     else if (g.phase === 'endOfDayPrompt') { overtime && g.queued.length ? g.startOvertime() : g.knockOff(); }
     else if (g.phase === 'daySummary') {
       if (name === 'competent' && !g.upgrades.has('extractor') && g.cash > 3500) g.buyUpgrade('extractor');
@@ -76,10 +80,13 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   const late = g.week.reduce((s, d) => s + d.sheetsLate, 0);
   const faults = g.week.reduce((s, d) => s + d.faults, 0);
   const margin = rev > 0 ? (rev - cost) / rev : 0;
+  const d1 = g.week[0];
+  const d1Margin = d1.revenue > 0 ? (d1.revenue - d1.costs) / d1.revenue : 0;
   console.log(
-    `${name.padEnd(10)} seed=${seed} cash=$${g.cash.toFixed(0).padStart(6)} rev=$${rev.toFixed(0).padStart(5)} ` +
-    `cost=$${cost.toFixed(0).padStart(5)} margin=${(margin * 100).toFixed(0).padStart(4)}% ` +
-    `done=${done} late=${late} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
+    `${name.padEnd(10)} seed=${seed} day1=${(d1Margin * 100).toFixed(0).padStart(4)}% (work@3pm ${workAt3pm[0] ? 'yes' : 'no '}) ` +
+    `week: margin=${(margin * 100).toFixed(0).padStart(4)}% cash=$${g.cash.toFixed(0).padStart(6)} rev=$${rev.toFixed(0).padStart(5)} ` +
+    `cost=$${cost.toFixed(0).padStart(5)} done=${done} late=${late} scrap=${scrap} faults=${faults} ` +
+    `work@3pm=${workAt3pm.filter(Boolean).length}/${workAt3pm.length} rapport=${g.rapport}`,
   );
 }
 

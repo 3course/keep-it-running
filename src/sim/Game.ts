@@ -45,6 +45,7 @@ export class Game {
   fault: ActiveFault | null = null;
   courierPenaltyPending = false;
   rushJobsToday = 0;
+  orderCalls: number[] = []; // minutes today when an order call will ring, soonest first
 
   // consumables 0..1 (1 = fresh)
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
@@ -140,7 +141,16 @@ export class Game {
     this.current = null;
     this.machine = 'idle';
     this.jobs = this.generateJobs();
+    this.orderCalls = this.scheduleOrderCalls();
     this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board. Roller door's up.`);
+  }
+
+  private scheduleOrderCalls(): number[] {
+    const o = CONFIG.jobs.orders;
+    const n = this.rng.int(o.callsMin, o.callsMax);
+    const calls: number[] = [];
+    for (let i = 0; i < n; i++) calls.push(Math.round(this.rng.range(o.firstHour * 60, o.lastHour * 60)));
+    return calls.sort((a, b) => a - b);
   }
 
   private generateJobs(): Job[] {
@@ -236,6 +246,10 @@ export class Game {
     // people
     this.tickDistractions();
     this.maybeDistraction();
+    while (this.orderCalls.length && this.minute >= this.orderCalls[0]) {
+      this.orderCalls.shift();
+      this.spawnOrderCall();
+    }
 
     // afternoon drop-off
     const ld = CONFIG.jobs.lateDrop;
@@ -401,6 +415,37 @@ export class Game {
     this.say(dist.title, 'info');
   }
 
+  /** Scheduled order calls ring regardless of the distraction cap — it's the job coming in. */
+  private spawnOrderCall() {
+    const o = CONFIG.jobs.orders;
+    const sheets = this.rng.int(o.sheetsMin, o.sheetsMax);
+    this.distractions.push({
+      id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — new order',
+      line: `A joiner with ${sheets} sheet${sheets > 1 ? 's' : ''} to cut.`,
+      remaining: CONFIG.distractions.phone.window, engaged: false, hover: 0, order: sheets,
+    });
+    this.say('Phone ringing — new order', 'info');
+  }
+
+  private addOrder(sheets: number) {
+    const o = CONFIG.jobs.orders;
+    const name = this.rng.pick(JOB_NAMES);
+    const mat = this.rng.pick(CONFIG.materials);
+    const cuts = Array.from({ length: sheets }, () => this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax));
+    const due = this.minute + cuts.reduce((s, c) => s + c + CONFIG.jobs.loadMinutes, 0) + o.slackMinutes;
+    cuts.forEach((cut, i) => this.jobs.push({
+      id: this.nextJobId++,
+      name: sheets > 1 ? `${name} (${i + 1}/${sheets})` : name,
+      material: mat.name,
+      materialCost: Math.round(mat.cost * this.materialMult()),
+      price: this.priceFor(mat.cost, cut),
+      cutMinutes: cut,
+      deadlineMinute: due,
+      progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
+    }));
+    this.say(`Order in: ${name}, ${sheets} × ${mat.name}, due ${this.formatTime(due)}.`, 'good');
+  }
+
   private tickDistractions() {
     const d = CONFIG.distractions;
     for (const dist of [...this.distractions]) {
@@ -417,7 +462,15 @@ export class Game {
           this.addRapport(d.friend.chatRapportGain);
           this.say(`"Righto, I'll let you get back to it." (+${d.friend.chatRapportGain} rapport)`, 'good');
           break;
-        case 'phone': this.addRapport(-d.phone.ignoreRapportCost); this.say('Missed the call. They went elsewhere.', 'bad'); break;
+        case 'phone':
+          if (dist.order && this.rng.chance(CONFIG.jobs.orders.missedKeepChance)) {
+            this.say('Missed the call, but they left a message.');
+            this.addOrder(dist.order);
+          } else {
+            this.addRapport(-d.phone.ignoreRapportCost);
+            this.say(`Missed the call. ${dist.order ? `${dist.order}-sheet order went` : 'They went'} elsewhere.`, 'bad');
+          }
+          break;
         case 'courier': this.courierPenaltyPending = true; this.say('Courier left. Re-delivery fee on the next sheet.', 'bad'); break;
         case 'bank': this.addRapport(-d.bank.ignoreRapportCost); this.spend(CONFIG.economy.bankFee, 'fees', 'dishonour fee'); break;
       }
@@ -531,7 +584,8 @@ export class Game {
         this.removeDistraction(id);
         this.busy = { label: 'on the phone', remaining: d.phone.busyMinutes };
         this.addRapport(d.phone.answerRapportGain);
-        if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
+        if (dist.order) this.addOrder(dist.order);
+        else if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
         else this.say('Just a quote. Followed up later.');
         return true;
       case 'courier':

@@ -75,6 +75,7 @@ export interface Distraction {
   remaining: number;      // friend: minutes they'll stay. others: response window.
   engaged: boolean;       // friend: you're chatting (attention split)
   hover: number;          // friend: minutes they hang back before starting to talk
+  order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
 }
 
 export interface DayStats {

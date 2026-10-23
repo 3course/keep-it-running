@@ -21,8 +21,16 @@ export const CONFIG = {
   },
 
   jobs: {
-    perDayMin: 6,
-    perDayMax: 8,
+    // only a few sheets are on the board at 7am; the rest arrive by phone through the day
+    perDayMin: 3,
+    perDayMax: 4,
+    orders: {
+      callsMin: 2, callsMax: 4,           // order calls per day
+      firstHour: 9, lastHour: 15,    // calls land at random times in this window
+      sheetsMin: 1, sheetsMax: 3,         // sheets per order
+      slackMinutes: 150,                  // due = call time + the order's cut time + this
+      missedKeepChance: 0.5,              // unanswered: chance they leave a message instead of going elsewhere
+    },
     cutMinutesMin: 25,
     cutMinutesMax: 50,
     // sale price = material cost * markup + cutMinutes * machineRatePerMinute
