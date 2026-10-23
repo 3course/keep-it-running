@@ -53,7 +53,7 @@ export const CONFIG = {
     // Price: a standard sheet (markup on priceBasisBoardCost + machine time) times the type's priceMult.
     // boardCost is what the type's sheet costs to buy, and what a ruined one loses.
     // chipRisk (bit wear and chipping odds) is the old five-material average, 1.1, for all three.
-    // fireChanceMult applies to the extraction alarm (the exhaust fault) until a spot-fire fault exists.
+    // fireChanceMult scales the spot-fire chance while this type is cutting.
     // dullBitRuinsSheet: a dull-bit (chipping) fault scraps the sheet outright — acrylic melts instead of fuzzing.
     priceBasisBoardCost: 98,
     types: [
@@ -61,6 +61,26 @@ export const CONFIG = {
       { id: 'joinery',  name: 'Joinery panels', material: '18mm MDF',     weight: 0.35, boardCost: 55,  priceMult: 0.8, cutMult: 1.0,  bagFillMult: 1.5, fireChanceMult: 1.5, chipRisk: 1.1, dullBitRuinsSheet: false },
       { id: 'signage',  name: 'Signage',        material: '6mm acrylic',  weight: 0.15, boardCost: 190, priceMult: 1.7, cutMult: 0.85, bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: true },
     ],
+  },
+
+  // Spot fire in the exhaust duct (design doc problem #1). Times are game minutes (1 game min = 1 real s).
+  fire: {
+    baseChancePerMinute: 0.0025,  // while cutting; aim ~1–2 fires on a competent day
+    bagFullAbove: 0.75,           // extractor bag fill (1 - filter health) above this…
+    bagFullMult: 2,               // …multiplies the chance by this
+    dullBitBelow: 0.3,            // bit health below this counts as dull…
+    dullBitMult: 1.5,             // …and multiplies the chance by this (job type's fireChanceMult stacks too)
+    smokeOnlyMinutes: 20,         // smoke first; the orange glow shows after this
+    ductFireAfterMinutes: 90,     // ignored this long: duct fire — cut stops until it's out
+    extractorFireAfterMinutes: 180, // ignored this long: extractor fire — repair bill, machine down for the day
+    extractorRepairCost: 800,
+    walkToExtinguisherMinutes: 5, // extinguisher hangs by the roller door
+    grabMinutes: 1,
+    walkToDuctMinutes: 6,
+    walkBackMinutes: 5,
+    sprayMinutes: { spot: 3, duct: 6 }, // hold E at the duct this long
+    refillEveryUses: 2,           // the extinguisher is good for this many fires…
+    refillCost: 60,               // …then it's a refill
   },
 
   faults: {
@@ -115,6 +135,10 @@ export const CONFIG = {
   ],
 
   week: { days: 5 },
+
+  ui: {
+    swapHintBelow: 0.3,   // the to-do list says "Swap the …" once a consumable's health drops below this
+  },
 
   startingMarginHint: 0.15,
 } as const;

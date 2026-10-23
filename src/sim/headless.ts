@@ -17,6 +17,10 @@ function overCommitted(g: Game): boolean {
 }
 
 const competent: Policy = (g) => {
+  // a fire beats everything: drop what you're doing and go
+  if (g.fire && !g.fireResponse) g.fightFire();
+  g.setSpraying(g.fireResponse?.step === 'atDuct');
+  if (g.fireResponse) return;
   if (g.fault) {
     const f = g.fault;
     if (f.phase === 'diagnose') {
@@ -48,7 +52,20 @@ const competent: Policy = (g) => {
   }
 };
 
+// sloppy's call on each fire, made once when they notice it: true = leave it until it gets worse
+const sloppyIgnores = new WeakMap<Game, Map<number, boolean>>();
+
 const sloppy: Policy = (g) => {
+  if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
+  if (g.fire) {
+    let calls = sloppyIgnores.get(g);
+    if (!calls) sloppyIgnores.set(g, calls = new Map());
+    if (!calls.has(g.fire.id)) calls.set(g.fire.id, g.rng.chance(0.2));
+    const ignoring = calls.get(g.fire.id)! && g.fire.stage === 'spot';
+    // finishes whatever step they're in the middle of first
+    const midStep = g.fault && (g.fault.phase === 'working' || g.fault.phase === 'wrongCall');
+    if (!ignoring && !midStep && g.fightFire()) return;
+  }
   if (g.fault) {
     const f = g.fault;
     if (f.phase === 'diagnose') {
@@ -88,7 +105,7 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
       } else run = 0;
     }
     // a half-cut sheet on the bed counts as work left: knocking off would scrap it
-    else if (g.phase === 'endOfDayPrompt') { overtime && (g.current || g.queued.length) ? g.startOvertime() : g.knockOff(); }
+    else if (g.phase === 'endOfDayPrompt') { overtime && !g.machineDown && (g.current || g.queued.length) ? g.startOvertime() : g.knockOff(); }
     else if (g.phase === 'daySummary') {
       if (name === 'competent' && !g.upgrades.has('extractor') && g.cash > 3500) g.buyUpgrade('extractor');
       g.nextDay();
@@ -116,6 +133,8 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
     `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} declined=${wk('sheetsDeclined')} | ` +
     `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
   );
+  const fires = (d: DayStats) => `${d.firesSpot}/${d.firesDuct}/${d.firesExtractor}`;
+  console.log(`${''.padEnd(13)}fires spot/duct/extractor: day1 ${fires(d1)} | week per day ${wk('firesSpot').trim()}/${wk('firesDuct').trim()}/${wk('firesExtractor').trim()} | by day ${g.week.map(fires).join('  ')}`);
   // Per job type, whole week: contribution = revenue - boards (incl. ruined) - fault fixes while it was on the bed.
   // Labour, consumables and overheads are shared and not split, so these margins sit above the week margin.
   const byType = CONFIG.jobs.types.map(t => {

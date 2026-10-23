@@ -77,8 +77,8 @@ export const FAULTS: FaultDef[] = [
   },
   {
     id: 'extraction',
-    name: 'Extraction alarm',
-    symptom: 'Extraction alarm. Airflow is dropping and dust is piling up on the bed.',
+    name: 'Extractor bag full',
+    symptom: "The extractor bag's swollen tight. Airflow is dropping and dust is piling up on the bed.",
     weight: 3,
     consumable: 'filter',
     restores: 'filter',

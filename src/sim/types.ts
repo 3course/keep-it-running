@@ -1,6 +1,20 @@
 import type { ConsumableKey, JobTypeId, UpgradeId } from '../config.js';
 
-export type MachineState = 'idle' | 'loading' | 'cutting' | 'paused' | 'fault' | 'estop';
+export type MachineState = 'idle' | 'loading' | 'cutting' | 'paused' | 'fault' | 'estop' | 'fire' | 'down';
+
+/** A fire in the exhaust duct. Spot fire first; left alone it becomes a duct fire, then an extractor fire. */
+export interface Fire {
+  id: number;
+  stage: 'spot' | 'duct';
+  minutes: number;        // since it started
+  sprayed: number;        // minutes of spraying so far
+}
+
+/** You, dealing with a fire: walk to the extinguisher, grab it, walk to the duct, spray, walk it back. */
+export interface FireResponse {
+  step: 'toExtinguisher' | 'grab' | 'toDuct' | 'atDuct' | 'returning';
+  remaining: number;      // minutes left in a walking step (unused at the duct — you're holding E)
+}
 
 export type JobStatus = 'queued' | 'cutting' | 'done' | 'scrapped' | 'lost';
 
@@ -100,6 +114,9 @@ export interface DayStats {
   sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   beers: number;
+  firesSpot: number;       // spot fires started
+  firesDuct: number;       // spot fires that became duct fires
+  firesExtractor: number;  // fires that reached the extractor
   faults: number;
   wrongCalls: number;
 }

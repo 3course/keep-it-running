@@ -5,6 +5,8 @@ import type { Job } from '../sim/types.js';
 import { PALETTE, bar, button, healthColor, label, money, panel, pct } from '../ui/widgets.js';
 
 const W = 1024, H = 640;
+/** Exhaust duct: rises from the back of the bed to the roof, top-right of the machine panel. */
+const DUCT = { x: 272, w: 18, top: 60, bottom: 109 };
 
 export class FactoryScene extends Phaser.Scene {
   private game_!: Game;
@@ -15,6 +17,11 @@ export class FactoryScene extends Phaser.Scene {
   private paused = false;
   private faultLight!: Phaser.GameObjects.Arc;
   private lastPhase = '';
+  // exhaust duct: smoke puffs and a glow that animate on their own, shown/hidden each render
+  private smoke: Phaser.GameObjects.Arc[] = [];
+  private glow!: Phaser.GameObjects.Arc;
+  private eKey?: Phaser.Input.Keyboard.Key;
+  private sprayPointer = false;
 
   constructor() { super('factory'); }
 
@@ -31,7 +38,19 @@ export class FactoryScene extends Phaser.Scene {
 
     this.faultLight = this.add.circle(308, 121, 7, 0xff3b1f).setVisible(false);
     this.tweens.add({ targets: this.faultLight, alpha: { from: 1, to: 0.2 }, duration: 350, yoyo: true, repeat: -1 });
+    this.glow = this.add.circle(DUCT.x + DUCT.w / 2, DUCT.top + 18, 10, 0xff8a1f).setVisible(false).setDepth(2);
+    this.tweens.add({ targets: this.glow, alpha: { from: 0.9, to: 0.35 }, duration: 260, yoyo: true, repeat: -1 });
+    for (let i = 0; i < 3; i++) {
+      const puff = this.add.circle(DUCT.x + DUCT.w / 2, DUCT.top, 5, 0x9a948c, 0.7).setVisible(false).setDepth(2);
+      this.tweens.add({
+        targets: puff, y: DUCT.top - 26, x: `+=${(i - 1) * 6}`, scale: { from: 0.6, to: 1.8 }, alpha: { from: 0.7, to: 0 },
+        duration: 1400, delay: i * 460, repeat: -1,
+      });
+      this.smoke.push(puff);
+    }
     this.input.keyboard?.on('keydown-SPACE', () => { this.paused = !this.paused; this.dirty = true; });
+    this.eKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.E);
+    this.input.on('pointerup', () => { this.sprayPointer = false; });
     this.lastReal = 0;
     this.acc = 0;
     this.render();
@@ -45,6 +64,9 @@ export class FactoryScene extends Phaser.Scene {
     const now = performance.now();
     const dt = this.lastReal ? Math.min(now - this.lastReal, CONFIG.clock.realMsPerGameMinute * 5) : 0;
     this.lastReal = now;
+    // holding E (or the spray button) only does anything with the extinguisher at the duct
+    const holding = !!this.eKey?.isDown || this.sprayPointer;
+    if (holding !== g.spraying) { g.setSpraying(holding); this.dirty = true; }
     if (g.phase === 'day' && !this.paused) {
       this.acc += dt;
       while (this.acc >= CONFIG.clock.realMsPerGameMinute) {
@@ -98,8 +120,11 @@ export class FactoryScene extends Phaser.Scene {
     const x = 20, y = 75;
     const stateColor: Record<string, string> = {
       idle: PALETTE.dim, loading: PALETTE.money, cutting: PALETTE.good, paused: PALETTE.money, fault: PALETTE.bad, estop: PALETTE.bad,
+      fire: PALETTE.bad, down: PALETTE.bad,
     };
-    this.keep(label(this, x, y, g.machine.toUpperCase(), 22, stateColor[g.machine]));
+    const stateName: Record<string, string> = { fire: 'STOPPED', down: 'DOWN' };
+    this.keep(label(this, x, y, stateName[g.machine] ?? g.machine.toUpperCase(), 22, stateColor[g.machine]));
+    this.renderDuct();
     // machine picture: bed + gantry
     const bed = this.keep(this.add.graphics());
     bed.fillStyle(0x3a2f26, 1).fillRect(x, y + 34, 300, 110);
@@ -135,7 +160,7 @@ export class FactoryScene extends Phaser.Scene {
       this.keep(label(this, x, yy + 1, names[k], 11, PALETTE.dim));
       this.keep(bar(this, x + 120, yy + 2, 110, 10, h, healthColor(h)));
       const c = CONFIG.consumables[k];
-      const can = g.canAct && !g.replacing && !g.fault && g.machine !== 'loading' && g.phase === 'day';
+      const can = g.canAct && !g.replacing && !g.fault && g.machine !== 'loading' && g.machine !== 'down' && g.phase === 'day';
       const txt = g.replacing?.key === k ? `${g.replacing.remaining}m` : `Swap ${money(c.replaceCost)}`;
       this.keep(button(this, x + 240, yy - 3, 70, 18, txt, () => this.act(() => g.replaceConsumable(k)), { disabled: !can, size: 10 }));
       yy += 24;
@@ -146,9 +171,43 @@ export class FactoryScene extends Phaser.Scene {
     this.keep(button(this, x, yy + 6, 200, 24, beerTxt, () => this.act(() => g.drinkBeer()), { disabled: !beerOk, color: PALETTE.blue, size: 11 }));
   }
 
+  /** The exhaust duct. A fire shows only here: smoke first, then an orange glow; a duct fire glows bigger and redder. */
+  private renderDuct() {
+    const g = this.game_;
+    const fire = g.fire;
+    const d = this.keep(this.add.graphics());
+    d.fillStyle(g.machineDown ? 0x1a1a1a : 0x6b6560, 1).fillRect(DUCT.x, DUCT.top, DUCT.w, DUCT.bottom - DUCT.top);
+    d.lineStyle(1, 0x2a2622, 1).strokeRect(DUCT.x, DUCT.top, DUCT.w, DUCT.bottom - DUCT.top);
+    const glowing = !!fire && (fire.stage === 'duct' || fire.minutes >= CONFIG.fire.smokeOnlyMinutes);
+    for (const puff of this.smoke) puff.setVisible(!!fire || g.machineDown).setFillStyle(g.machineDown ? 0x222222 : 0x9a948c, 0.7);
+    this.glow.setVisible(glowing);
+    if (fire) this.glow.setRadius(fire.stage === 'duct' ? 16 : 9).setFillStyle(fire.stage === 'duct' ? 0xff4a1a : 0xff8a1f);
+
+    // at the duct with the extinguisher: hold E, or hold this
+    const r = g.fireResponse;
+    if (r?.step === 'atDuct' && fire) {
+      const need = CONFIG.fire.sprayMinutes[fire.stage];
+      const bx = 110, by = DUCT.top + 2, bw = 150, bh = 24;
+      const rect = this.keep(this.add.rectangle(bx, by, bw, bh, g.spraying ? PALETTE.green : PALETTE.blue).setOrigin(0).setDepth(3));
+      rect.setInteractive({ useHandCursor: true }).on('pointerdown', () => { this.sprayPointer = true; });
+      this.keep(label(this, bx + bw / 2, by + bh / 2, g.spraying ? 'Spraying…' : 'Hold E to spray', 11).setOrigin(0.5).setDepth(3));
+      this.keep(bar(this, bx, by + bh + 2, bw, 5, fire.sprayed / need, PALETTE.green).setDepth(3));
+    }
+  }
+
   private renderBench() {
     const g = this.game_;
     const x = 360, y = 75, w = 320;
+    const r = g.fireResponse;
+    if (r) {
+      const doing: Record<typeof r.step, string> = {
+        toExtinguisher: 'walking to the extinguisher', grab: 'getting the extinguisher off the wall',
+        toDuct: 'carrying it to the duct', atDuct: 'at the duct with the extinguisher', returning: 'hanging the extinguisher back up',
+      };
+      this.keep(label(this, x, y, `You're ${doing[r.step]}.`, 14, PALETTE.money, w));
+      this.keep(label(this, x, y + 42, r.step === 'atDuct' ? 'Hold E to spray.' : `${r.remaining} min`, 12, PALETTE.dim));
+      return;
+    }
     if (g.busy) {
       this.keep(label(this, x, y, `You're ${g.busy.label}.`, 14, PALETTE.money, w));
       this.keep(label(this, x, y + 24, `${g.busy.remaining} min`, 12, PALETTE.dim));
@@ -172,6 +231,10 @@ export class FactoryScene extends Phaser.Scene {
         this.keep(label(this, x, y, `Loading sheet… ${g.loadingRemaining} min`, 14, PALETTE.money));
       } else if (g.machine === 'paused') {
         this.keep(label(this, x, y, 'Paused for a swap.', 14, PALETTE.money));
+      } else if (g.machine === 'fire') {
+        this.keep(label(this, x, y, "The cut's stopped.", 14, PALETTE.bad, w));
+      } else if (g.machine === 'down') {
+        this.keep(label(this, x, y, "The extractor's cooked. Nothing more cuts today.", 14, PALETTE.bad, w));
       } else {
         this.keep(label(this, x, y, 'Cutting. Keep an eye on it.', 14, PALETTE.good));
         const hint = g.friendPresent ? "You're half-listening to a mate. Fault odds up." : 'Watch the consumable bars — swap between sheets.';
@@ -258,11 +321,38 @@ export class FactoryScene extends Phaser.Scene {
     if (jobs.length > rows) this.keep(label(this, x, y, `+ ${jobs.length - (rows - 1)} more`, 11, PALETTE.dim));
   }
 
+  /** What needs doing, most urgent first. A fire goes on top and is otherwise only shown at the duct. */
+  private todo(): string[] {
+    const g = this.game_;
+    if (g.phase !== 'day') return [];
+    const items: string[] = [];
+    if (g.fire) items.push('Put out the exhaust fire');
+    if (g.fault) items.push(`Sort out the ${g.fault.def.name.toLowerCase()}`);
+    for (const d of g.distractions) {
+      if (d.kind === 'phone') items.push('Answer the phone');
+      else if (d.kind === 'courier') items.push('Sign for the courier');
+      else if (d.kind === 'bank') items.push('Call the bank back');
+    }
+    const names: Record<ConsumableKey, string> = { bit: 'bit', spoilboard: 'spoilboard', filter: 'extractor bag' };
+    for (const k of ['bit', 'filter', 'spoilboard'] as ConsumableKey[]) if (g.wear[k] < CONFIG.ui.swapHintBelow) items.push(`Swap the ${names[k]}`);
+    if (g.machine === 'idle' && !g.fault && g.queued.length) items.push('Load the next sheet');
+    return items.slice(0, 4);
+  }
+
   private renderLog() {
     const g = this.game_;
     const colors = { info: PALETTE.dim, good: PALETTE.good, bad: PALETTE.bad, money: PALETTE.money };
-    const lines = g.log.slice(-12);
     let y = 412;
+    // the to-do list sits on top of the shed log
+    const todo = this.todo();
+    if (todo.length) {
+      this.keep(label(this, 20, y, 'TO DO', 10, PALETTE.dim));
+      y += 15;
+      for (const t of todo) { this.keep(label(this, 20, y, `[ ] ${t}`, 12, PALETTE.ink)); y += 17; }
+      y += 6;
+    }
+    const room = Math.floor((616 - y) / 17);
+    const lines = g.log.slice(-room);
     for (const l of lines) {
       const text = l.text.length > 62 ? l.text.slice(0, 61) + '…' : l.text;
       this.keep(label(this, 20, y, `${g.formatTime(l.minute).padStart(7)}  ${text}`, 11, colors[l.tone]));
@@ -273,6 +363,13 @@ export class FactoryScene extends Phaser.Scene {
   private renderPeople() {
     const g = this.game_;
     const x = 530; let y = 412;
+    // the extinguisher hangs on the wall by the roller door
+    const ex = this.keep(this.add.graphics());
+    const onWall = !g.fireResponse || g.fireResponse.step === 'toExtinguisher';
+    if (onWall) ex.fillStyle(0xc0281e, 1).fillRoundedRect(990, 572, 12, 30, 3).fillStyle(0x222222, 1).fillRect(992, 566, 8, 7);
+    else ex.lineStyle(1, PALETTE.panelLine, 1).strokeRoundedRect(990, 572, 12, 30, 3);
+    this.keep(button(this, 830, 590, 150, 24, 'Extinguisher', () => this.act(() => g.fightFire()),
+      { disabled: !g.canAct || g.phase !== 'day', color: PALETTE.red, size: 11 }));
     if (!g.distractions.length) {
       this.keep(label(this, x, y, 'Quiet. Just you and the radio.', 12, PALETTE.dim));
       return;

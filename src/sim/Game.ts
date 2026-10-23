@@ -2,7 +2,7 @@ import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeI
 import { FAULTS } from '../data/faults.js';
 import { Rng } from './rng.js';
 import type {
-  ActiveFault, DayStats, Distraction, DistractionKind, FaultDef, FixPath, Job, LogEntry, MachineState,
+  ActiveFault, DayStats, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
 } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
@@ -18,7 +18,7 @@ function emptyStats(day: number): DayStats {
   return {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
-    beers: 0, faults: 0, wrongCalls: 0,
+    beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0,
   };
 }
 
@@ -55,6 +55,14 @@ export class Game {
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
   replacing: { key: ConsumableKey; remaining: number } | null = null;
 
+  // exhaust fire
+  fire: Fire | null = null;
+  fireResponse: FireResponse | null = null;
+  spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
+  machineDown = false;         // extractor fire: nothing more cuts today
+  extinguisherUsesToday = 0;
+  private nextFireId = 1;
+
   // people
   distractions: Distraction[] = [];
   busy: { label: string; remaining: number } | null = null; // on the phone etc.
@@ -88,7 +96,7 @@ export class Game {
   get weekCosts(): number { return this.week.reduce((s, d) => s + d.costs, 0) + (this.phase === 'weekSummary' ? 0 : this.today.costs) + this.weekOverheads; }
   get weekMargin(): number { const r = this.weekRevenue; return r > 0 ? (r - this.weekCosts) / r : 0; }
   get friendPresent(): boolean { return this.distractions.some(d => d.kind === 'friend' && d.engaged); }
-  get canAct(): boolean { return this.busy === null; }
+  get canAct(): boolean { return this.busy === null && this.fireResponse === null; }
   get fridgeOpen(): boolean { return this.hour >= CONFIG.competence.fridgeUnlockHour; }
   get queued(): Job[] { return this.jobs.filter(j => j.status === 'queued'); }
 
@@ -147,6 +155,11 @@ export class Game {
     this.fault = null;
     this.current = null;
     this.machine = 'idle';
+    this.fire = null;
+    this.fireResponse = null;
+    this.spraying = false;
+    this.machineDown = false;
+    this.extinguisherUsesToday = 0;
     // unfinished work carries over; delivered, scrapped and lost jobs drop off the board
     const carried = this.jobs.filter(j => j.status === 'queued');
     const fresh = this.generateJobs();
@@ -285,10 +298,14 @@ export class Game {
       this.wearConsumables();
       if (this.current.progress >= this.current.cutMinutes) this.finishJob();
       else this.maybeFault(false);
+      this.maybeFire();
     }
 
     // fault timers
     if (this.fault) this.tickFault();
+
+    // exhaust fire
+    this.tickFire();
 
     // people
     this.tickDistractions();
@@ -328,7 +345,6 @@ export class Game {
     }
     if (def.id === 'chipping' && this.current) w *= this.current.chipRisk;
     if (def.id === 'extraction' && this.upgrades.has('extractor')) w *= this.upgradeEffect('extractor');
-    if (def.id === 'extraction' && this.current) w *= this.jobType(this.current).fireChanceMult;
     if (def.id === 'partLifted' && this.upgrades.has('vacuumZone')) w *= this.upgradeEffect('vacuumZone');
     return w;
   }
@@ -361,9 +377,10 @@ export class Game {
 
   private tickFault() {
     const f = this.fault!;
-    // Neglect clock: runs whenever you're not actively working the fix.
-    if (f.phase !== 'working') f.minutesOpen += 1;
-    if (f.phase === 'wrongCall' || f.phase === 'working') {
+    // Neglect clock: runs whenever you're not actively working the fix — including while you're off at a fire.
+    const away = this.fireResponse !== null;
+    if (f.phase !== 'working' || away) f.minutesOpen += 1;
+    if (!away && (f.phase === 'wrongCall' || f.phase === 'working')) {
       f.busyRemaining -= 1;
       if (f.busyRemaining <= 0) {
         if (f.phase === 'wrongCall') {
@@ -392,11 +409,102 @@ export class Game {
     }
     this.say(`Fixed: ${f.def.name}.`, 'good');
     this.fault = null;
-    if (this.current && this.current.status === 'cutting') {
-      this.machine = 'cutting';
-    } else {
-      this.machine = 'idle';
-      this.current = null;
+    this.settleMachine();
+  }
+
+  /** Put the machine back in whatever state the shed is now in, after a fault or fire clears. */
+  private settleMachine() {
+    if (this.machineDown) this.machine = 'down';
+    else if (this.fire?.stage === 'duct') this.machine = 'fire';
+    else if (this.fault) this.machine = this.fault.def.id === 'partLifted' ? 'estop' : 'fault';
+    else if (this.current && this.current.status === 'cutting') this.machine = this.replacing ? 'paused' : 'cutting';
+    else { this.machine = 'idle'; this.current = null; }
+  }
+
+  // ---------- exhaust fire ----------
+
+  private fireChance(): number {
+    const c = CONFIG.fire;
+    let p = c.baseChancePerMinute;
+    if (this.current) p *= this.jobType(this.current).fireChanceMult;
+    if (1 - this.wear.filter > c.bagFullAbove) p *= c.bagFullMult;
+    if (this.wear.bit < c.dullBitBelow) p *= c.dullBitMult;
+    return p;
+  }
+
+  private maybeFire() {
+    if (this.fire || this.machineDown || this.machine !== 'cutting') return;
+    if (!this.rng.chance(this.fireChance())) return;
+    // no alarm and no log line: the smoke at the duct and the to-do list are the only tells
+    this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0 };
+    this.today.firesSpot += 1;
+  }
+
+  /** Go and deal with the fire: walk to the extinguisher, grab it and carry it to the duct. */
+  fightFire(): boolean {
+    if (this.phase !== 'day' || !this.fire || !this.canAct) return false;
+    this.fireResponse = { step: 'toExtinguisher', remaining: CONFIG.fire.walkToExtinguisherMinutes };
+    return true;
+  }
+
+  /** Is the extinguisher pointed at the fire? Set every frame from E / the spray button. */
+  setSpraying(held: boolean) { this.spraying = held; }
+
+  private tickFire() {
+    const c = CONFIG.fire;
+    const r = this.fireResponse;
+    if (r && r.step !== 'atDuct') {
+      r.remaining -= 1;
+      if (r.remaining <= 0) {
+        if (r.step === 'toExtinguisher') { r.step = 'grab'; r.remaining = c.grabMinutes; }
+        else if (r.step === 'grab') { r.step = 'toDuct'; r.remaining = c.walkToDuctMinutes; }
+        else if (r.step === 'toDuct') { r.step = 'atDuct'; r.remaining = 0; }
+        else { this.fireResponse = null; this.say('Extinguisher back on the wall.'); }
+      }
+    }
+    const f = this.fire;
+    if (!f) return;
+    f.minutes += 1;
+    if (this.fireResponse?.step === 'atDuct' && this.spraying) {
+      f.sprayed += 1;
+      if (f.sprayed >= c.sprayMinutes[f.stage]) { this.extinguish(); return; }
+    }
+    if (f.stage === 'spot' && f.minutes >= c.ductFireAfterMinutes) {
+      f.stage = 'duct';
+      this.today.firesDuct += 1;
+      if (!this.fault) this.machine = 'fire';
+      this.say('Flames in the duct. The cut has stopped.', 'bad');
+    } else if (f.stage === 'duct' && f.minutes >= c.extractorFireAfterMinutes) {
+      this.extractorFire();
+    }
+  }
+
+  private extinguish() {
+    const c = CONFIG.fire;
+    this.fire = null;
+    this.spraying = false;
+    this.extinguisherUsesToday += 1;
+    this.say('Fire out.', 'good');
+    if (this.extinguisherUsesToday % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
+    this.fireResponse = { step: 'returning', remaining: c.walkBackMinutes };
+    this.settleMachine();
+  }
+
+  private extractorFire() {
+    const c = CONFIG.fire;
+    this.fire = null;
+    this.spraying = false;
+    this.today.firesExtractor += 1;
+    this.machineDown = true;
+    this.say("The extractor's gone up. That's the machine done for today.", 'bad');
+    this.spend(c.extractorRepairCost, 'fixes', 'extractor repair');
+    this.fault = null;
+    if (this.current && this.current.status === 'cutting') this.scrapCurrent(`${this.current.name} is ruined.`);
+    this.current = null;
+    this.machine = 'down';
+    // if you were already carrying the extinguisher, carry it back
+    if (this.fireResponse) {
+      this.fireResponse = this.fireResponse.step === 'toExtinguisher' ? null : { step: 'returning', remaining: c.walkBackMinutes };
     }
   }
 
@@ -611,7 +719,7 @@ export class Game {
 
   replaceConsumable(key: ConsumableKey): boolean {
     if (this.phase !== 'day' || !this.canAct || this.replacing || this.fault) return false;
-    if (this.machine === 'loading') return false;
+    if (this.machine === 'loading' || this.machine === 'down') return false;
     const c = CONFIG.consumables[key];
     this.spend(c.replaceCost, 'consumables', `new ${key}`);
     this.replacing = { key, remaining: Math.ceil(c.replaceMinutes * this.stepDurationMult()) };
@@ -724,6 +832,7 @@ export class Game {
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
+    this.fire = null; this.fireResponse = null; this.spraying = false;
     this.phase = 'daySummary';
   }
 
