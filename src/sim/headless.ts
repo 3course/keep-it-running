@@ -67,7 +67,8 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
       policy(g); g.tick();
       if (g.minute === 15 * 60) workAt3pm.push(!!g.current || g.queued.length > 0);
     }
-    else if (g.phase === 'endOfDayPrompt') { overtime && g.queued.length ? g.startOvertime() : g.knockOff(); }
+    // a half-cut sheet on the bed counts as work left: knocking off would scrap it
+    else if (g.phase === 'endOfDayPrompt') { overtime && (g.current || g.queued.length) ? g.startOvertime() : g.knockOff(); }
     else if (g.phase === 'daySummary') {
       if (name === 'competent' && !g.upgrades.has('extractor') && g.cash > 3500) g.buyUpgrade('extractor');
       g.nextDay();
