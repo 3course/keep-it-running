@@ -6,6 +6,15 @@ import type { DayStats } from './types.js';
 
 type Policy = (g: Game) => void;
 
+// The competent operator's rough sense of a day's output (the sim's measured ~14 sheets), not a game rule.
+const COMPETENT_SHEETS_PER_DAY = 14;
+
+/** Open sheets due today (or overdue) already exceed what's left of today's capacity. */
+function overCommitted(g: Game): boolean {
+  const dueToday = g.jobs.filter(j => (j.status === 'queued' || j.status === 'cutting') && j.dueDay <= g.dayIndex).length;
+  return dueToday > COMPETENT_SHEETS_PER_DAY - g.today.sheetsDone;
+}
+
 const competent: Policy = (g) => {
   if (g.fault) {
     const f = g.fault;
@@ -27,6 +36,7 @@ const competent: Policy = (g) => {
   for (const d of g.distractions) {
     // chats when the machine's idle, sends them off when it's cutting
     if (d.kind === 'friend') g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat');
+    else if (d.order) g.respond(d.id, overCommitted(g) ? 'decline' : 'answer');
     else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
   }
   if (g.machine === 'idle' && g.queued.length) {
@@ -100,9 +110,9 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   const p = (v: number, w = 3) => String(v).padStart(w);
   console.log(
     `${name.padEnd(9)} s${seed} day1: margin=${(d1Margin * 100).toFixed(0).padStart(4)}% idle=${p(idle[0].total)}m gap=${p(idle[0].longest)}m ` +
-    `demand=${p(d1.sheetsDemanded, 2)} cut=${p(d1.sheetsDone, 2)} missed=${p(missed(d1), 2)} late=${p(d1.sheetsLate, 2)} | ` +
+    `demand=${p(d1.sheetsDemanded, 2)} cut=${p(d1.sheetsDone, 2)} missed=${p(missed(d1), 2)} late=${p(d1.sheetsLate, 2)} declined=${p(d1.sheetsDeclined, 2)} | ` +
     `week: margin=${(margin * 100).toFixed(0).padStart(4)}% idle=${avg(d => d.total).toFixed(0).padStart(3)}m gap=${avg(d => d.longest).toFixed(0).padStart(3)}m (worst ${p(worstGap)}m) ` +
-    `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} | ` +
+    `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} declined=${wk('sheetsDeclined')} | ` +
     `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
   );
 }

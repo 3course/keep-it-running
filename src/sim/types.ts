@@ -95,6 +95,7 @@ export interface DayStats {
   sheetsScrapped: number;
   sheetsDemanded: number;  // sheets offered today: 7am board, order calls (answered or not), drop-off, rush
   sheetsMissed: number;    // order calls that went unanswered and went elsewhere
+  sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   beers: number;
   faults: number;

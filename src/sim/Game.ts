@@ -17,7 +17,7 @@ const JOB_NAMES = [
 function emptyStats(day: number): DayStats {
   return {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
-    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsLost: 0,
+    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
     beers: 0, faults: 0, wrongCalls: 0,
   };
 }
@@ -608,7 +608,7 @@ export class Game {
     return true;
   }
 
-  respond(id: number, action: 'chat' | 'disengage' | 'answer' | 'sign'): boolean {
+  respond(id: number, action: 'chat' | 'disengage' | 'answer' | 'sign' | 'decline'): boolean {
     const dist = this.distractions.find(d => d.id === id);
     if (!dist) return false;
     const d = CONFIG.distractions;
@@ -627,6 +627,12 @@ export class Game {
         if (!this.canAct) return false;
         this.removeDistraction(id);
         this.busy = { label: 'on the phone', remaining: d.phone.busyMinutes };
+        if (action === 'decline' && dist.order) {
+          // turning work down honestly costs nothing; it's missing the call that hurts
+          this.today.sheetsDeclined += dist.order;
+          this.say(`Turned down ${dist.order} sheets. "Flat out this week, sorry mate."`);
+          return true;
+        }
         this.addRapport(d.phone.answerRapportGain);
         if (dist.order) this.addOrder(dist.order);
         else if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();

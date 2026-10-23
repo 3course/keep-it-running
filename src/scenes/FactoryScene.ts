@@ -291,7 +291,12 @@ export class FactoryScene extends Phaser.Scene {
         const verb = d.kind === 'courier' ? 'Sign for it' : 'Answer';
         const busy = d.kind === 'courier' ? CONFIG.distractions.courier.busyMinutes : d.kind === 'bank' ? CONFIG.distractions.bank.busyMinutes : CONFIG.distractions.phone.busyMinutes;
         this.keep(label(this, x, y + 34, `${d.remaining} min before they give up.`, 10, PALETTE.bad));
-        this.keep(button(this, bx, y + 4, 170, 24, `${verb} (${busy} min)`, () => this.act(() => g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer')), { disabled: !g.canAct, color: PALETTE.blue, size: 11 }));
+        if (d.order) {
+          this.keep(button(this, bx, y - 2, 170, 22, `Take the order (${busy} min)`, () => this.act(() => g.respond(d.id, 'answer')), { disabled: !g.canAct, color: PALETTE.blue, size: 10 }));
+          this.keep(button(this, bx, y + 24, 170, 22, `Turn it down (${busy} min)`, () => this.act(() => g.respond(d.id, 'decline')), { disabled: !g.canAct, color: PALETTE.accentDark, size: 10 }));
+        } else {
+          this.keep(button(this, bx, y + 4, 170, 24, `${verb} (${busy} min)`, () => this.act(() => g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer')), { disabled: !g.canAct, color: PALETTE.blue, size: 11 }));
+        }
       }
       y += 60;
     }

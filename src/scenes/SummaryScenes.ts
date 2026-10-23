@@ -96,7 +96,7 @@ export class WeekSummaryScene extends Phaser.Scene {
     const total = g.week.reduce<DayStats>((acc, d) => {
       for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k];
       return acc;
-    }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsLost: 0, beers: 0, faults: 0, wrongCalls: 0 });
+    }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, beers: 0, faults: 0, wrongCalls: 0 });
 
     label(this, 30, 20, 'Week closed', 24);
     label(this, 30, 52, `Cash in the bank: ${money(g.cash)}`, 14, g.cash >= 0 ? PALETTE.money : PALETTE.bad);

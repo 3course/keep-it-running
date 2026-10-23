@@ -30,7 +30,7 @@ export const CONFIG = {
       firstCallFromHour: 8.25, firstCallToHour: 9.5, // the first call always lands in this window
       spreadFromHour: 8.25, spreadToHour: 15, // the rest are spaced evenly across this window…
       jitterMinutes: 40,                  // …each nudged up to ± this
-      sheetsMin: 2, sheetsMax: 4,         // sheets per order
+      sheetsMin: 2, sheetsMax: 3,         // sheets per order
       minDemandSheets: 13,                // 7am sheets + orders + drop-off; extra calls are added until the day reaches this
       deadlineMix: { today: 0.6, tomorrow: 0.3, rush: 0.1 }, // today/tomorrow = by close of that day
       rushMinutes: 120,                   // a rush order is due this long after the call
