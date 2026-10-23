@@ -301,7 +301,7 @@ export class FactoryScene extends Phaser.Scene {
     const left = g.queued.length + (g.current ? 1 : 0);
     const half = g.current ? `${g.current.name} is half-cut on the bed — knock off now and it's scrap. ` : '';
     this.keep(label(this, cx, cy - 78, `${half}${left} sheet${left === 1 ? '' : 's'} still on the board. Margin today: ${g.today.revenue > 0 ? pct(g.margin) : '—'}.`, 12, g.current ? PALETTE.bad : PALETTE.dim, 400).setOrigin(0.5, 0));
-    this.keep(label(this, cx, cy - 10, `Overtime pays you nothing extra and costs ${money(CONFIG.labour.hourlyRate * CONFIG.labour.overtimeMultiplier)}/hr. Anything half-cut at ${CONFIG.clock.overtimeEndHour - 12}pm is scrap.`, 11, PALETTE.dim, 400).setOrigin(0.5, 0));
+    this.keep(label(this, cx, cy - 36, `Overtime pays you nothing extra and costs ${money(CONFIG.labour.hourlyRate * CONFIG.labour.overtimeMultiplier)}/hr. Anything half-cut at ${CONFIG.clock.overtimeEndHour - 12}pm is scrap.`, 11, PALETTE.dim, 400).setOrigin(0.5, 0));
     this.keep(button(this, cx - 200, cy + 60, 180, 36, 'Knock off', () => { g.knockOff(); this.dirty = true; }, { color: PALETTE.green, size: 14 }));
     this.keep(button(this, cx + 20, cy + 60, 180, 36, `Overtime till ${CONFIG.clock.overtimeEndHour - 12}pm`, () => { g.startOvertime(); this.dirty = true; }, { color: PALETTE.red, size: 13 }));
   }

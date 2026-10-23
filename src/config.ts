@@ -28,11 +28,13 @@ export const CONFIG = {
     // sale price = material cost * markup + cutMinutes * machineRatePerMinute
     priceMarkupMin: 1.3,
     priceMarkupMax: 1.7,
-    machineRatePerMinute: 2.1,   // ~$155/hr machine rate, the thing a joiner actually pays for
+    machineRatePerMinute: 2.0,   // ~$155/hr machine rate, the thing a joiner actually pays for
     loadMinutes: 3,              // time to load a sheet onto the bed
     firstDeadlineMinutesAfterOpen: 80,
     lastDeadlineMinutesAfterClose: -45, // deadlines spread evenly from the first to endHour + this
-    rush: { priceMult: 1.25, cutMinutesLess: 10, deadlineSlackMinutes: 90 },
+    rush: { priceMult: 1.2, cutMinutesLess: 10, deadlineSlackMinutes: 90, maxPerDay: 2 },
+    // a joiner drops a sheet off mid-afternoon: premium if it's cut tonight, otherwise it's gone
+    lateDrop: { hour: 15, chance: 0.6, priceMult: 1.3 },
   },
 
   materials: [
@@ -84,7 +86,7 @@ export const CONFIG = {
     sleepRecovery: 20,             // competence back overnight
   },
 
-  rapport: { start: 100, min: 0, max: 100, rushJobChance: 0.6 }, // rush-job odds on a call scale with rapport
+  rapport: { start: 100, min: 0, max: 100, rushJobChance: 0.4 }, // rush-job odds on a call scale with rapport
 
   // Upgrades are capex: they come out of cash but not the day's operating margin.
   upgrades: [

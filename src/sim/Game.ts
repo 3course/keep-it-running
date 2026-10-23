@@ -44,6 +44,7 @@ export class Game {
   current: Job | null = null;
   fault: ActiveFault | null = null;
   courierPenaltyPending = false;
+  rushJobsToday = 0;
 
   // consumables 0..1 (1 = fresh)
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
@@ -131,6 +132,7 @@ export class Game {
     this.overtime = false;
     this.today = emptyStats(this.day);
     this.beersToday = 0;
+    this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
     this.distractions = [];
     this.busy = null;
@@ -234,6 +236,10 @@ export class Game {
     // people
     this.tickDistractions();
     this.maybeDistraction();
+
+    // afternoon drop-off
+    const ld = CONFIG.jobs.lateDrop;
+    if (this.minute === ld.hour * 60 && this.rng.chance(ld.chance)) this.addLateDrop();
 
     // end of day
     if (!this.overtime && this.minute >= CONFIG.clock.endHour * 60) {
@@ -525,7 +531,7 @@ export class Game {
         this.removeDistraction(id);
         this.busy = { label: 'on the phone', remaining: d.phone.busyMinutes };
         this.addRapport(d.phone.answerRapportGain);
-        if (this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
+        if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
         else this.say('Just a quote. Followed up later.');
         return true;
       case 'courier':
@@ -560,7 +566,25 @@ export class Game {
       progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
     };
     this.jobs.push(j);
+    this.rushJobsToday += 1;
     this.say(`Rush job added: ${j.name} ($${j.price})`, 'good');
+  }
+
+  private addLateDrop() {
+    const mat = this.rng.pick(CONFIG.materials);
+    const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax);
+    const j: Job = {
+      id: this.nextJobId++,
+      name: `DROP-OFF — ${this.rng.pick(JOB_NAMES)}`,
+      material: mat.name,
+      materialCost: Math.round(mat.cost * this.materialMult()),
+      price: Math.round(this.priceFor(mat.cost, cut) * CONFIG.jobs.lateDrop.priceMult),
+      cutMinutes: cut,
+      deadlineMinute: CONFIG.clock.overtimeEndHour * 60,
+      progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
+    };
+    this.jobs.push(j);
+    this.say(`A joiner dropped off ${j.material}: ${j.name}. $${j.price} if it's cut tonight.`, 'good');
   }
 
   drinkBeer(): boolean {
