@@ -107,9 +107,24 @@ export class Game {
     return `${h12}:${mm.toString().padStart(2, '0')}${ap}`;
   }
 
+  /** Today's P&L and shed log as plain text, for a playtester to paste into a message. */
+  dayReport(): string {
+    const d = this.today;
+    const m = d.revenue > 0 ? `${Math.round(((d.revenue - d.costs) / d.revenue) * 100)}%` : '—';
+    const head = [
+      `Keep It Running — day ${d.day} (week day ${this.day}/${CONFIG.week.days})`,
+      `Revenue $${Math.round(d.revenue)} · costs $${Math.round(d.costs)} · margin ${m} · cash $${Math.round(this.cash)}`,
+      `Sheets: ${d.sheetsDone} delivered (${d.sheetsLate} late), ${d.sheetsScrapped} scrapped · faults ${d.faults} · fires ${d.firesSpot} · beers ${d.beers}`,
+      '',
+    ];
+    const lines = this.log.filter(l => l.dayIndex === this.dayIndex).map(l => `${this.formatTime(l.minute).padStart(7)}  ${l.text}`);
+    return [...head, ...lines].join('\n');
+  }
+
   private say(text: string, tone: LogEntry['tone'] = 'info') {
-    this.log.push({ minute: this.minute, text, tone });
-    if (this.log.length > 200) this.log.shift();
+    this.log.push({ dayIndex: this.dayIndex, minute: this.minute, text, tone });
+    // trim old days only, so today's log is whole when it's copied at the end of the day
+    while (this.log.length > 200 && this.log[0].dayIndex < this.dayIndex) this.log.shift();
   }
 
   private spend(amount: number, bucket: keyof DayStats, note?: string) {

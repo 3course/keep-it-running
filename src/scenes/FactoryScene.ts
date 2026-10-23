@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, type ConsumableKey } from '../config.js';
 import { Game } from '../sim/Game.js';
 import type { Job } from '../sim/types.js';
-import { PALETTE, bar, button, healthColor, label, money, panel, pct } from '../ui/widgets.js';
+import { PALETTE, bar, buildTag, button, healthColor, label, money, panel, pct } from '../ui/widgets.js';
 
 const W = 1024, H = 640;
 /** Exhaust duct: rises from the back of the bed to the roof, top-right of the machine panel. */
@@ -48,6 +48,7 @@ export class FactoryScene extends Phaser.Scene {
       });
       this.smoke.push(puff);
     }
+    buildTag(this);
     this.input.keyboard?.on('keydown-SPACE', () => { this.paused = !this.paused; this.dirty = true; });
     this.eKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this.input.on('pointerup', () => { this.sprayPointer = false; });

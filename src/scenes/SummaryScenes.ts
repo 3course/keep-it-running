@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, type UpgradeId } from '../config.js';
 import { Game } from '../sim/Game.js';
 import type { DayStats } from '../sim/types.js';
-import { PALETTE, button, label, money, panel, pct } from '../ui/widgets.js';
+import { PALETTE, buildTag, button, copyText, label, money, panel, pct } from '../ui/widgets.js';
 
 const W = 1024;
 
@@ -52,7 +52,7 @@ export class DaySummaryScene extends Phaser.Scene {
       [`Faults`, `${d.faults}`],
       [`Wrong diagnoses`, `${d.wrongCalls}`],
       [`Beers`, `${d.beers}`],
-      [`Exhaust fires (duct / extractor)`, `${d.firesSpot} (${d.firesDuct} / ${d.firesExtractor})`],
+      [`Fires (duct/extr.)`, `${d.firesSpot} (${d.firesDuct}/${d.firesExtractor})`],
     ];
     let y = 115;
     for (const [k, v] of lines) { label(this, 365, y, k, 13, PALETTE.dim); label(this, 630, y, v, 13).setOrigin(1, 0); y += 22; }
@@ -75,6 +75,14 @@ export class DaySummaryScene extends Phaser.Scene {
       g.nextDay();
       this.scene.start(g.phase === 'weekSummary' ? 'weekSummary' : 'factory');
     }, { color: PALETTE.accentDark, size: 15 });
+
+    // playtest feedback
+    label(this, W / 2, 470, 'Thoughts? Copy the day log and send it to Courtney.', 13, PALETTE.ink).setOrigin(0.5, 0);
+    const status = label(this, W / 2, 536, '', 11, PALETTE.dim).setOrigin(0.5, 0);
+    button(this, W / 2 - 80, 494, 160, 30, 'Copy day log', () => {
+      void copyText(g.dayReport()).then(ok => status.setText(ok ? 'Copied — paste it into a message.' : "Couldn't reach the clipboard."));
+    }, { color: PALETTE.blue, size: 12 });
+    buildTag(this);
   }
 
   private verdict(d: DayStats): string {
@@ -123,5 +131,6 @@ export class WeekSummaryScene extends Phaser.Scene {
     label(this, 365, y + 16, verdict, 12, PALETTE.ink, 390);
 
     button(this, W / 2 - 110, 400, 220, 40, 'Run another week', () => { g.nextWeek(); this.scene.start('factory'); }, { color: PALETTE.accentDark, size: 15 });
+    buildTag(this);
   }
 }

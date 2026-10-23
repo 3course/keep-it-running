@@ -77,5 +77,30 @@ export function healthColor(frac: number): number {
   return PALETTE.red;
 }
 
-export const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
+export const BUILD_TAG = 'v0.1 — playtest build';
+
+/** Small build label in the bottom-right corner of every scene. */
+export function buildTag(scene: Phaser.Scene) {
+  return label(scene, 1020, 638, BUILD_TAG, 9, PALETTE.dim).setOrigin(1, 1).setDepth(10);
+}
+
+/** Copy text to the clipboard; falls back to execCommand where the async API isn't allowed. */
+export async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    return ok;
+  }
+}
+
+export const money =(n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 export const pct = (f: number) => `${(f * 100).toFixed(0)}%`;

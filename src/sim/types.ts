@@ -122,6 +122,7 @@ export interface DayStats {
 }
 
 export interface LogEntry {
+  dayIndex: number;
   minute: number;
   text: string;
   tone: 'info' | 'good' | 'bad' | 'money';
