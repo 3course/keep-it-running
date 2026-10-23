@@ -94,11 +94,16 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   const d1Margin = d1.revenue > 0 ? (d1.revenue - d1.costs) / d1.revenue : 0;
   const avg = (f: (d: { total: number; longest: number }) => number) => idle.reduce((s, d) => s + f(d), 0) / idle.length;
   const worstGap = Math.max(...idle.map(d => d.longest));
+  const n = g.week.length;
+  const wk = (k: keyof DayStats) => (g.week.reduce((s, d) => s + d[k], 0) / n).toFixed(1).padStart(4);
+  const missed = (d: DayStats) => d.sheetsMissed + d.sheetsLost; // calls that went elsewhere + overdue sheets pulled
+  const p = (v: number, w = 3) => String(v).padStart(w);
   console.log(
-    `${name.padEnd(10)} seed=${seed} day1: margin=${(d1Margin * 100).toFixed(0).padStart(4)}% idle=${String(idle[0].total).padStart(3)}m gap=${String(idle[0].longest).padStart(3)}m | ` +
-    `week: margin=${(margin * 100).toFixed(0).padStart(4)}% avg idle=${avg(d => d.total).toFixed(0).padStart(3)}m avg gap=${avg(d => d.longest).toFixed(0).padStart(3)}m worst gap=${String(worstGap).padStart(3)}m | ` +
-    `cash=$${g.cash.toFixed(0).padStart(6)} rev=$${rev.toFixed(0).padStart(5)} cost=$${cost.toFixed(0).padStart(5)} ` +
-    `done=${done} late=${late} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
+    `${name.padEnd(9)} s${seed} day1: margin=${(d1Margin * 100).toFixed(0).padStart(4)}% idle=${p(idle[0].total)}m gap=${p(idle[0].longest)}m ` +
+    `demand=${p(d1.sheetsDemanded, 2)} cut=${p(d1.sheetsDone, 2)} missed=${p(missed(d1), 2)} late=${p(d1.sheetsLate, 2)} | ` +
+    `week: margin=${(margin * 100).toFixed(0).padStart(4)}% idle=${avg(d => d.total).toFixed(0).padStart(3)}m gap=${avg(d => d.longest).toFixed(0).padStart(3)}m (worst ${p(worstGap)}m) ` +
+    `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} | ` +
+    `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
   );
 }
 

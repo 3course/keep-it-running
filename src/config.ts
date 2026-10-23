@@ -15,7 +15,7 @@ export const CONFIG = {
 
   economy: {
     startingCash: 1500,
-    latePayFraction: 0.7,   // late sheets pay this fraction of price
+    latePayFraction: 0.8,   // late sheets pay this fraction of price
     bankFee: 50,            // fee when you ignore the bank
     weeklyOverheads: 900,   // rent/power/insurance, taken at end of week
   },
@@ -24,13 +24,18 @@ export const CONFIG = {
     // only a few sheets are on the board at 7am; the rest arrive by phone through the day
     perDayMin: 3,
     perDayMax: 4,
+    // Demand should outrun a competent operator (~10–11 sheets/day): the board never clears.
     orders: {
-      callsMin: 2, callsMax: 4,           // order calls per day, including the guaranteed first one
+      callsMin: 3, callsMax: 5,           // order calls per day, including the guaranteed first one
       firstCallFromHour: 8.25, firstCallToHour: 9.5, // the first call always lands in this window
-      firstHour: 9, lastHour: 15,         // the rest land at random times in this window
-      sheetsMin: 1, sheetsMax: 3,         // sheets per order
-      slackMinutes: 150,                  // due = call time + the order's cut time + this
+      spreadFromHour: 8.25, spreadToHour: 15, // the rest are spaced evenly across this window…
+      jitterMinutes: 40,                  // …each nudged up to ± this
+      sheetsMin: 2, sheetsMax: 4,         // sheets per order
+      minDemandSheets: 13,                // 7am sheets + orders + drop-off; extra calls are added until the day reaches this
+      deadlineMix: { today: 0.6, tomorrow: 0.3, rush: 0.1 }, // today/tomorrow = by close of that day
+      rushMinutes: 120,                   // a rush order is due this long after the call
       missedKeepChance: 0.5,              // unanswered: chance they leave a message instead of going elsewhere
+      lostJobCallPenalty: 1,              // each sheet lost (undelivered by close the day after it's due) = one fewer call tomorrow, never below callsMin
     },
     cutMinutesMin: 25,
     cutMinutesMax: 50,

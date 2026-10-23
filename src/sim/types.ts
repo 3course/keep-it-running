@@ -2,7 +2,7 @@ import type { ConsumableKey, UpgradeId } from '../config.js';
 
 export type MachineState = 'idle' | 'loading' | 'cutting' | 'paused' | 'fault' | 'estop';
 
-export type JobStatus = 'queued' | 'cutting' | 'done' | 'scrapped';
+export type JobStatus = 'queued' | 'cutting' | 'done' | 'scrapped' | 'lost';
 
 export interface Job {
   id: number;
@@ -11,7 +11,8 @@ export interface Job {
   materialCost: number;
   price: number;
   cutMinutes: number;
-  deadlineMinute: number; // minutes since midnight
+  deadlineMinute: number; // minutes since midnight on dueDay
+  dueDay: number;         // Game.dayIndex the job is due on (jobs carry over between days)
   progress: number;       // minutes cut
   status: JobStatus;
   paidLate: boolean;
@@ -92,6 +93,9 @@ export interface DayStats {
   sheetsDone: number;
   sheetsLate: number;
   sheetsScrapped: number;
+  sheetsDemanded: number;  // sheets offered today: 7am board, order calls (answered or not), drop-off, rush
+  sheetsMissed: number;    // order calls that went unanswered and went elsewhere
+  sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   beers: number;
   faults: number;
   wrongCalls: number;

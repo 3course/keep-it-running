@@ -17,7 +17,8 @@ const JOB_NAMES = [
 function emptyStats(day: number): DayStats {
   return {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
-    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, beers: 0, faults: 0, wrongCalls: 0,
+    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsLost: 0,
+    beers: 0, faults: 0, wrongCalls: 0,
   };
 }
 
@@ -26,7 +27,8 @@ export class Game {
   phase: Phase = 'day';
 
   // clock
-  day = 1;
+  day = 1;          // day of the week, 1..CONFIG.week.days
+  dayIndex = 1;     // days since the start; never resets, so job due dates survive the week rollover
   minute = CONFIG.clock.startHour * 60; // minutes since midnight
   overtime = false;
 
@@ -45,7 +47,9 @@ export class Game {
   fault: ActiveFault | null = null;
   courierPenaltyPending = false;
   rushJobsToday = 0;
-  orderCalls: number[] = []; // minutes today when an order call will ring, soonest first
+  orderCalls: { minute: number; sheets: number }[] = []; // today's order calls still to ring, soonest first
+  lateDropToday = false;     // rolled at 7am so the demand floor can count it
+  lostYesterday = 0;         // sheets lost at close yesterday; costs order calls today
 
   // consumables 0..1 (1 = fresh)
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
@@ -140,17 +144,50 @@ export class Game {
     this.fault = null;
     this.current = null;
     this.machine = 'idle';
-    this.jobs = this.generateJobs();
-    this.orderCalls = this.scheduleOrderCalls();
-    this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board. Roller door's up.`);
+    // unfinished work carries over; delivered, scrapped and lost jobs drop off the board
+    const carried = this.jobs.filter(j => j.status === 'queued');
+    const fresh = this.generateJobs();
+    this.jobs = [...carried, ...fresh];
+    this.today.sheetsDemanded += fresh.length;
+    this.lateDropToday = this.rng.chance(CONFIG.jobs.lateDrop.chance);
+    this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0));
+    const carryNote = carried.length ? ` (${carried.length} carried over)` : '';
+    this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board${carryNote}. Roller door's up.`);
   }
 
-  private scheduleOrderCalls(): number[] {
+  private scheduleOrderCalls(otherSheets: number): { minute: number; sheets: number }[] {
     const o = CONFIG.jobs.orders;
+    const from = o.spreadFromHour * 60, to = o.spreadToHour * 60;
+    const sheets = () => this.rng.int(o.sheetsMin, o.sheetsMax);
     const n = this.rng.int(o.callsMin, o.callsMax);
-    const calls = [Math.round(this.rng.range(o.firstCallFromHour * 60, o.firstCallToHour * 60))];
-    for (let i = 1; i < n; i++) calls.push(Math.round(this.rng.range(o.firstHour * 60, o.lastHour * 60)));
-    return calls.sort((a, b) => a - b);
+    // first call guaranteed early; the rest spaced evenly across the window with jitter
+    const calls = [{ minute: Math.round(this.rng.range(o.firstCallFromHour * 60, o.firstCallToHour * 60)), sheets: sheets() }];
+    for (let i = 1; i < n; i++) {
+      const centre = from + (to - from) * (i + 0.5) / n;
+      const minute = Math.round(centre + this.rng.range(-o.jitterMinutes, o.jitterMinutes));
+      calls.push({ minute: Math.min(to, Math.max(from, minute)), sheets: sheets() });
+    }
+    // demand floor: keep adding calls until the day offers enough sheets
+    while (otherSheets + calls.reduce((s, c) => s + c.sheets, 0) < o.minDemandSheets) {
+      calls.push({ minute: Math.round(this.rng.range(from, to)), sheets: sheets() });
+    }
+    calls.sort((a, b) => a.minute - b.minute);
+    // reputation: sheets lost yesterday cost calls today (latest calls go first; the guaranteed first call stays)
+    const keep = Math.max(o.callsMin, calls.length - this.lostYesterday * o.lostJobCallPenalty);
+    if (keep < calls.length) this.say(`Word's got around about yesterday. Fewer calls today.`, 'bad');
+    return calls.slice(0, keep);
+  }
+
+  /** The queued sheet that's due soonest — what "Load sheet & run" will put on the bed. */
+  nextUp(): Job | undefined { return this.queued.sort((a, b) => this.dueAt(a) - this.dueAt(b))[0]; }
+
+  /** Absolute due time, comparable across days. */
+  dueAt(j: Job): number { return j.dueDay * 24 * 60 + j.deadlineMinute; }
+  isLate(j: Job): boolean { return this.dayIndex * 24 * 60 + this.minute > this.dueAt(j); }
+  dueLabel(j: Job): string {
+    if (j.dueDay > this.dayIndex) return `tmrw ${this.formatTime(j.deadlineMinute)}`;
+    if (j.dueDay < this.dayIndex) return 'overdue';
+    return this.formatTime(j.deadlineMinute);
   }
 
   private generateJobs(): Job[] {
@@ -173,6 +210,7 @@ export class Game {
         price,
         cutMinutes: cut,
         deadlineMinute: Math.round(first + gap * i),
+        dueDay: this.dayIndex,
         progress: 0,
         status: 'queued',
         paidLate: false,
@@ -246,14 +284,12 @@ export class Game {
     // people
     this.tickDistractions();
     this.maybeDistraction();
-    while (this.orderCalls.length && this.minute >= this.orderCalls[0]) {
-      this.orderCalls.shift();
-      this.spawnOrderCall();
+    while (this.orderCalls.length && this.minute >= this.orderCalls[0].minute) {
+      this.spawnOrderCall(this.orderCalls.shift()!.sheets);
     }
 
     // afternoon drop-off
-    const ld = CONFIG.jobs.lateDrop;
-    if (this.minute === ld.hour * 60 && this.rng.chance(ld.chance)) this.addLateDrop();
+    if (this.lateDropToday && this.minute === CONFIG.jobs.lateDrop.hour * 60) this.addLateDrop();
 
     // end of day
     if (!this.overtime && this.minute >= CONFIG.clock.endHour * 60) {
@@ -360,12 +396,12 @@ export class Game {
   private finishJob() {
     const j = this.current!;
     j.status = 'done';
-    const late = this.minute > j.deadlineMinute;
+    const late = this.isLate(j);
     j.paidLate = late;
     const pay = Math.round(late ? j.price * CONFIG.economy.latePayFraction : j.price);
     this.today.sheetsDone += 1;
     if (late) this.today.sheetsLate += 1;
-    this.earn(pay, `${j.name}${late ? ' (late, 70%)' : ''}`);
+    this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
     this.current = null;
     this.machine = 'idle';
   }
@@ -416,9 +452,8 @@ export class Game {
   }
 
   /** Scheduled order calls ring regardless of the distraction cap — it's the job coming in. */
-  private spawnOrderCall() {
-    const o = CONFIG.jobs.orders;
-    const sheets = this.rng.int(o.sheetsMin, o.sheetsMax);
+  private spawnOrderCall(sheets: number) {
+    this.today.sheetsDemanded += sheets;
     this.distractions.push({
       id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — new order',
       line: `A joiner with ${sheets} sheet${sheets > 1 ? 's' : ''} to cut.`,
@@ -431,19 +466,27 @@ export class Game {
     const o = CONFIG.jobs.orders;
     const name = this.rng.pick(JOB_NAMES);
     const mat = this.rng.pick(CONFIG.materials);
-    const cuts = Array.from({ length: sheets }, () => this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax));
-    const due = this.minute + cuts.reduce((s, c) => s + c + CONFIG.jobs.loadMinutes, 0) + o.slackMinutes;
-    cuts.forEach((cut, i) => this.jobs.push({
-      id: this.nextJobId++,
-      name: sheets > 1 ? `${name} (${i + 1}/${sheets})` : name,
-      material: mat.name,
-      materialCost: Math.round(mat.cost * this.materialMult()),
-      price: this.priceFor(mat.cost, cut),
-      cutMinutes: cut,
-      deadlineMinute: due,
-      progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
-    }));
-    this.say(`Order in: ${name}, ${sheets} × ${mat.name}, due ${this.formatTime(due)}.`, 'good');
+    const kind = this.rng.weighted(['today', 'tomorrow', 'rush'] as const, k => o.deadlineMix[k])!;
+    const close = CONFIG.clock.endHour * 60;
+    const due = kind === 'rush' ? { day: this.dayIndex, minute: this.minute + o.rushMinutes }
+      : { day: this.dayIndex + (kind === 'tomorrow' ? 1 : 0), minute: close };
+    const label = kind === 'rush' ? `RUSH — ${name}` : name;
+    const priceMult = kind === 'rush' ? CONFIG.jobs.rush.priceMult : 1;
+    for (let i = 0; i < sheets; i++) {
+      const cut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax);
+      this.jobs.push({
+        id: this.nextJobId++,
+        name: sheets > 1 ? `${label} (${i + 1}/${sheets})` : label,
+        material: mat.name,
+        materialCost: Math.round(mat.cost * this.materialMult()),
+        price: Math.round(this.priceFor(mat.cost, cut) * priceMult),
+        cutMinutes: cut,
+        deadlineMinute: due.minute, dueDay: due.day,
+        progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
+      });
+    }
+    const when = kind === 'tomorrow' ? `tomorrow ${this.formatTime(close)}` : this.formatTime(due.minute);
+    this.say(`Order in: ${label}, ${sheets} × ${mat.name}, due ${when}.`, kind === 'rush' ? 'bad' : 'good');
   }
 
   private tickDistractions() {
@@ -468,6 +511,7 @@ export class Game {
             this.addOrder(dist.order);
           } else {
             this.addRapport(-d.phone.ignoreRapportCost);
+            if (dist.order) this.today.sheetsMissed += dist.order;
             this.say(`Missed the call. ${dist.order ? `${dist.order}-sheet order went` : 'They went'} elsewhere.`, 'bad');
           }
           break;
@@ -485,7 +529,7 @@ export class Game {
 
   loadNextSheet(): boolean {
     if (this.phase !== 'day' || !this.canAct || this.machine !== 'idle' || this.fault) return false;
-    const next = this.queued.sort((a, b) => a.deadlineMinute - b.deadlineMinute)[0];
+    const next = this.nextUp();
     if (!next) return false;
     next.status = 'cutting';
     this.current = next;
@@ -616,10 +660,11 @@ export class Game {
       materialCost: Math.round(mat.cost * this.materialMult()),
       price: Math.round(this.priceFor(mat.cost, cut) * r.priceMult),
       cutMinutes: cut,
-      deadlineMinute: this.minute + cut + r.deadlineSlackMinutes,
+      deadlineMinute: this.minute + cut + r.deadlineSlackMinutes, dueDay: this.dayIndex,
       progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
     };
     this.jobs.push(j);
+    this.today.sheetsDemanded += 1;
     this.rushJobsToday += 1;
     this.say(`Rush job added: ${j.name} ($${j.price})`, 'good');
   }
@@ -634,10 +679,11 @@ export class Game {
       materialCost: Math.round(mat.cost * this.materialMult()),
       price: Math.round(this.priceFor(mat.cost, cut) * CONFIG.jobs.lateDrop.priceMult),
       cutMinutes: cut,
-      deadlineMinute: CONFIG.clock.overtimeEndHour * 60,
+      deadlineMinute: CONFIG.clock.overtimeEndHour * 60, dueDay: this.dayIndex,
       progress: 0, status: 'queued', paidLate: false, chipRisk: mat.chipRisk,
     };
     this.jobs.push(j);
+    this.today.sheetsDemanded += 1;
     this.say(`A joiner dropped off ${j.material}: ${j.name}. $${j.price} if it's cut tonight.`, 'good');
   }
 
@@ -671,6 +717,12 @@ export class Game {
       this.today.sheetsScrapped += 1;
       this.say(`${this.current.name} left half-cut. Scrap.`, 'bad');
     }
+    // anything still queued a full day past its due date is gone, and the word gets around
+    const lost = this.queued.filter(j => this.dayIndex >= j.dueDay + 1);
+    for (const j of lost) j.status = 'lost';
+    this.today.sheetsLost = lost.length;
+    this.lostYesterday = lost.length;
+    if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
     this.phase = 'daySummary';
   }
@@ -694,6 +746,7 @@ export class Game {
       return;
     }
     this.day += 1;
+    this.dayIndex += 1;
     this.startDay();
   }
 
@@ -702,6 +755,7 @@ export class Game {
     this.week = [];
     this.weekOverheads = 0;
     this.day = 1;
+    this.dayIndex += 1;
     this.startDay();
   }
 }

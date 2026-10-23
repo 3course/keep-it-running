@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG, type ConsumableKey } from '../config.js';
 import { Game } from '../sim/Game.js';
+import type { Job } from '../sim/types.js';
 import { PALETTE, bar, button, healthColor, label, money, panel, pct } from '../ui/widgets.js';
 
 const W = 1024, H = 640;
@@ -156,12 +157,13 @@ export class FactoryScene extends Phaser.Scene {
     const f = g.fault;
     if (!f) {
       if (g.machine === 'idle') {
-        const next = g.queued.sort((a, b) => a.deadlineMinute - b.deadlineMinute)[0];
+        const next = g.nextUp();
         if (next) {
+          const late = g.isLate(next);
           this.keep(label(this, x, y, 'Next up:', 12, PALETTE.dim));
           this.keep(label(this, x, y + 18, next.name, 14, PALETTE.ink, w));
           this.keep(label(this, x, y + 40, `${next.material} · ${next.cutMinutes} min · board ${money(next.materialCost)} · pays ${money(next.price)}`, 11, PALETTE.dim, w));
-          this.keep(label(this, x, y + 56, `Due ${g.formatTime(next.deadlineMinute)}${g.minute > next.deadlineMinute ? '  (LATE)' : ''}`, 11, g.minute > next.deadlineMinute ? PALETTE.bad : PALETTE.dim));
+          this.keep(label(this, x, y + 56, `Due ${g.dueLabel(next)}${late ? '  (LATE)' : ''}`, 11, late ? PALETTE.bad : PALETTE.dim));
           this.keep(button(this, x, y + 84, 200, 32, 'Load sheet & run', () => this.act(() => g.loadNextSheet()), { color: PALETTE.green, size: 14 }));
         } else {
           this.keep(label(this, x, y, "Board's clear. Nothing else today.", 14, PALETTE.good, w));
@@ -237,9 +239,12 @@ export class FactoryScene extends Phaser.Scene {
   private renderBoard() {
     const g = this.game_;
     const x = 710; let y = 75;
-    const jobs = [...g.jobs].sort((a, b) => a.deadlineMinute - b.deadlineMinute);
-    for (const j of jobs.slice(0, 11)) {
-      const late = g.minute > j.deadlineMinute && j.status === 'queued';
+    // open work first (soonest due on top), then what's already done or binned
+    const open = (j: Job) => j.status === 'queued' || j.status === 'cutting';
+    const jobs = [...g.jobs].sort((a, b) => Number(open(b)) - Number(open(a)) || g.dueAt(a) - g.dueAt(b));
+    const rows = 11;
+    for (const j of jobs.slice(0, jobs.length > rows ? rows - 1 : rows)) {
+      const late = g.isLate(j) && j.status === 'queued';
       let col = PALETTE.ink, mark = ' ';
       if (j.status === 'done') { col = j.paidLate ? PALETTE.money : PALETTE.good; mark = '✓'; }
       else if (j.status === 'scrapped') { col = PALETTE.bad; mark = '✗'; }
@@ -247,9 +252,10 @@ export class FactoryScene extends Phaser.Scene {
       else if (late) { col = PALETTE.bad; }
       const name = j.name.length > 28 ? j.name.slice(0, 27) + '…' : j.name;
       this.keep(label(this, x, y, `${mark} ${name}`, 11, col));
-      this.keep(label(this, x + 12, y + 13, `${g.formatTime(j.deadlineMinute)} · ${money(j.price)}`, 10, PALETTE.dim));
+      this.keep(label(this, x + 12, y + 13, `${g.dueLabel(j)} · ${money(j.price)}`, 10, PALETTE.dim));
       y += 27;
     }
+    if (jobs.length > rows) this.keep(label(this, x, y, `+ ${jobs.length - (rows - 1)} more`, 11, PALETTE.dim));
   }
 
   private renderLog() {
