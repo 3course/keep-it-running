@@ -81,7 +81,7 @@ export const BUILD_TAG = 'v0.1 — playtest build';
 
 /** Small build label in the bottom-right corner of every scene. */
 export function buildTag(scene: Phaser.Scene) {
-  return label(scene, 1020, 638, BUILD_TAG, 9, PALETTE.dim).setOrigin(1, 1).setDepth(10);
+  return label(scene, scene.scale.width - 4, scene.scale.height - 2, BUILD_TAG, 9, PALETTE.dim).setOrigin(1, 1).setDepth(10).setScrollFactor(0);
 }
 
 /** Copy text to the clipboard; falls back to execCommand where the async API isn't allowed. */
