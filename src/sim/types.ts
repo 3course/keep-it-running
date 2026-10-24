@@ -110,6 +110,7 @@ export interface Delivery {
   stage: 'due' | 'waiting' | 'unloading';
   signBy: number;         // minute the driver gives up (while waiting)
   bundles: JobTypeId[][]; // still on the truck (while unloading)
+  fee: number;            // this order's delivery fee (0 on a big order)
   feeOwed: boolean;       // a redelivery: the fee is charged again when it turns up
 }
 
@@ -153,6 +154,7 @@ export interface DayStats {
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
   deliveryFees: number;    // ply delivery (and redelivery) fees
+  trucks: number;          // ply trucks that turned up (redeliveries included)
   plyOnHandValue: number;  // at close: what the ply on the pallet (and in hand) cost — an asset, not a cost
   plyOnHandSheets: number;
   fumbles: number;         // steps that had to be redone (beer)

@@ -21,7 +21,7 @@ function emptyStats(day: number): DayStats {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
-    deliveryFees: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
+    deliveryFees: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
   };
 }
 
@@ -108,7 +108,7 @@ export class Game {
     const first = CONFIG.supply.firstDelivery;
     this.deliveries.push({
       id: this.nextDeliveryId++, lines: CONFIG.jobs.types.map(t => ({ type: t.id, qty: first[t.id], unitCost: Math.round(t.boardCost * this.materialMult()) })),
-      day: this.dayIndex, minute: this.minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false,
+      day: this.dayIndex, minute: this.minute, stage: 'due', signBy: 0, bundles: [], fee: 0, feeOwed: false,
     });
     this.arriveDeliveries();
   }
@@ -821,7 +821,7 @@ export class Game {
     const t = CONFIG.jobs.types.find(x => x.id === type)!;
     let boards = Math.round(t.boardCost * this.materialMult()) * qty;
     if (this.courierPenaltyPending) boards = Math.round(boards * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
-    const fee = s.deliveryFee;
+    const fee = qty >= s.freeDeliveryFrom ? 0 : s.deliveryFee;
     if (this.minute < s.cutoffHour * 60 && this.deliveriesOn(this.dayIndex) < s.maxDeliveriesPerDay) {
       return { boards, fee, day: this.dayIndex, minute: this.minute + s.leadMinutes };
     }
@@ -843,7 +843,7 @@ export class Game {
     this.cash -= q.boards;
     this.say(`-$${q.boards.toFixed(0)} ${qty} × ${this.stockWord(type)} (stock)`, 'money');
     this.spend(q.fee, 'deliveryFees', 'delivery fee');
-    const d: Delivery = { id: this.nextDeliveryId++, lines: [{ type, qty, unitCost: q.boards / qty }], day: q.day, minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false };
+    const d: Delivery = { id: this.nextDeliveryId++, lines: [{ type, qty, unitCost: q.boards / qty }], day: q.day, minute, stage: 'due', signBy: 0, bundles: [], fee: q.fee, feeOwed: false };
     this.deliveries.push(d);
     this.say(`Ordered ${qty} × ${this.stockWord(type)}. Truck ${q.day === this.dayIndex ? `about ${this.formatTime(q.minute)}` : `tomorrow ${this.formatTime(q.minute)}`}.`, 'good');
     return d;
@@ -855,8 +855,9 @@ export class Game {
     const d = this.deliveries.find(x => x.stage === 'due' && (x.day < this.dayIndex || (x.day === this.dayIndex && this.minute >= x.minute)));
     if (!d) return;
     d.stage = 'waiting';
+    this.today.trucks += 1;
     d.signBy = this.minute + CONFIG.supply.signWindowMinutes;
-    if (d.feeOwed) { this.spend(CONFIG.supply.deliveryFee, 'deliveryFees', 'redelivery fee'); d.feeOwed = false; }
+    if (d.feeOwed) { this.spend(d.fee, 'deliveryFees', 'redelivery fee'); d.feeOwed = false; }
     this.say(`Ply truck's here: ${d.lines.map(l => `${l.qty} × ${this.stockWord(l.type)}`).join(', ')}. Needs a signature.`, 'info');
   }
 
@@ -883,7 +884,7 @@ export class Game {
 
   private driverLeaves(d: Delivery) {
     d.stage = 'due'; d.day = this.dayIndex + 1; d.minute = CONFIG.supply.morningMinute; d.feeOwed = true;
-    this.say(`Nobody signed. The driver's gone — $${CONFIG.supply.deliveryFee} delivery fee wasted. Back tomorrow morning.`, 'bad');
+    this.say(`Nobody signed. The driver's gone${d.fee ? ` — $${d.fee} delivery fee wasted` : ''}. Back tomorrow morning.`, 'bad');
   }
 
   /** Sign for the truck on the apron. Then it's bundles, one trip each. `quick`: one tap in the world, no minute spent. */

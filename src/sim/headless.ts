@@ -19,7 +19,6 @@ function overCommitted(g: Game): boolean {
 
 // Both scripts reorder a line when it drops to this many sheets.
 const REORDER_AT = 3;
-const orderSize = (t: JobTypeId) => (t === 'signage' ? 4 : 8);
 const onOrder = (g: Game, t: JobTypeId) => g.deliveries.some(d => d.lines.some(l => l.type === t));
 
 /** Sign for a truck on the apron and unload it, one bundle (trip) at a time. */
@@ -31,7 +30,7 @@ function handleTruck(g: Game) {
 }
 
 /**
- * Competent: reorders at 3, sized to the work on the board plus a few spare (no stockpiling late in the
+ * Competent: reorders at 3 — a free-delivery 12 when the board plus tomorrow's work justifies it, else 8 (no spare late in the
  * week), and just before the 3pm cut-off tops up anything that'd run low by morning.
  */
 function competentOrders(g: Game) {
@@ -43,14 +42,21 @@ function competentOrders(g: Game) {
     const comingToday = g.deliveries.some(d => d.day === g.dayIndex && d.lines.some(l => l.type === t.id));
     if (!low || comingToday || (onOrder(g, t.id) && g.stock[t.id] > 0)) continue;
     const need = g.queued.filter(j => j.type === t.id && j.id !== g.inHand).length - g.stock[t.id] + spare;
-    const size = CONFIG.supply.orderSizes.find(n => n >= Math.max(need, spare ? orderSize(t.id) : 0)) ?? CONFIG.supply.orderSizes[CONFIG.supply.orderSizes.length - 1];
-    if (need > 0) g.orderPly(t.id, size);
+    // batch: a free-delivery 12 when the board plus tomorrow's work would use more than 8, else 8. Tomorrow's
+    // work is the line's share of the day's guaranteed demand (none on the last day of the week).
+    const tomorrow = g.day >= CONFIG.week.days ? 0 : t.weight * CONFIG.jobs.orders.minDemandSheets;
+    const size = need + tomorrow > 8 ? CONFIG.supply.freeDeliveryFrom : 8;
+    if (need <= 0) continue;
+    // a second order for a line that's already coming only helps if this one would arrive today
+    const q = g.plyQuote(t.id, size);
+    if ('error' in q || (onOrder(g, t.id) && q.day !== g.dayIndex)) continue;
+    g.orderPly(t.id, size);
   }
 }
 
 // sloppy's memory per line: whether they forgot to reorder this time it dropped to 3
 const sloppyForgot = new WeakMap<Game, Map<JobTypeId, boolean>>();
-/** Sloppy: reorders at 3 but forgets 30% of the time, then only orders once they've actually run out. Ignores the cut-off. */
+/** Sloppy: reorders 4 at a time at 3 sheets, but forgets 30% of the time, then only orders once they've actually run out. Ignores the cut-off. */
 function sloppyOrders(g: Game) {
   let mem = sloppyForgot.get(g);
   if (!mem) sloppyForgot.set(g, mem = new Map());
@@ -60,7 +66,7 @@ function sloppyOrders(g: Game) {
     if (onOrder(g, t.id)) continue;
     if (!mem.has(t.id)) mem.set(t.id, g.rng.chance(0.3));
     const forgot = mem.get(t.id)!;
-    if (!forgot || (n === 0 && g.starvedTypes.includes(t.id))) g.orderPly(t.id, orderSize(t.id));
+    if (!forgot || (n === 0 && g.starvedTypes.includes(t.id))) g.orderPly(t.id, 4); // a few at a time, every time
   }
 }
 
@@ -189,7 +195,7 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
     `demand=${p(d1.sheetsDemanded, 2)} cut=${p(d1.sheetsDone, 2)} missed=${p(missed(d1), 2)} late=${p(d1.sheetsLate, 2)} declined=${p(d1.sheetsDeclined, 2)} noPly=${p(d1.stockOutMinutes)}m | ` +
     `week: margin=${(margin * 100).toFixed(0).padStart(4)}% idle=${avg(d => d.total).toFixed(0).padStart(3)}m gap=${avg(d => d.longest).toFixed(0).padStart(3)}m (worst ${p(worstGap)}m) ` +
     `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} declined=${wk('sheetsDeclined')} noPly=${wk('stockOutMinutes')}m/day | ` +
-    `ply on hand=$${g.plyOnHand.value.toFixed(0)} (${g.plyOnHand.sheets}) cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport} stock=${CONFIG.jobs.types.map(t => g.stock[t.id]).join('/')}`,
+    `trucks/wk=${g.week.reduce((s, d) => s + d.trucks, 0)} fees=$${g.week.reduce((s, d) => s + d.deliveryFees, 0)} ply on hand=$${g.plyOnHand.value.toFixed(0)} (${g.plyOnHand.sheets}) cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport} stock=${CONFIG.jobs.types.map(t => g.stock[t.id]).join('/')}`,
   );
   const fires = (d: DayStats) => `${d.firesSpot}/${d.firesDuct}/${d.firesExtractor}`;
   if (name === 'sloppy') console.log(`${''.padEnd(13)}beer: ${wk('beers').trim()} cans/day, fumbles ${wk('fumbles').trim()}/day (week ${g.week.reduce((s, d) => s + d.fumbles, 0)}), loo trips ${wk('looTrips').trim()}/day (week ${g.week.reduce((s, d) => s + d.looTrips, 0)})`);

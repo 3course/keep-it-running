@@ -114,7 +114,8 @@ export const CONFIG = {
   // Ply on the pallet is real stock, one line per job type. You order it; a truck brings it.
   supply: {
     orderSizes: [4, 8, 12],         // sheets per order
-    deliveryFee: 60,                // per delivery, on top of the boards
+    deliveryFee: 60,                // per delivery, on top of the boards…
+    freeDeliveryFrom: 12,           // …waived on an order this big: planning ahead pays
     cutoffHour: 15,                 // orders before this arrive today; after, tomorrow morning
     leadMinutes: 30, leadJitter: 5, // truck turns up this long after a same-day order
     morningMinute: 7.5 * 60,        // next-day orders (and redeliveries) arrive at 7:30am

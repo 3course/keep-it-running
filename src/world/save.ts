@@ -44,7 +44,10 @@ function gameFromJson(data: Loose): Game {
   } else g.fault = null;
   // a save from before stock was valued: what's on the pallet is worth what it costs to buy
   if (!('stockValue' in data)) for (const t of CONFIG.jobs.types) g.stockValue[t.id] = g.stock[t.id] * t.boardCost;
-  for (const d of g.deliveries) for (const l of d.lines) l.unitCost ??= CONFIG.jobs.types.find(t => t.id === l.type)!.boardCost;
+  for (const d of g.deliveries) {
+    for (const l of d.lines) l.unitCost ??= CONFIG.jobs.types.find(t => t.id === l.type)!.boardCost;
+    d.fee ??= CONFIG.supply.deliveryFee; // from before big orders shipped free
+  }
   // a save from before ply stock: keep the new game's truck at the door, and give the driver a fresh wait
   if (!('stock' in data)) for (const d of g.deliveries) { d.day = g.dayIndex; if (d.stage === 'waiting') d.signBy = g.minute + CONFIG.supply.signWindowMinutes; }
   return g;

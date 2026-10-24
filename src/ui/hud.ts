@@ -51,6 +51,7 @@ const CSS = `
 #kir-hud .ply .row .name small { color: #a2937f; font-size: 11px; display: block; }
 #kir-hud .ply .row button { margin: 0; min-width: 0; width: 64px; padding: 8px 2px; font-size: 13px; background: #4e8a46; line-height: 1.15; }
 #kir-hud .ply .row button small { display: block; font-size: 10px; color: #d8ecd0; }
+#kir-hud .ply .row button em { display: block; font-size: 10px; font-style: normal; color: #f2c76b; white-space: nowrap; }
 #kir-hud .ply .row button:disabled { background: #4a4540; color: #a2937f; }
 #kir-hud .ply .close { display: block; margin: 12px auto 0; background: #4a4540; }
 #kir-hud .pad .empty { font-size: 13px; color: #8a7d64; }
@@ -255,13 +256,13 @@ export class Hud {
         const buttons = s.orderSizes.map(n => {
           const q = g.plyQuote(t.id, n);
           return 'error' in q ? `<button disabled>${n}</button>`
-            : `<button data-t="${t.id}" data-n="${n}">${n}<small>${money(q.boards + q.fee)}</small></button>`;
+            : `<button data-t="${t.id}" data-n="${n}">${n}<small>${money(q.boards + q.fee)}</small>${q.fee ? '' : '<em>no fee</em>'}</button>`;
         }).join('');
         return `<div class="row"><div class="name">${esc(t.material)}<small>${g.stock[t.id]} on the pallet${g.deliveries.some(d => d.lines.some(l => l.type === t.id)) ? ' · more coming' : ''}</small></div>${buttons}</div>`;
       }).join('');
       const any = g.plyQuote(CONFIG.jobs.types[0].id, s.orderSizes[0]);
       const when = 'error' in any ? any.error : any.day === g.dayIndex ? `Truck in about ${s.leadMinutes} minutes.` : `After ${s.cutoffHour > 12 ? s.cutoffHour - 12 : s.cutoffHour}pm it comes tomorrow, ${g.formatTime(any.minute)}.`;
-      this.ply.innerHTML = `<div class="card"><h1>Order ply</h1><p>${esc(when)} Price includes the ${money(s.deliveryFee)} delivery fee.</p>${rows}<button class="close">Never mind</button></div>`;
+      this.ply.innerHTML = `<div class="card"><h1>Order ply</h1><p>${esc(when)} Prices include delivery: ${money(s.deliveryFee)}, free on ${s.freeDeliveryFrom} sheets.</p>${rows}<button class="close">Never mind</button></div>`;
       for (const b of Array.from(this.ply.querySelectorAll<HTMLButtonElement>('button[data-t]'))) {
         b.addEventListener('click', () => { if (!live()) return; order(b.dataset.t as JobTypeId, Number(b.dataset.n)); this.hidePlyOrder(); });
       }
