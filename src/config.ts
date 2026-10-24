@@ -104,7 +104,8 @@ export const CONFIG = {
     maxActive: 2,
     // friend: hovers for `hoverMinutes` then starts chatting unless you send them off
     friend:  { durationMin: 8, durationMax: 18, hoverMinutes: 3, disengageRapportCost: 5, chatRapportGain: 4, weight: 4 },
-    phone:   { window: 2, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
+    // window: game minutes it rings (1 game min = 1 real s) — long enough to reach the office from anywhere on the factory floor
+    phone:   { window: 9, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
     courier: { window: 3, busyMinutes: 1, ignoredMaterialPenalty: 0.25, signRapportGain: 1, weight: 2 },
     bank:    { window: 2, busyMinutes: 4, ignoreRapportCost: 10, weight: 5 }, // only when cash < 0
   },

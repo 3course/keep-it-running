@@ -23,6 +23,8 @@ const CSS = `
   writing-mode: vertical-rl; text-orientation: mixed; font-family: ${HAND}; font-size: 14px; color: #4a3a22; display: flex; align-items: center; justify-content: center; }
 #kir-hud .tab .dot { writing-mode: horizontal-tb; position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; border-radius: 9px;
   background: #c0281e; color: #fff; font: bold 11px sans-serif; display: none; align-items: center; justify-content: center; }
+#kir-hud .tab .dot.pulse { animation: kir-pulse .7s ease-in-out infinite; }
+@keyframes kir-pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(192,40,30,.7); } 50% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(192,40,30,0); } }
 #kir-hud .catcher { position: absolute; inset: 0; pointer-events: auto; display: none; }
 #kir-hud .pad { position: absolute; left: 0; top: 60px; bottom: 60px; width: 300px; pointer-events: auto; transform: translateX(-310px);
   transition: transform .22s ease-out; background: #f4ecd2; border-radius: 0 10px 10px 0; box-shadow: 4px 4px 14px rgba(0,0,0,.5);
@@ -160,6 +162,8 @@ export class Hud {
     const urgent = items.filter(i => i.urgent).length;
     this.dot.textContent = String(urgent);
     this.dot.style.display = urgent ? 'flex' : 'none';
+    // the badge pulses while the phone rings
+    this.dot.classList.toggle('pulse', items.some(i => i.key.startsWith('phone-') || i.key.startsWith('bank-')));
 
     const open = [...g.jobs].filter(j => j.status === 'queued' || j.status === 'cutting').sort((a, b) => g.dueAt(a) - g.dueAt(b));
     const sig = JSON.stringify([items.map(i => i.key + i.text), done, open.map(j => [j.id, j.status, g.isLate(j)]), g.day]);

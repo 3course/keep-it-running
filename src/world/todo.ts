@@ -12,13 +12,16 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   const now: TodoItem[] = [], later: TodoItem[] = [];
   const add = (urgent: boolean, key: string, text: string, target?: ObjectId) => (urgent ? now : later).push({ key, text, target, urgent });
 
+  // a ringing phone goes on top: it's the one thing that won't wait
+  for (const d of g.distractions) {
+    if (d.kind === 'phone') add(true, `phone-${d.id}`, d.order ? "Phone's ringing (new order)" : "Phone's ringing", 'phone');
+    else if (d.kind === 'bank') add(true, `bank-${d.id}`, "Phone's ringing (the bank)", 'phone');
+  }
   if (g.fire) add(true, 'fire', 'Put out the exhaust fire', w.carrying === 'extinguisher' ? 'exhaust' : 'extinguisher');
   if (g.machineDown) add(true, 'down', 'Machine is cooked for today', 'machine');
   if (g.fault) add(true, `fault-${g.fault.def.id}`, `Sort out the ${g.fault.def.name.toLowerCase()}`, 'machine');
   for (const d of g.distractions) {
-    if (d.kind === 'phone') add(true, `phone-${d.id}`, d.order ? 'Answer the phone (new order)' : 'Answer the phone', 'phone');
-    else if (d.kind === 'bank') add(true, `bank-${d.id}`, 'The bank is calling', 'phone');
-    else if (d.kind === 'courier') add(true, `courier-${d.id}`, 'Sign for the delivery', 'rollerDoor');
+    if (d.kind === 'courier') add(true, `courier-${d.id}`, 'Sign for the delivery', 'rollerDoor');
     else if (d.kind === 'friend') add(true, `mate-${d.id}`, `${d.title.replace(' wandered in', '')} is at the smoko chairs`, 'smoko');
   }
   if (w.bed === 'done') add(true, 'unload', 'Unload the machine', 'machine');
