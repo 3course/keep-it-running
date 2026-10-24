@@ -21,6 +21,7 @@ function emptyStats(day: number): DayStats {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
+    deliveryFees: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
   };
 }
 
@@ -58,6 +59,9 @@ export class Game {
   deliveries: Delivery[] = [];
   nextDeliveryId = 1;
   inHand: number | null = null;  // job id of the sheet taken off the pallet, not yet on the bed
+  // Ply is stock: cash leaves when it's ordered, but the day's P&L is charged a sheet's cost when it's loaded.
+  stockValue = Object.fromEntries(CONFIG.jobs.types.map(t => [t.id, 0])) as Record<JobTypeId, number>; // cost of what's on the pallet
+  inHandCost = 0;                // cost of the sheet in your hands
 
   // consumables 0..1 (1 = fresh)
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
@@ -103,7 +107,7 @@ export class Game {
     // the first morning's ply was ordered (and paid for) last week: the truck's at the door
     const first = CONFIG.supply.firstDelivery;
     this.deliveries.push({
-      id: this.nextDeliveryId++, lines: CONFIG.jobs.types.map(t => ({ type: t.id, qty: first[t.id] })),
+      id: this.nextDeliveryId++, lines: CONFIG.jobs.types.map(t => ({ type: t.id, qty: first[t.id], unitCost: Math.round(t.boardCost * this.materialMult()) })),
       day: this.dayIndex, minute: this.minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false,
     });
     this.arriveDeliveries();
@@ -171,6 +175,13 @@ export class Game {
     if (bucket !== 'upgrades') this.today.costs += amount; // capex stays out of operating margin
     (this.today as unknown as Record<string, number>)[bucket] += amount;
     if (note) this.say(`-$${amount.toFixed(0)} ${note}`, 'money');
+  }
+
+  /** A cost on today's books that was paid for earlier (the board, bought when the ply was ordered). No cash moves. */
+  private book(amount: number, bucket: keyof DayStats) {
+    if (amount <= 0) return;
+    this.today.costs += amount;
+    (this.today as unknown as Record<string, number>)[bucket] += amount;
   }
 
   private earn(amount: number, note: string) {
@@ -756,6 +767,10 @@ export class Game {
     if (this.phase !== 'day' || !this.canAct || this.machine !== 'idle' || this.fault) return false;
     const next = this.takeSheet();
     if (!next) return false;
+    // the board goes on today's books now, as it's used
+    this.book(this.inHandCost, 'materials');
+    this.typeLedger[next.type].boards += this.inHandCost;
+    this.inHandCost = 0;
     this.inHand = null;
     next.status = 'cutting';
     this.current = next;
@@ -772,12 +787,17 @@ export class Game {
       const held = this.jobs.find(j => j.id === this.inHand);
       if (held && held.status === 'queued') return held;
       // that job's gone (pulled by the customer): the sheet goes back on the pallet
-      if (held) this.stock[held.type] += 1;
+      if (held) { this.stock[held.type] += 1; this.stockValue[held.type] += this.inHandCost; }
+      this.inHandCost = 0;
       this.inHand = null;
     }
     const next = this.nextUp();
     if (!next) return null;
+    // average cost of that line on the pallet goes with the sheet
+    const unit = this.stock[next.type] > 0 ? this.stockValue[next.type] / this.stock[next.type] : 0;
     this.stock[next.type] -= 1;
+    this.stockValue[next.type] = Math.max(0, this.stockValue[next.type] - unit);
+    this.inHandCost = unit;
     this.inHand = next.id;
     const left = this.stock[next.type], word = this.stockWord(next.type);
     if (left === 0) this.say(`Out of ${word}.`, 'bad');
@@ -819,10 +839,11 @@ export class Game {
     // same-day trucks run a few minutes either side of the quote
     const minute = q.day === this.dayIndex ? q.minute + this.rng.int(-s.leadJitter, s.leadJitter) : q.minute;
     this.courierPenaltyPending = false;
-    this.spend(q.boards, 'materials', `${qty} × ${this.stockWord(type)}`);
-    this.typeLedger[type].boards += q.boards;
-    this.spend(q.fee, 'fees', 'delivery fee');
-    const d: Delivery = { id: this.nextDeliveryId++, lines: [{ type, qty }], day: q.day, minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false };
+    // the boards are stock: cash goes, but they're not today's cost until they're cut
+    this.cash -= q.boards;
+    this.say(`-$${q.boards.toFixed(0)} ${qty} × ${this.stockWord(type)} (stock)`, 'money');
+    this.spend(q.fee, 'deliveryFees', 'delivery fee');
+    const d: Delivery = { id: this.nextDeliveryId++, lines: [{ type, qty, unitCost: q.boards / qty }], day: q.day, minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false };
     this.deliveries.push(d);
     this.say(`Ordered ${qty} × ${this.stockWord(type)}. Truck ${q.day === this.dayIndex ? `about ${this.formatTime(q.minute)}` : `tomorrow ${this.formatTime(q.minute)}`}.`, 'good');
     return d;
@@ -835,7 +856,7 @@ export class Game {
     if (!d) return;
     d.stage = 'waiting';
     d.signBy = this.minute + CONFIG.supply.signWindowMinutes;
-    if (d.feeOwed) { this.spend(CONFIG.supply.deliveryFee, 'fees', 'redelivery fee'); d.feeOwed = false; }
+    if (d.feeOwed) { this.spend(CONFIG.supply.deliveryFee, 'deliveryFees', 'redelivery fee'); d.feeOwed = false; }
     this.say(`Ply truck's here: ${d.lines.map(l => `${l.qty} × ${this.stockWord(l.type)}`).join(', ')}. Needs a signature.`, 'info');
   }
 
@@ -843,6 +864,21 @@ export class Game {
     const d = this.truckOnApron;
     if (d?.stage === 'waiting' && this.minute >= d.signBy) this.driverLeaves(d);
     this.arriveDeliveries();
+  }
+
+  /** A sheet off the truck onto the pallet, at what it cost. */
+  private addStock(d: Delivery, t: JobTypeId) {
+    this.stock[t] += 1;
+    this.stockValue[t] += d.lines.find(l => l.type === t)?.unitCost ?? 0;
+  }
+
+  /** Ply on the pallet (and in your hands): what it cost, and how many sheets. */
+  get plyOnHand(): { value: number; sheets: number } {
+    const held = this.inHand !== null ? 1 : 0;
+    return {
+      value: Object.values(this.stockValue).reduce((a, b) => a + b, 0) + (held ? this.inHandCost : 0),
+      sheets: Object.values(this.stock).reduce((a, b) => a + b, 0) + held,
+    };
   }
 
   private driverLeaves(d: Delivery) {
@@ -867,7 +903,7 @@ export class Game {
   unloadBundle(id: number, walked = false): boolean {
     const d = this.deliveries.find(x => x.id === id);
     if (!d || d.stage !== 'unloading' || !d.bundles.length || this.phase !== 'day' || !this.canAct) return false;
-    for (const t of d.bundles.shift()!) this.stock[t] += 1;
+    for (const t of d.bundles.shift()!) this.addStock(d, t);
     if (!walked) this.busy = { label: 'unloading ply', remaining: this.walkMinutes(CONFIG.supply.unloadTripMinutes) };
     if (!d.bundles.length) {
       this.deliveries = this.deliveries.filter(x => x.id !== id);
@@ -1129,12 +1165,15 @@ export class Game {
     if (truck?.stage === 'waiting') this.driverLeaves(truck);
     else if (truck?.stage === 'unloading') {
       // the driver won't wait past knock-off: what's left goes on the pallet with the forklift
-      for (const t of truck.bundles.flat()) this.stock[t] += 1;
+      for (const t of truck.bundles.flat()) this.addStock(truck, t);
       this.deliveries = this.deliveries.filter(x => x.id !== truck.id);
       this.say('Driver forklifted the rest onto the pallet.');
     }
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
     this.fire = null; this.fireResponse = null; this.spraying = false;
+    const ply = this.plyOnHand;
+    this.today.plyOnHandValue = Math.round(ply.value);
+    this.today.plyOnHandSheets = ply.sheets;
     this.phase = 'daySummary';
   }
 

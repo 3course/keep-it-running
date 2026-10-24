@@ -7,16 +7,20 @@ import { copyText } from './clipboard.js';
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
 
-function pnl(d: DayStats): string {
+/** The P&L: boards are charged as they're cut, not when they're bought; what's left on the pallet is stock. */
+function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
   const margin = d.revenue > 0 ? (d.revenue - d.costs) / d.revenue : 0;
   const row = (k: string, v: string, cls = '') => `<div class="row ${cls}"><span>${k}</span><span>${v}</span></div>`;
   const mcls = margin >= 0.15 ? 'good' : margin >= 0 ? 'money' : 'bad';
+  const other = d.consumables + d.fixes + d.beer + d.fees;
   return row('Revenue', money(d.revenue), 'money')
-    + row('&nbsp;&nbsp;Materials', money(-d.materials), 'dim') + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
-    + row('&nbsp;&nbsp;Consumables', money(-d.consumables), 'dim') + row('&nbsp;&nbsp;Fault fixes', money(-d.fixes), 'dim')
-    + row('&nbsp;&nbsp;Beer', money(-d.beer), 'dim') + row('&nbsp;&nbsp;Fees', money(-d.fees), 'dim')
+    + row('&nbsp;&nbsp;Boards used', money(-d.materials), 'dim') + row('&nbsp;&nbsp;Delivery fees', money(-d.deliveryFees), 'dim')
+    + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
+    + row('&nbsp;&nbsp;Other costs', money(-other), 'dim')
     + row('Operating profit', money(d.revenue - d.costs), d.revenue - d.costs >= 0 ? 'good' : 'bad')
-    + row('Operating margin', pct(margin), mcls) + row('Capex (upgrades)', money(-d.upgrades), 'dim');
+    + row('Operating margin', pct(margin), mcls) + row('Capex (upgrades)', money(-d.upgrades), 'dim')
+    + row('Ply on hand', `${money(ply.value)} (${ply.sheets} sheet${ply.sheets === 1 ? '' : 's'})`, 'money')
+    + `<p class="dim small">Other: parts ${money(d.consumables)}, fixes ${money(d.fixes)}, beer ${money(d.beer)}, fees ${money(d.fees)}. Ply on hand is stock you've paid for, not a cost yet.</p>`;
 }
 
 function dayVerdict(d: DayStats): string {
@@ -42,7 +46,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
   el.innerHTML = `
     <h1>End of day ${d.day}</h1>
     <p class="sub">Cash ${money(g.cash)} · Rapport ${g.rapport}</p>
-    <section><h2>P&amp;L</h2>${pnl(d)}</section>
+    <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
     <section><h2>Shop floor</h2>${floor.map(([k, v]) => `<div class="row"><span class="dim">${k}</span><span>${v}</span></div>`).join('')}
       <p class="verdict">${dayVerdict(d)}</p></section>
     <section><h2>Upgrade shop</h2>${CONFIG.upgrades.map(u => {
@@ -70,8 +74,9 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
   const total = g.week.reduce<DayStats>((acc, d) => {
     for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k];
     return acc;
-  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0 });
+  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, plyOnHandValue: 0, plyOnHandSheets: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
+  const last = g.week[g.week.length - 1]; // stock is a snapshot at close, not a sum
   total.costs += g.weekOverheads;
   const wm = total.revenue > 0 ? (total.revenue - total.costs) / total.revenue : 0;
   const verdict = g.cash < 0 ? "You're overdrawn. The bank will be calling all next week."
@@ -81,7 +86,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
   el.innerHTML = `
     <h1>Week closed</h1>
     <p class="sub ${g.cash >= 0 ? 'money' : 'bad'}">Cash in the bank: ${money(g.cash)}</p>
-    <section><h2>Week P&amp;L</h2>${pnl(total)}<p class="dim small">Fees include ${money(g.weekOverheads)} weekly overheads.</p></section>
+    <section><h2>Week P&amp;L</h2>${pnl(total, { value: last?.plyOnHandValue ?? 0, sheets: last?.plyOnHandSheets ?? 0 })}<p class="dim small">Fees include ${money(g.weekOverheads)} weekly overheads.</p></section>
     <section><h2>By day</h2><div class="row dim small"><span>Day · Rev · Cost</span><span>Margin · Done · Scrap</span></div>
       ${g.week.map(d => {
         const m = d.revenue > 0 ? (d.revenue - d.costs) / d.revenue : 0;

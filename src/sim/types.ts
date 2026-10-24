@@ -104,7 +104,7 @@ export interface Distraction {
  */
 export interface Delivery {
   id: number;
-  lines: { type: JobTypeId; qty: number }[];
+  lines: { type: JobTypeId; qty: number; unitCost: number }[]; // unitCost: what each sheet cost, carried onto the pallet
   day: number;            // Game.dayIndex it arrives
   minute: number;         // minutes since midnight it arrives
   stage: 'due' | 'waiting' | 'unloading';
@@ -152,6 +152,9 @@ export interface DayStats {
   sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
+  deliveryFees: number;    // ply delivery (and redelivery) fees
+  plyOnHandValue: number;  // at close: what the ply on the pallet (and in hand) cost — an asset, not a cost
+  plyOnHandSheets: number;
   fumbles: number;         // steps that had to be redone (beer)
   looTrips: number;
   beers: number;
