@@ -126,7 +126,7 @@ export const CONFIG = {
     signMinutes: 1,
     lowStockBelow: 5,               // the notepad warns once a line drops below this
     // day 1: a truck that was ordered (and paid for) last week is at the door when the tour starts
-    firstDelivery: { formwork: 6, joinery: 5, signage: 3 },
+    firstDelivery: { formwork: 8, joinery: 6, signage: 4 }, // nothing starts at its reorder point
   },
 
   competence: {
