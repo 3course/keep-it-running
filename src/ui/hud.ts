@@ -64,6 +64,8 @@ const CSS = `
 #kir-hud .ply .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0; }
 #kir-hud .ply .row .name { flex: 1 0 100%; font-size: ${F(18)}; line-height: 1.2; }
 #kir-hud .ply .row .name small { color: #a2937f; font-size: ${F(15)}; display: block; }
+#kir-hud .ply .row .name small.coming { color: #8fd37a; }
+#kir-hud .ply p.warn { color: #f2c76b; font-size: ${F(19)}; }
 #kir-hud .ply .row button { flex: 1; margin: 0; min-width: 0; min-height: ${F(56)}; padding: 6px 2px; font-size: ${F(18)}; background: #4e8a46; line-height: 1.15; }
 #kir-hud .ply .row button small { display: block; font-size: ${F(13)}; color: #d8ecd0; }
 #kir-hud .ply .row button em { display: block; font-size: ${F(12)}; font-style: normal; color: #f2c76b; white-space: nowrap; }
@@ -292,7 +294,7 @@ export class Hud {
     this.updateToast(log);
     const ot = g.overtime ? ' · OT' : '';
     const cashCls = g.cash < 0 ? 'cash neg' : 'cash';
-    const html = `${g.formatTime()}${ot}<br><span class="${cashCls}">${money(g.cash)}</span>`;
+    const html = `${g.formatTime()}${ot}<br><span class="${cashCls}">${money(g.cash)}${g.cash < 0 ? ' overdrawn' : ''}</span>`;
     if (this.clock.innerHTML !== html) this.clock.innerHTML = html;
 
     const urgent = items.filter(i => i.urgent).length;
@@ -328,17 +330,26 @@ export class Hud {
     const live = () => performance.now() - opened > 350;
     const render = () => {
       const s = CONFIG.supply;
+      // what's already coming, and when
+      const coming = (t: JobTypeId) => g.deliveries.flatMap(d => d.lines.filter(l => l.type === t).map(l => {
+        const when = d.stage !== 'due' ? 'on the apron now' : d.day === g.dayIndex ? `arriving ${g.formatTime(d.minute)}` : `tomorrow ${g.formatTime(d.minute)}`;
+        return `${l.qty} ${g.stockWord(t)} ${when}`;
+      }));
       const rows = CONFIG.jobs.types.map(t => {
         const buttons = s.orderSizes.map(n => {
           const q = g.plyQuote(t.id, n);
-          return 'error' in q ? `<button disabled>${n}</button>`
-            : `<button data-t="${t.id}" data-n="${n}">${n}<small>${money(q.boards + q.fee)}</small>${q.fee ? '' : '<em>no fee</em>'}</button>`;
+          if ('error' in q) return `<button disabled>${n}<small>${q.broke ? "Can't afford it" : '—'}</small></button>`;
+          const cost = q.boards + q.fee;
+          return `<button data-t="${t.id}" data-n="${n}">${n}<small>${money(cost)}${q.fee ? '' : ' no fee'}</small><em>→ ${money(g.cash - cost)}</em></button>`;
         }).join('');
-        return `<div class="row"><div class="name">${esc(t.material)}<small>${g.stock[t.id]} on the pallet${g.deliveries.some(d => d.lines.some(l => l.type === t.id)) ? ' · more coming' : ''}</small></div>${buttons}</div>`;
+        const onOrder = coming(t.id);
+        return `<div class="row"><div class="name">${esc(t.material)}<small>${g.stock[t.id]} on the pallet</small>${onOrder.map(o => `<small class="coming">${esc(o)}</small>`).join('')}</div>${buttons}</div>`;
       }).join('');
-      const any = g.plyQuote(CONFIG.jobs.types[0].id, s.orderSizes[0]);
-      const when = 'error' in any ? any.error : any.day === g.dayIndex ? `Truck in about ${s.leadMinutes} minutes.` : `After ${s.cutoffHour > 12 ? s.cutoffHour - 12 : s.cutoffHour}pm it comes tomorrow, ${g.formatTime(any.minute)}.`;
-      this.ply.innerHTML = `<div class="card"><h1>Order ply</h1><p>${esc(when)} Prices include delivery: ${money(s.deliveryFee)}, free on ${s.freeDeliveryFrom} sheets.</p>${rows}<button class="close">Never mind</button></div>`;
+      const left = g.trucksLeftToday;
+      const when = left > 0
+        ? `<p>${left} truck${left === 1 ? '' : 's'} left today · about ${s.leadMinutes} minutes.</p>`
+        : `<p class="warn">Lands tomorrow morning (${g.formatTime(s.morningMinute)}).</p>`;
+      this.ply.innerHTML = `<div class="card"><h1>Order ply</h1>${when}<p>Cash ${money(g.cash)} · overdraft to ${money(-CONFIG.economy.overdraftLimit)}. Delivery ${money(s.deliveryFee)}, free on ${s.freeDeliveryFrom}. → is cash after.</p>${rows}<button class="close">Never mind</button></div>`;
       for (const b of Array.from(this.ply.querySelectorAll<HTMLButtonElement>('button[data-t]'))) {
         b.addEventListener('click', () => { if (!live()) return; order(b.dataset.t as JobTypeId, Number(b.dataset.n)); this.hidePlyOrder(); });
       }

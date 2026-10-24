@@ -82,8 +82,8 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (w.utePresent) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'rollerDoor');
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
   if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.nextUp() && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
-  // work on the board with no ply for it, and none coming today
-  const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.day === g.dayIndex && d.lines.some(l => l.type === t)));
+  // work on the board with no ply for it, and nothing for it on order
+  const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.lines.some(l => l.type === t)));
   if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, ['phone', 'desk']);
 
   // voicemails sit under the main list: they'll wait, but not forever

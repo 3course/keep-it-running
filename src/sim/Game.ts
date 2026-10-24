@@ -21,7 +21,7 @@ function emptyStats(day: number): DayStats {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
-    deliveryFees: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
+    deliveryFees: 0, overdraftFees: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
   };
 }
 
@@ -810,11 +810,16 @@ export class Game {
 
   // ---------- ply supply ----------
 
+  /** Same-day truck slots still free (none after the cut-off). */
+  get trucksLeftToday(): number {
+    return this.minute >= CONFIG.supply.cutoffHour * 60 ? 0 : Math.max(0, CONFIG.supply.maxDeliveriesPerDay - this.deliveriesOn(this.dayIndex));
+  }
+
   private deliveriesOn(day: number) { return this.deliveries.filter(d => d.day === day && !d.feeOwed).length; }
   get truckOnApron(): Delivery | undefined { return this.deliveries.find(d => d.stage === 'waiting' || d.stage === 'unloading'); }
 
   /** What an order would cost and when it'd turn up, or why it can't be placed. */
-  plyQuote(type: JobTypeId, qty: number): { boards: number; fee: number; day: number; minute: number } | { error: string } {
+  plyQuote(type: JobTypeId, qty: number): { boards: number; fee: number; day: number; minute: number } | { error: string; broke?: boolean } {
     const s = CONFIG.supply;
     if (this.phase !== 'day') return { error: 'Supplier is closed.' };
     if (!(s.orderSizes as readonly number[]).includes(qty)) return { error: 'They sell it in 4s.' };
@@ -822,6 +827,8 @@ export class Game {
     let boards = Math.round(t.boardCost * this.materialMult()) * qty;
     if (this.courierPenaltyPending) boards = Math.round(boards * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
     const fee = qty >= s.freeDeliveryFrom ? 0 : s.deliveryFee;
+    // the supplier won't take you past the overdraft limit
+    if (this.cash - boards - fee < -CONFIG.economy.overdraftLimit) return { error: "Can't afford it", broke: true };
     if (this.minute < s.cutoffHour * 60 && this.deliveriesOn(this.dayIndex) < s.maxDeliveriesPerDay) {
       return { boards, fee, day: this.dayIndex, minute: this.minute + s.leadMinutes };
     }
@@ -1162,6 +1169,7 @@ export class Game {
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     for (const c of [...this.callbacks]) this.loseCallback(c); // nobody rings back after knock-off
+    if (this.cash < 0) { this.spend(CONFIG.economy.overdraftFeePerDay, 'overdraftFees', 'overdraft fee'); }
     const truck = this.truckOnApron;
     if (truck?.stage === 'waiting') this.driverLeaves(truck);
     else if (truck?.stage === 'unloading') {

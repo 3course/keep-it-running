@@ -17,6 +17,8 @@ export const CONFIG = {
     startingCash: 1500,
     latePayFraction: 0.8,   // late sheets pay this fraction of price
     bankFee: 50,            // fee when you ignore the bank
+    overdraftLimit: 1000,   // the supplier won't take an order that would put cash below -this
+    overdraftFeePerDay: 25, // charged at close on any day that ends overdrawn
     weeklyOverheads: 900,   // rent/power/insurance, taken at end of week
   },
 

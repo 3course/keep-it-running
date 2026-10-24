@@ -13,10 +13,11 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
   const row = (k: string, v: string, cls = '') => `<div class="row ${cls}"><span>${k}</span><span>${v}</span></div>`;
   const mcls = margin >= 0.15 ? 'good' : margin >= 0 ? 'money' : 'bad';
   const other = d.consumables + d.fixes + d.beer + d.fees;
+  const overdraft = d.overdraftFees ? row('&nbsp;&nbsp;Overdraft fee', money(-d.overdraftFees), 'bad') : '';
   return row('Revenue', money(d.revenue), 'money')
     + row('&nbsp;&nbsp;Boards used', money(-d.materials), 'dim') + row('&nbsp;&nbsp;Delivery fees', money(-d.deliveryFees), 'dim')
     + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
-    + row('&nbsp;&nbsp;Other costs', money(-other), 'dim')
+    + row('&nbsp;&nbsp;Other costs', money(-other), 'dim') + overdraft
     + row('Operating profit', money(d.revenue - d.costs), d.revenue - d.costs >= 0 ? 'good' : 'bad')
     + row('Operating margin', pct(margin), mcls) + row('Capex (upgrades)', money(-d.upgrades), 'dim')
     + row('Ply on hand', `${money(ply.value)} (${ply.sheets} sheet${ply.sheets === 1 ? '' : 's'})`, 'money')
@@ -74,7 +75,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
   const total = g.week.reduce<DayStats>((acc, d) => {
     for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k];
     return acc;
-  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0 });
+  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
   const last = g.week[g.week.length - 1]; // stock is a snapshot at close, not a sum
   total.costs += g.weekOverheads;

@@ -154,6 +154,7 @@ export interface DayStats {
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
   deliveryFees: number;    // ply delivery (and redelivery) fees
+  overdraftFees: number;   // a day that closed overdrawn
   trucks: number;          // ply trucks that turned up (redeliveries included)
   plyOnHandValue: number;  // at close: what the ply on the pallet (and in hand) cost — an asset, not a cost
   plyOnHandSheets: number;
