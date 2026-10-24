@@ -2,7 +2,6 @@
 // Game.ts isn't touched: its fields (including private ones, which are ordinary properties at runtime)
 // are copied out and back in, with the few non-JSON bits (RNG state, the upgrade Set, fault references,
 // the current-job reference) handled by hand.
-import type Phaser from 'phaser';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
 import { Rng } from '../sim/rng.js';
@@ -10,7 +9,7 @@ import type { Job } from '../sim/types.js';
 import type { WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
 
-const SAVE_VERSION = 1;
+const SAVE_VERSION = 2; // 2: positions in metres (Three.js world)
 
 interface SaveFile { v: number; savedAt: number; game: Record<string, unknown>; world: WorldState }
 
@@ -64,11 +63,4 @@ export function readSave(): { game: Game; world: WorldState } | null {
 
 export function clearSave() {
   try { localStorage.removeItem(WORLD.saveKey); } catch { /* ignore */ }
-}
-
-/** Save from anywhere (summary scenes) using the live objects in the Phaser registry. */
-export function saveFromRegistry(registry: Phaser.Data.DataManager) {
-  const g = registry.get('game') as Game | undefined;
-  const w = registry.get('world') as WorldState | undefined;
-  if (g && w) writeSave(g, w);
 }

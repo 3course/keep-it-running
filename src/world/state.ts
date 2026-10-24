@@ -12,8 +12,8 @@ export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcut
 export interface WorldState {
   v: 1;
   dayIndex: number;              // Game.dayIndex this state belongs to (a new day resets the per-day parts)
-  px: number; py: number;        // player position, px
-  fx: number; fy: number;        // facing (unit-ish vector)
+  px: number; py: number;        // player position in metres on the floor (x, z)
+  fx: number; fy: number;        // facing (unit vector on the floor, x and z)
   carrying: Carry | null;
   extinguisherFrom: 'wall' | 'shed' | null; // which hook the carried extinguisher came off
   hooks: { wall: boolean; shed: boolean };  // extinguishers hanging up
@@ -34,7 +34,7 @@ export interface WorldState {
 export const absMinute = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
 
 export function newWorld(g: Game): WorldState {
-  const t = WORLD.tile;
+  const t = WORLD.cell;
   return {
     v: 1, dayIndex: g.dayIndex,
     px: (START_TILE.x + 0.5) * t, py: (START_TILE.y + 0.5) * t, fx: 0, fy: -1,
@@ -47,7 +47,7 @@ export function newWorld(g: Game): WorldState {
 
 /** Overnight: back at the roller door, hands empty, extinguishers rehung, pickups collected. The bed keeps what's on it. */
 export function startNewDay(w: WorldState, g: Game) {
-  const t = WORLD.tile;
+  const t = WORLD.cell;
   w.dayIndex = g.dayIndex;
   w.px = (START_TILE.x + 0.5) * t; w.py = (START_TILE.y + 0.5) * t; w.fx = 0; w.fy = -1;
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed

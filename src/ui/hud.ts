@@ -1,7 +1,8 @@
 // Goose-style HUD as plain DOM laid over the canvas: clock and cash top-right, a notepad tab on the
-// left edge, and the few modal moments (5pm, paused). DOM keeps the text crisp at any phone scale
-// and stays clear of the world camera's zoom.
+// left edge, floating action labels on objects, the virtual stick, and the few modal moments
+// (5pm, paused, end of day/week). DOM keeps text crisp over the chunky low-res 3D render.
 import { CONFIG } from '../config.js';
+import { BUILD_TAG } from './clipboard.js';
 import type { Game } from '../sim/Game.js';
 import type { ObjectId } from '../world/layout.js';
 import type { TodoItem } from '../world/todo.js';
@@ -46,6 +47,38 @@ const CSS = `
 #kir-hud .modal .go { background: #4e8a46; } #kir-hud .modal .ot { background: #9e3d3d; }
 #kir-hud .paused { cursor: pointer; }
 #kir-hud .paused .card { border-color: #a2937f; }
+#kir-hud .labels { position: absolute; inset: 0; pointer-events: none; }
+#kir-hud .lbl { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column-reverse; align-items: center; gap: 5px; }
+#kir-hud .lbl button { pointer-events: auto; font: 600 15px 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
+  border-radius: 8px; padding: 7px 11px; box-shadow: 0 3px 0 #14110f; white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; touch-action: none; }
+#kir-hud .lbl button.hold { background: #f2a35b; }
+#kir-hud .lbl button.held { background: #8fd37a; }
+#kir-hud .lbl .status { font: 12px 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.8); padding: 4px 7px; border-radius: 5px;
+  white-space: pre-line; text-align: center; max-width: 270px; }
+#kir-hud .stick { position: absolute; width: 88px; height: 88px; margin: -44px 0 0 -44px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
+  background: rgba(20,17,15,.15); display: none; pointer-events: none; }
+#kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: rgba(255,255,255,.6); }
+#kir-hud .tag { position: absolute; right: 4px; bottom: 2px; font: 9px 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
+#kir-hud .summary { position: absolute; inset: 0; background: #14110f; color: #efe6d8; pointer-events: auto; overflow-y: auto; display: none;
+  padding: 14px 14px 30px; box-sizing: border-box; font: 13px 'Courier New', monospace; }
+#kir-hud .summary h1 { font-size: 22px; font-weight: normal; margin: 0; }
+#kir-hud .summary h2 { font-size: 11px; color: #a2937f; margin: 0 0 6px; font-weight: normal; letter-spacing: 1px; text-transform: uppercase; }
+#kir-hud .summary .sub { color: #a2937f; margin: 4px 0 10px; }
+#kir-hud .summary section { background: #241f1a; border: 2px solid #4a3f33; padding: 8px 12px; margin-bottom: 8px; }
+#kir-hud .summary .row { display: flex; justify-content: space-between; line-height: 20px; }
+#kir-hud .summary .small { font-size: 11px; }
+#kir-hud .summary .dim { color: #a2937f; } #kir-hud .summary .good { color: #8fd37a; } #kir-hud .summary .bad { color: #f08a6b; } #kir-hud .summary .money { color: #f2c76b; }
+#kir-hud .summary .verdict { margin: 8px 0 2px; }
+#kir-hud .summary .upg { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 6px 0; }
+#kir-hud .summary .upg small { color: #a2937f; }
+#kir-hud .summary button { font: inherit; color: #efe6d8; background: #8f5a22; border: 0; padding: 9px 14px; cursor: pointer; }
+#kir-hud .summary button:disabled { background: #4a4540; color: #a2937f; }
+#kir-hud .summary .upg button { background: #4e8a46; min-width: 80px; }
+#kir-hud .summary .upg button:disabled { background: #4a4540; color: #a2937f; }
+#kir-hud .summary .next { display: block; width: 220px; margin: 12px auto 6px; font-size: 15px; }
+#kir-hud .summary .feedback { text-align: center; margin: 10px 0 6px; }
+#kir-hud .summary .copy { display: block; margin: 0 auto; background: #3d6f9e; }
+#kir-hud .summary .status { text-align: center; color: #a2937f; font-size: 11px; }
 `;
 
 export interface HudCallbacks {
@@ -65,6 +98,10 @@ export class Hud {
   private catcher: HTMLDivElement;
   private eod: HTMLDivElement;
   private pausedEl: HTMLDivElement;
+  private stick: HTMLDivElement;
+  private knob: HTMLDivElement;
+  private summary: HTMLDivElement;
+  readonly labels: HTMLDivElement;
   private padSig = '';
   private onResize = () => this.layout();
   isOpen = false;
@@ -92,7 +129,13 @@ export class Hud {
     this.pausedEl = el('div', { className: 'modal paused' });
     this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p></div>`;
     this.pausedEl.addEventListener('click', () => this.cb.togglePause());
-    this.stage.append(this.catcher, this.clock, this.tab, this.pad, this.eod, this.pausedEl);
+    this.labels = el('div', { className: 'labels' });
+    this.stick = el('div', { className: 'stick' });
+    this.knob = el('div', { className: 'knob' });
+    this.stick.appendChild(this.knob);
+    this.summary = el('div', { className: 'summary' });
+    const tag = el('div', { className: 'tag', textContent: BUILD_TAG });
+    this.stage.append(this.labels, this.stick, this.catcher, this.clock, this.tab, this.pad, this.eod, this.summary, this.pausedEl, tag);
     document.body.appendChild(this.root);
     window.addEventListener('resize', this.onResize);
     this.layout();
@@ -151,6 +194,26 @@ export class Hud {
   }
   hideEndOfDay() { this.eod.style.display = 'none'; }
   get endOfDayShowing() { return this.eod.style.display === 'flex'; }
+
+  /** Logical-px scale of the stage (CSS px per logical px). */
+  get scale() { return this.canvas.getBoundingClientRect().width / WORLD.view.width; }
+  /** Client (CSS) coordinates → logical 390x844 coordinates. */
+  toLogical(clientX: number, clientY: number) {
+    const r = this.canvas.getBoundingClientRect(), k = r.width / WORLD.view.width;
+    return { x: (clientX - r.left) / k, y: (clientY - r.top) / k };
+  }
+
+  showStick(x: number, y: number, dx: number, dy: number) {
+    Object.assign(this.stick.style, { display: 'block', left: `${x}px`, top: `${y}px` });
+    this.knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+  hideStick() { this.stick.style.display = 'none'; }
+
+  /** Show the end-of-day/week screen; returns the element to fill. */
+  showSummary(): HTMLDivElement { this.close(); this.summary.style.display = 'block'; this.summary.scrollTop = 0; return this.summary; }
+  hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
+  get summaryShowing() { return this.summary.style.display === 'block'; }
+  setHudVisible(v: boolean) { for (const e of [this.clock, this.tab, this.labels]) e.style.visibility = v ? 'visible' : 'hidden'; }
 
   destroy() {
     window.removeEventListener('resize', this.onResize);
