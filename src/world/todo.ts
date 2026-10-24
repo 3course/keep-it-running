@@ -53,7 +53,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (g.fault) add(true, `fault-${g.fault.def.id}`, `Sort out the ${g.fault.def.name.toLowerCase()}`, 'machine');
   for (const d of g.distractions) {
     if (d.kind === 'courier') add(true, `courier-${d.id}`, 'Sign for the delivery', 'rollerDoor');
-    else if (d.kind === 'friend') add(true, `mate-${d.id}`, `${d.title.replace(' wandered in', '')} is at the smoko chairs`, 'smoko');
+    else if (d.kind === 'friend') add(true, `mate-${d.id}`, `${g.mateName(d)}'s at the door`, 'smoko');
   }
   if (w.bed === 'done') add(true, 'unload', 'Unload the machine', 'machine');
   if (w.bed === 'scrap' && !g.fault) add(true, 'scrap', 'Clear the scrap off the bed', 'machine');

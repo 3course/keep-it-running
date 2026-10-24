@@ -1,5 +1,6 @@
 import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
+import { MATES, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
@@ -21,7 +22,7 @@ function emptyStats(day: number): DayStats {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
-    deliveryFees: 0, overdraftFees: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
+    deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
   };
 }
 
@@ -79,6 +80,7 @@ export class Game {
   distractions: Distraction[] = [];
   busy: { label: string; remaining: number } | null = null; // on the phone etc.
   nextDistractionId = 1;
+  lastMate: string | null = null; // never the same mate twice running
   callbacks: Callback[] = [];  // voicemails from order calls that rang out, oldest first
 
   // competence
@@ -643,10 +645,11 @@ export class Game {
     let dist: Distraction;
     switch (kind) {
       case 'friend': {
-        const who = this.rng.pick(['Macca', 'Jules', 'Big Tony', 'Sal from next door', 'Your brother-in-law']);
+        const mate = this.rng.pick(MATES.filter(m => m.id !== this.lastMate));
+        this.lastMate = mate.id;
         let dur = this.rng.int(d.friend.durationMin, d.friend.durationMax);
         if (this.beersToday > 0) dur = Math.round(dur * CONFIG.beer.friendDurationMult);
-        dist = { id, kind, title: `${who} wandered in`, line: '"Mate. Got a sec?"', remaining: dur, engaged: false, hover: d.friend.hoverMinutes };
+        dist = { id, kind, title: `${mate.name}'s at the door`, line: mate.line, remaining: dur, engaged: false, hover: d.friend.hoverMinutes, mate: mate.id };
         break;
       }
       case 'phone':
@@ -1000,7 +1003,12 @@ export class Game {
           this.say(`"Sorry mate, flat out." (-${d.friend.disengageRapportCost} rapport)`);
         } else if (!dist.engaged) {
           dist.engaged = true;
-          this.say('"Yeah go on, what\'s up?"');
+          if (this.fridgeOpen && !dist.grabbedBeer) {
+            // after 2pm a yes means a beer for them out of your fridge, and a proper chat
+            this.mateBeer(dist);
+            dist.remaining = d.friend.beerChatMinutes;
+            this.say(`"Go on then." A beer for ${this.mateName(dist)}.`);
+          } else this.say('"Yeah go on, what\'s up?"');
         }
         return true;
       case 'phone':
@@ -1135,10 +1143,26 @@ export class Game {
     // a mate who's in, and empties all over the place: they take that as an invitation
     const mate = this.distractions.find(d => d.kind === 'friend' && !d.grabbedBeer);
     if (mate && this.emptiesAbout >= b.mateGrabsBeerAt) {
-      mate.grabbedBeer = true;
-      this.spend(b.cost, 'beer', 'beer');
-      this.say(`${mate.title.replace(' wandered in', '')} grabbed a beer from the fridge.`, 'bad');
+      this.mateBeer(mate);
+      this.say(`${this.mateName(mate)} grabbed a beer from the fridge.`, 'bad');
     }
+    // the mate who joins you if you're having one: you are, so they don't ask
+    const joiner = this.distractions.find(d => d.kind === 'friend' && !d.engaged && !d.grabbedBeer && mateById(d.mate)?.grabsIfYoureDrinking);
+    const can = this.heldCan;
+    if (joiner && can && can.fill > 0 && this.fridgeOpen) {
+      this.mateBeer(joiner);
+      this.addRapport(CONFIG.distractions.friend.chatRapportGain);
+      this.removeDistraction(joiner.id);
+      this.say(`${this.mateName(joiner)} grabbed a beer from the fridge and headed off happy.`, 'good');
+    }
+  }
+
+  mateName(d: Distraction): string { return mateById(d.mate)?.name ?? d.title.replace(/'s at the door$/, ''); }
+
+  /** One of your beers, for a mate. */
+  private mateBeer(d: Distraction) {
+    d.grabbedBeer = true;
+    this.spend(CONFIG.beer.cost, 'mateBeer', `beer for ${this.mateName(d)}`);
   }
 
   knockOff() {

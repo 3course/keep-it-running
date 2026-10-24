@@ -58,6 +58,7 @@ const CSS = `
 #kir-hud .log button { align-self: center; background: #4a4540; }
 #kir-hud .bubble { position: absolute; transform: translate(-50%, -100%); background: #f4ecd2; color: #2b2418; font: ${F(20)} ${HAND};
   padding: 6px 12px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.4); white-space: nowrap; pointer-events: none; display: none; }
+#kir-hud .bubble.say { white-space: normal; width: max-content; max-width: ${F(250)}; text-align: center; line-height: 1.2; }
 #kir-hud .bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -6px; border: 7px solid transparent; border-bottom: 0; border-top-color: #f4ecd2; }
 #kir-hud .modal.ply .card { width: calc(100% - 16px); max-width: 380px; text-align: left; padding: 14px 12px; }
 #kir-hud .ply h1, #kir-hud .ply p { text-align: center; }
@@ -175,6 +176,7 @@ export class Hud {
   private sheetsOpen = false; // "+ N more jobs" expanded
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
+  readonly mateBubble: HTMLDivElement; // what the mate at the door is saying
   private canChip: HTMLButtonElement;
   private tag!: HTMLDivElement;
   /** A note after the build tag: which render tier this device is on, when it isn't the full one. */
@@ -217,6 +219,7 @@ export class Hud {
     this.mute = el('button', { className: 'mute' });
     this.ply = el('div', { className: 'modal ply' });
     this.bubble = el('div', { className: 'bubble' });
+    this.mateBubble = el('div', { className: 'bubble say' });
     this.toast = el('div', { className: 'toast' });
     this.toast.addEventListener('click', () => this.showLog());
     this.logPanel = el('div', { className: 'modal log' });
@@ -225,7 +228,7 @@ export class Hud {
     this.canChip.style.display = 'none';
     this.canChip.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.cb.putCanDown(); });
     this.mute.addEventListener('click', e => { e.stopPropagation(); this.setMuted(this.cb.toggleMute()); });
-    this.stage.append(this.labels, this.bubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
+    this.stage.append(this.labels, this.bubble, this.mateBubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
     document.body.appendChild(this.root);
     window.addEventListener('resize', this.onResize);
     this.layout();

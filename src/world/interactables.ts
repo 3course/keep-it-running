@@ -156,9 +156,12 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'smoko': {
       const mate = g.distractions.find(d => d.kind === 'friend');
       if (!mate) return [];
-      const who = mate.title.replace(' wandered in', '');
+      const who = g.mateName(mate);
       const a: Action[] = [];
-      if (!mate.engaged) a.push({ label: 'Have a yarn', done: `Yarning with ${who}`, run: () => { g.respond(mate.id, 'chat'); } });
+      const beer = g.fridgeOpen && !mate.grabbedBeer; // after 2pm, yes means a beer for them
+      if (!mate.engaged) a.push(beer
+        ? { label: `Grab ${who} a beer (${money(CONFIG.beer.cost)})`, auto: false, done: `Having a beer with ${who}`, run: () => { g.respond(mate.id, 'chat'); } }
+        : { label: 'Have a yarn', done: `Yarning with ${who}`, run: () => { g.respond(mate.id, 'chat'); } });
       a.push({ label: '"Flat out, sorry"', auto: false, done: `Sent ${who} off`, run: () => { g.respond(mate.id, 'disengage'); } });
       return a;
     }
@@ -227,7 +230,7 @@ ${work}`;
     case 'toilet': return w.toiletUntil ? `Occupied… ${Math.max(0, w.toiletUntil - absMinute(g))}m` : null;
     case 'smoko': {
       const mate = g.distractions.find(d => d.kind === 'friend');
-      return mate ? `${mate.title.replace(' wandered in', '')}: ${mate.engaged ? `chatting, ${mate.remaining}m to go` : '"Mate. Got a sec?"'}` : null;
+      return mate ? `${g.mateName(mate)}: ${mate.engaged ? `chatting, ${mate.remaining}m to go` : `"${mate.line}"`}` : null;
     }
     default: return null;
   }

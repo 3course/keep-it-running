@@ -95,7 +95,8 @@ export interface Distraction {
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
   orderType?: JobTypeId;  // phone: what kind of job the order is
   customer?: string;      // phone: who's calling with the order
-  grabbedBeer?: boolean;  // friend: already helped themselves to one from the fridge
+  grabbedBeer?: boolean;  // friend: already had a beer from your fridge
+  mate?: string;          // friend: which mate (src/data/mates.ts)
 }
 
 /**
@@ -155,6 +156,7 @@ export interface DayStats {
   stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
   deliveryFees: number;    // ply delivery (and redelivery) fees
   overdraftFees: number;   // a day that closed overdrawn
+  mateBeer: number;        // beers your mates had from your fridge
   trucks: number;          // ply trucks that turned up (redeliveries included)
   plyOnHandValue: number;  // at close: what the ply on the pallet (and in hand) cost — an asset, not a cost
   plyOnHandSheets: number;

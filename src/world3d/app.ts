@@ -14,8 +14,9 @@ import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
 import { absMinute, logEvent, startNewDay, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
+import { TOO_EARLY, mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
-import { buildWorld, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
+import { buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { PlayerView } from './player.js';
@@ -101,6 +102,7 @@ export class World3D {
   private canMeshes = new Map<number, THREE.Group>();
   private pendingCan: number | null = null;
   private sipsSeen = 0;
+  private mateSeen: { id: number; at: number } | null = null; // the mate at the door, and when they turned up
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
@@ -327,6 +329,7 @@ export class World3D {
     this.updatePointers();
     this.updateSigns(dt);
     this.updateBubble(dt);
+    this.updateMateBubble();
     this.updateRing();
     if (!this.hud.summaryShowing) {
       this.hud.update(g, todoItems(g, w), w.done);
@@ -834,7 +837,13 @@ export class World3D {
     this.built.vehicles.ute.visible = !courier && w.utePresent;
     const mate = g.distractions.find(d => d.kind === 'friend');
     this.built.mate.visible = !!mate;
-    if (mate) this.built.mate.rotation.y = Math.sin(this.time * 2) * 0.3 + Math.PI * 0.1;
+    if (mate) {
+      this.built.mate.rotation.y = Math.sin(this.time * 2) * 0.3 + Math.PI * 0.1;
+      // each mate always wears the same shirt
+      const shirt = mateById(mate.mate)?.shirt;
+      const body = this.built.mate.children[0] as THREE.Mesh;
+      if (shirt !== undefined && (body.material as THREE.MeshToonMaterial).color.getHex() !== shirt) body.material = toon(shirt);
+    }
 
     // fire and smoke
     const fire = g.fire;
@@ -1007,6 +1016,32 @@ export class World3D {
     b.textContent = this.bubbleText;
     b.style.display = 'block';
     b.style.left = `${p.x.toFixed(1)}px`; b.style.top = `${p.y.toFixed(1)}px`;
+  }
+
+  /**
+   * The mate's line over their head when they turn up (and again when you're close and haven't answered).
+   * Before the fridge opens it gets a follow-up after a beat: too early for a beer, but got a sec?
+   */
+  private updateMateBubble() {
+    const g = this.g, b = this.hud.mateBubble;
+    const mate = g.phase === 'day' ? g.distractions.find(d => d.kind === 'friend') : undefined;
+    if (!mate) { this.mateSeen = null; b.style.display = 'none'; return; }
+    if (this.mateSeen?.id !== mate.id) this.mateSeen = { id: mate.id, at: this.time };
+    const t = this.time - this.mateSeen.at;
+    const close = Math.hypot(this.built.mate.position.x - this.pos.x, this.built.mate.position.z - this.pos.z) < 2.5;
+    const early = !g.fridgeOpen;
+    let text: string | null = null;
+    if (t < 4) text = mate.line;
+    else if (early && t < 8) text = TOO_EARLY;
+    else if (close && !mate.engaged) text = early ? TOO_EARLY : mate.line;
+    if (!text || this.paused) { b.style.display = 'none'; return; }
+    const p = this.project(this.built.mate.position.clone().setY(1.4));
+    if (b.textContent !== text) b.textContent = text;
+    b.style.display = p.behind ? 'none' : 'block';
+    // keep the whole bubble on screen, even when the mate's at the edge (their pointer shows where)
+    const half = b.offsetWidth / 2 + 6;
+    const x = Math.max(half, Math.min(VW - half, p.x)), y = Math.max(b.offsetHeight + 80, Math.min(VH - 20, p.y));
+    b.style.left = `${x.toFixed(1)}px`; b.style.top = `${y.toFixed(1)}px`;
   }
 
   /** Crisp lettering over each doorway's sign (the 3D sign is only a few pixels at this resolution). */
