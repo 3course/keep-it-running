@@ -106,7 +106,7 @@ export const CONFIG = {
     maxActive: 2,
     // friend: hovers for `hoverMinutes` then starts chatting unless you send them off
     friend:  { durationMin: 8, durationMax: 18, hoverMinutes: 3, disengageRapportCost: 5, chatRapportGain: 4, weight: 4,
-               beerChatMinutes: 60 }, // from when the fridge opens, yes to a mate means a beer for them and a chat this long
+               beerChatMinutes: 20 }, // from when the fridge opens, yes to a mate means a beer for them and a chat this long
     // window: game minutes it rings (1 game min = 1 real s) — long enough to finish what you're doing and get to the office
     phone:   { window: 30, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
     // weight 0: board now arrives on real ply deliveries (supply, below), so the random courier is retired
