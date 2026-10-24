@@ -26,7 +26,7 @@ export const WORLD = {
   // camera
   fov: 52,
   camDistance: 13,                     // m from the look-at point
-  camPitchDeg: 45,
+  camPitchDeg: 40,                     // a little lower so the fronts of things show, not just their tops
   camLerp: 4,                          // follow smoothing (1/s)
   camLead: 1.2,                        // m ahead in the direction of travel
   camYawLerp: 1.5,
