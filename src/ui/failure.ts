@@ -4,16 +4,16 @@ import { BUILD_TAG, copyText } from './clipboard.js';
 
 const CSS = `
 #kir-fail { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center;
-  background: rgba(20,17,15,.88); font: 13px 'Courier New', monospace; color: #efe6d8; padding: 16px; box-sizing: border-box; }
+  background: rgba(20,17,15,.88); font: 16px 'Courier New', monospace; color: #efe6d8; padding: 16px; box-sizing: border-box; }
 #kir-fail .card { width: 100%; max-width: 360px; max-height: 100%; overflow-y: auto; background: #241f1a; border: 2px solid #d48a3c;
   padding: 16px; box-sizing: border-box; }
-#kir-fail h1 { font-size: 18px; font-weight: normal; margin: 0 0 8px; }
+#kir-fail h1 { font-size: 24px; font-weight: normal; margin: 0 0 8px; }
 #kir-fail p { color: #a2937f; margin: 6px 0; }
-#kir-fail pre { white-space: pre-wrap; word-break: break-word; background: #14110f; color: #d8cdb8; padding: 8px; font-size: 11px; margin: 10px 0; }
-#kir-fail button, #kir-fail a.btn { display: inline-block; font: inherit; font-size: 14px; color: #efe6d8; border: 0; padding: 9px 12px;
+#kir-fail pre { white-space: pre-wrap; word-break: break-word; background: #14110f; color: #d8cdb8; padding: 8px; font-size: 13px; margin: 10px 0; }
+#kir-fail button, #kir-fail a.btn { display: inline-block; font: inherit; font-size: 18px; color: #efe6d8; border: 0; padding: 12px 14px; min-height: 48px; box-sizing: border-box;
   margin: 4px 6px 0 0; cursor: pointer; text-decoration: none; background: #3d6f9e; }
 #kir-fail a.btn { background: #4e8a46; }
-#kir-fail .status { font-size: 11px; }
+#kir-fail .status { font-size: 14px; }
 #kir-fail.quiet .card { border-color: #a2937f; text-align: center; }
 `;
 

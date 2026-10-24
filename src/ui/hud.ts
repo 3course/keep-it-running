@@ -11,121 +11,128 @@ import { WORLD } from '../world/worldConfig.js';
 const HAND = "'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive";
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 
+/**
+ * A size that scales with the viewport but never drops below `n` real pixels on screen. Every font and
+ * touch target in the HUD goes through this: on a phone the minimums hold, on a big screen it all grows.
+ * (`--k` is the stage's scale: logical px → screen px.)
+ */
+const F = (n: number) => `max(${n}px, calc(${n}px / var(--k, 1)))`;
+
 const CSS = `
 #kir-hud { position: fixed; pointer-events: none; z-index: 10; overflow: hidden; }
 #kir-hud .stage { position: absolute; left: 0; top: 0; width: ${WORLD.view.width}px; height: ${WORLD.view.height}px; transform-origin: 0 0; font-family: 'Courier New', monospace; }
-#kir-hud .clock { position: absolute; right: 10px; top: 10px; pointer-events: auto; padding: 4px 8px; border-radius: 6px;
-  background: rgba(20,17,15,.6); color: #efe6d8; font-size: 13px; text-align: right; line-height: 1.3; cursor: pointer; }
+#kir-hud .clock { position: absolute; right: 10px; top: 10px; pointer-events: auto; padding: 5px 10px; border-radius: 8px; min-height: ${F(48)}; box-sizing: border-box;
+  background: rgba(20,17,15,.6); color: #efe6d8; font-size: ${F(18)}; text-align: right; line-height: 1.25; cursor: pointer; }
 #kir-hud .clock .cash { color: #f2c76b; }
 #kir-hud .clock .neg { color: #f08a6b; }
-#kir-hud .tab { position: absolute; left: 0; top: 120px; width: 30px; height: 96px; pointer-events: auto; cursor: pointer;
-  background: #f4ecd2; border: 1px solid #b9a77a; border-left: none; border-radius: 0 8px 8px 0; box-shadow: 2px 2px 6px rgba(0,0,0,.4);
-  writing-mode: vertical-rl; text-orientation: mixed; font-family: ${HAND}; font-size: 14px; color: #4a3a22; display: flex; align-items: center; justify-content: center; }
-#kir-hud .tab .dot { writing-mode: horizontal-tb; position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; border-radius: 9px;
-  background: #c0281e; color: #fff; font: bold 11px sans-serif; display: none; align-items: center; justify-content: center; }
+#kir-hud .tab { position: absolute; left: 0; top: 150px; width: ${F(48)}; height: ${F(130)}; pointer-events: auto; cursor: pointer;
+  background: #f4ecd2; border: 1px solid #b9a77a; border-left: none; border-radius: 0 10px 10px 0; box-shadow: 2px 2px 6px rgba(0,0,0,.4);
+  writing-mode: vertical-rl; text-orientation: mixed; font-family: ${HAND}; font-size: ${F(20)}; color: #4a3a22; display: flex; align-items: center; justify-content: center; }
+#kir-hud .tab .dot { writing-mode: horizontal-tb; position: absolute; top: -8px; right: -8px; min-width: ${F(24)}; height: ${F(24)}; border-radius: 12px;
+  background: #c0281e; color: #fff; font: bold ${F(15)} sans-serif; display: none; align-items: center; justify-content: center; }
 #kir-hud .tab .dot.pulse { animation: kir-pulse .7s ease-in-out infinite; }
 @keyframes kir-pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(192,40,30,.7); } 50% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(192,40,30,0); } }
 #kir-hud .catcher { position: absolute; inset: 0; pointer-events: auto; display: none; }
-#kir-hud .pad { position: absolute; left: 0; top: 60px; bottom: 60px; width: 300px; pointer-events: auto; transform: translateX(-310px);
+#kir-hud .pad { position: absolute; left: 0; top: 60px; bottom: 60px; width: calc(100% - 30px); max-width: 360px; pointer-events: auto; transform: translateX(-105%);
   transition: transform .22s ease-out; background: #f4ecd2; border-radius: 0 10px 10px 0; box-shadow: 4px 4px 14px rgba(0,0,0,.5);
-  padding: 14px 16px 14px 22px; box-sizing: border-box; overflow-y: auto; font-family: ${HAND}; color: #2b2418;
-  background-image: repeating-linear-gradient(#f4ecd2 0 25px, #c9d6e6 25px 26px); }
+  padding: 14px 16px 14px 20px; box-sizing: border-box; overflow-y: auto; font-family: ${HAND}; color: #2b2418;
+  background-image: repeating-linear-gradient(#f4ecd2 0 calc(${F(32)} - 1px), #c9d6e6 calc(${F(32)} - 1px) ${F(32)}); }
 #kir-hud .pad.open { transform: translateX(0); }
-#kir-hud .pad h2 { margin: 0 0 6px; font-size: 18px; font-weight: normal; }
-#kir-hud .pad h3 { margin: 12px 0 2px; font-size: 14px; color: #8a2a1a; font-weight: normal; text-decoration: underline; }
+#kir-hud .pad h2 { margin: 0 0 4px; font-size: ${F(26)}; font-weight: normal; }
+#kir-hud .pad h3 { margin: 12px 0 2px; font-size: ${F(24)}; color: #8a2a1a; font-weight: normal; text-decoration: underline; }
 #kir-hud .pad ul { list-style: none; margin: 0; padding: 0; }
-#kir-hud .pad li { font-size: 15px; line-height: 26px; cursor: pointer; }
+#kir-hud .pad li { font-size: ${F(19)}; line-height: 1.3; padding: 6px 0; min-height: ${F(48)}; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; cursor: pointer; }
 #kir-hud .pad li.urgent { color: #9a1f12; }
-#kir-hud .pad li.sheet { font-size: 13px; line-height: 18px; padding: 4px 0; }
 #kir-hud .pad li.sheet .sub { color: #6b5d45; }
+#kir-hud .pad li.sheet .sub span { white-space: nowrap; }
 #kir-hud .pad li.sheet.late { color: #9a1f12; }
-#kir-hud .pad li.more { font-size: 13px; color: #3d6f9e; text-decoration: underline; }
-#kir-hud .toast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); max-width: 330px; padding: 7px 14px; border-radius: 16px;
-  background: rgba(20,17,15,.82); color: #efe6d8; font: 13px 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  pointer-events: auto; cursor: pointer; opacity: 0; transition: opacity .25s; }
-#kir-hud .toast.show { opacity: 1; }
-#kir-hud .log .card { text-align: left; max-height: 70%; display: flex; flex-direction: column; }
-#kir-hud .log ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: 13px; line-height: 20px; }
-#kir-hud .log li { border-bottom: 1px solid #3a3129; padding: 3px 0; }
+#kir-hud .pad li.more { color: #3d6f9e; text-decoration: underline; }
+#kir-hud .toast { position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 10px 16px; border-radius: 22px;
+  min-height: ${F(44)}; box-sizing: border-box; background: rgba(20,17,15,.82); color: #efe6d8; font: ${F(18)} 'Courier New', monospace;
+  width: max-content; text-align: center; text-wrap: balance; line-height: 1.25; pointer-events: none; cursor: pointer; opacity: 0; transition: opacity .25s; }
+#kir-hud .toast.show { opacity: 1; pointer-events: auto; } /* faded out, it mustn't eat taps on the world */
+#kir-hud .log .card { text-align: left; max-height: 75%; display: flex; flex-direction: column; }
+#kir-hud .log ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: ${F(18)}; line-height: 1.35; }
+#kir-hud .log li { border-bottom: 1px solid #3a3129; padding: 6px 0; }
 #kir-hud .log li.empty { color: #a2937f; border: 0; }
 #kir-hud .log button { align-self: center; background: #4a4540; }
-#kir-hud .bubble { position: absolute; transform: translate(-50%, -100%); background: #f4ecd2; color: #2b2418; font: 15px ${HAND};
-  padding: 5px 10px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.4); white-space: nowrap; pointer-events: none; display: none; }
+#kir-hud .bubble { position: absolute; transform: translate(-50%, -100%); background: #f4ecd2; color: #2b2418; font: ${F(20)} ${HAND};
+  padding: 6px 12px; border-radius: 12px; box-shadow: 0 2px 6px rgba(0,0,0,.4); white-space: nowrap; pointer-events: none; display: none; }
 #kir-hud .bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -6px; border: 7px solid transparent; border-bottom: 0; border-top-color: #f4ecd2; }
-#kir-hud .ply .card { width: 340px; text-align: left; padding: 14px; }
-#kir-hud .ply h1 { text-align: center; }
-#kir-hud .ply .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 8px 0; }
-#kir-hud .ply .row .name { font-size: 14px; line-height: 1.2; }
-#kir-hud .ply .row .name small { color: #a2937f; font-size: 11px; display: block; }
-#kir-hud .ply .row button { margin: 0; min-width: 0; width: 64px; padding: 8px 2px; font-size: 13px; background: #4e8a46; line-height: 1.15; }
-#kir-hud .ply .row button small { display: block; font-size: 10px; color: #d8ecd0; }
-#kir-hud .ply .row button em { display: block; font-size: 10px; font-style: normal; color: #f2c76b; white-space: nowrap; }
+#kir-hud .modal.ply .card { width: calc(100% - 16px); max-width: 380px; text-align: left; padding: 14px 12px; }
+#kir-hud .ply h1, #kir-hud .ply p { text-align: center; }
+#kir-hud .ply .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 12px 0; }
+#kir-hud .ply .row .name { flex: 1 0 100%; font-size: ${F(18)}; line-height: 1.2; }
+#kir-hud .ply .row .name small { color: #a2937f; font-size: ${F(15)}; display: block; }
+#kir-hud .ply .row button { flex: 1; margin: 0; min-width: 0; min-height: ${F(56)}; padding: 6px 2px; font-size: ${F(18)}; background: #4e8a46; line-height: 1.15; }
+#kir-hud .ply .row button small { display: block; font-size: ${F(13)}; color: #d8ecd0; }
+#kir-hud .ply .row button em { display: block; font-size: ${F(12)}; font-style: normal; color: #f2c76b; white-space: nowrap; }
 #kir-hud .ply .row button:disabled { background: #4a4540; color: #a2937f; }
 #kir-hud .ply .close { display: block; margin: 12px auto 0; background: #4a4540; }
-#kir-hud .pad .empty { font-size: 13px; color: #8a7d64; }
+#kir-hud .pad .empty { font-size: ${F(19)}; color: #8a7d64; }
 #kir-hud .modal { position: absolute; inset: 0; background: rgba(0,0,0,.65); pointer-events: auto; display: none; align-items: center; justify-content: center; }
-#kir-hud .modal .card { width: 320px; background: #241f1a; border: 2px solid #d48a3c; color: #efe6d8; padding: 18px; box-sizing: border-box; text-align: center; }
-#kir-hud .modal h1 { font-size: 20px; margin: 0 0 10px; font-weight: normal; }
-#kir-hud .modal p { font-size: 13px; color: #a2937f; margin: 6px 0; }
+#kir-hud .modal .card { width: calc(100% - 24px); max-width: 360px; background: #241f1a; border: 2px solid #d48a3c; color: #efe6d8; padding: 18px; box-sizing: border-box; text-align: center; }
+#kir-hud .modal h1 { font-size: ${F(26)}; margin: 0 0 10px; font-weight: normal; }
+#kir-hud .modal p { font-size: ${F(18)}; color: #a2937f; margin: 8px 0; line-height: 1.35; }
 #kir-hud .modal p.warn { color: #f08a6b; }
-#kir-hud .modal button { font: inherit; font-size: 15px; color: #efe6d8; border: 0; padding: 10px 14px; margin: 12px 6px 0; min-width: 130px; cursor: pointer; }
+#kir-hud .modal button { font: inherit; font-size: ${F(19)}; color: #efe6d8; border: 0; padding: 10px 14px; margin: 12px 6px 0; min-width: 130px; min-height: ${F(48)}; cursor: pointer; }
 #kir-hud .modal .go { background: #4e8a46; } #kir-hud .modal .ot { background: #9e3d3d; }
 #kir-hud .paused { cursor: pointer; }
 #kir-hud .paused .card { border-color: #a2937f; }
 #kir-hud .labels { position: absolute; inset: 0; pointer-events: none; }
-#kir-hud .lbl { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column-reverse; align-items: center; gap: 5px; }
-#kir-hud .lbl button { pointer-events: auto; font: 600 15px 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
-  border-radius: 8px; padding: 7px 11px; box-shadow: 0 3px 0 #14110f; white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; touch-action: none; }
+#kir-hud .lbl { position: absolute; transform: translate(-50%, -100%); width: max-content; display: flex; flex-direction: column-reverse; align-items: center; gap: 6px; }
+#kir-hud .lbl button { pointer-events: auto; font: 600 ${F(20)} 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
+  border-radius: 10px; padding: 8px 12px; min-height: ${F(48)}; box-shadow: 0 3px 0 #14110f; max-width: 300px; line-height: 1.15; text-wrap: balance; touch-action: none; }
 #kir-hud .lbl button.hold { background: #f2a35b; }
 #kir-hud .lbl button.held { background: #8fd37a; }
 #kir-hud .lbl button.tick { background: #8fd37a; animation: kir-tick .35s ease-out; }
 @keyframes kir-tick { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
-#kir-hud .lbl .status { font: 12px 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.8); padding: 4px 7px; border-radius: 5px;
-  white-space: pre-line; text-align: center; max-width: 270px; }
-#kir-hud .stick { position: absolute; width: 88px; height: 88px; margin: -44px 0 0 -44px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
+#kir-hud .lbl .status { font: ${F(16)} 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.8); padding: 5px 8px; border-radius: 6px;
+  white-space: pre-line; text-align: center; max-width: 330px; }
+#kir-hud .stick { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
   background: rgba(20,17,15,.15); display: none; pointer-events: none; }
-#kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; border-radius: 50%; background: rgba(255,255,255,.6); }
-#kir-hud .tag { position: absolute; right: 4px; bottom: 2px; font: 9px 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
+#kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: rgba(255,255,255,.6); }
+#kir-hud .tag { position: absolute; right: 4px; bottom: 2px; font: ${F(10)} 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
 #kir-hud .summary { position: absolute; inset: 0; background: #14110f; color: #efe6d8; pointer-events: auto; overflow-y: auto; display: none;
-  padding: 14px 14px 30px; box-sizing: border-box; font: 13px 'Courier New', monospace; }
-#kir-hud .summary h1 { font-size: 22px; font-weight: normal; margin: 0; }
-#kir-hud .summary h2 { font-size: 11px; color: #a2937f; margin: 0 0 6px; font-weight: normal; letter-spacing: 1px; text-transform: uppercase; }
+  padding: 14px 14px 30px; box-sizing: border-box; font: ${F(17)} 'Courier New', monospace; }
+#kir-hud .summary h1 { font-size: ${F(26)}; font-weight: normal; margin: 0; }
+#kir-hud .summary h2 { font-size: ${F(14)}; color: #a2937f; margin: 0 0 6px; font-weight: normal; letter-spacing: 1px; text-transform: uppercase; }
 #kir-hud .summary .sub { color: #a2937f; margin: 4px 0 10px; }
 #kir-hud .summary section { background: #241f1a; border: 2px solid #4a3f33; padding: 8px 12px; margin-bottom: 8px; }
-#kir-hud .summary .row { display: flex; justify-content: space-between; line-height: 20px; }
-#kir-hud .summary .small { font-size: 11px; }
+#kir-hud .summary .row { display: flex; justify-content: space-between; gap: 8px; line-height: 1.5; }
+#kir-hud .summary .small { font-size: ${F(14)}; }
 #kir-hud .summary .dim { color: #a2937f; } #kir-hud .summary .good { color: #8fd37a; } #kir-hud .summary .bad { color: #f08a6b; } #kir-hud .summary .money { color: #f2c76b; }
 #kir-hud .summary .verdict { margin: 8px 0 2px; }
-#kir-hud .summary .upg { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 6px 0; }
+#kir-hud .summary .upg { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 8px 0; }
 #kir-hud .summary .upg small { color: #a2937f; }
-#kir-hud .summary button { font: inherit; color: #efe6d8; background: #8f5a22; border: 0; padding: 9px 14px; cursor: pointer; }
+#kir-hud .summary button { font: inherit; color: #efe6d8; background: #8f5a22; border: 0; padding: 10px 14px; min-height: ${F(48)}; cursor: pointer; }
 #kir-hud .summary button:disabled { background: #4a4540; color: #a2937f; }
-#kir-hud .summary .upg button { background: #4e8a46; min-width: 80px; }
+#kir-hud .summary .upg button { background: #4e8a46; min-width: 90px; }
 #kir-hud .summary .upg button:disabled { background: #4a4540; color: #a2937f; }
-#kir-hud .summary .next { display: block; width: 220px; margin: 12px auto 6px; font-size: 15px; }
+#kir-hud .summary .next { display: block; width: 240px; margin: 12px auto 6px; font-size: ${F(19)}; }
 #kir-hud .summary .feedback { text-align: center; margin: 10px 0 6px; }
 #kir-hud .summary .copy { display: block; margin: 0 auto; background: #3d6f9e; }
-#kir-hud .summary .status { text-align: center; color: #a2937f; font-size: 11px; }
-#kir-hud .summary .reset { display: block; text-align: center; margin-top: 14px; color: #a2937f; font-size: 11px; text-decoration: underline; cursor: pointer; }
+#kir-hud .summary .status { text-align: center; color: #a2937f; font-size: ${F(14)}; }
+#kir-hud .summary .reset { display: block; text-align: center; margin-top: 14px; padding: 12px; color: #a2937f; font-size: ${F(15)}; text-decoration: underline; cursor: pointer; }
 #kir-hud .pointers { position: absolute; inset: 0; pointer-events: none; }
-#kir-hud .ptr { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(20,17,15,.78);
-  border: 2px solid #f2c76b; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; transition: transform .08s; }
-#kir-hud .ptr .arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -6px 0 0 -5px;
-  border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 9px solid #f2c76b; transform-origin: 5px 6px; }
-#kir-hud .ptr.ring { transform: scale(1.25); border-color: #f08a6b; }
+#kir-hud .ptr { position: absolute; width: ${F(44)}; height: ${F(44)}; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(20,17,15,.78); box-sizing: border-box;
+  border: 2px solid #f2c76b; display: flex; align-items: center; justify-content: center; font-size: ${F(22)}; line-height: 1; transition: transform .08s; }
+#kir-hud .ptr .arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -7px 0 0 -5px;
+  border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 10px solid #f2c76b; transform-origin: 5px 7px; }
+#kir-hud .ptr.ring { transform: translate(-50%, -50%) scale(1.2); border-color: #f08a6b; }
 #kir-hud .ptr.ring .arrow { border-left-color: #f08a6b; }
-#kir-hud .hint { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: 280px; padding: 12px 14px; display: none;
-  background: #f4ecd2; color: #2b2418; border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.45); text-align: center; pointer-events: none;
-  font: 16px ${HAND}; }
-#kir-hud .sign { position: absolute; transform: translate(-50%, -50%); font: bold 10px 'Courier New', monospace; letter-spacing: 1px; color: #f4ecd2;
-  background: #4a3a22; border: 1px solid #2b2418; border-radius: 2px; padding: 1px 5px; white-space: nowrap; pointer-events: none; }
+#kir-hud .hint { position: absolute; left: 50%; bottom: 130px; transform: translateX(-50%); width: calc(100% - 40px); max-width: 340px; padding: 14px 16px; display: none; box-sizing: border-box;
+  background: #f4ecd2; color: #2b2418; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.45); text-align: center; pointer-events: none;
+  font: ${F(20)} ${HAND}; }
+#kir-hud .sign { position: absolute; transform: translate(-50%, -50%); font: bold ${F(13)} 'Courier New', monospace; letter-spacing: 1px; color: #f4ecd2;
+  background: #4a3a22; border: 1px solid #2b2418; border-radius: 3px; padding: 2px 6px; white-space: nowrap; pointer-events: none; }
 #kir-hud .pad h3.vm { color: #3d6f9e; }
 #kir-hud .pad li.callback { color: #2e5a86; }
-#kir-hud .canchip { position: absolute; right: 10px; bottom: 26px; pointer-events: auto; font: 600 14px 'Courier New', monospace; color: #efe6d8;
-  background: rgba(20,17,15,.75); border: 2px solid #c0281e; border-radius: 18px; padding: 8px 12px; touch-action: none; }
+#kir-hud .canchip { position: absolute; right: 10px; bottom: 26px; pointer-events: auto; font: 600 ${F(18)} 'Courier New', monospace; color: #efe6d8; min-height: ${F(48)};
+  background: rgba(20,17,15,.75); border: 2px solid #c0281e; border-radius: 24px; padding: 8px 14px; touch-action: none; }
 #kir-hud .canchip::before { content: '🍺 '; }
-#kir-hud .mute { position: absolute; right: 10px; top: 62px; width: 32px; height: 28px; pointer-events: auto; cursor: pointer; border: 0; border-radius: 6px;
-  background: rgba(20,17,15,.6); color: #efe6d8; font-size: 15px; line-height: 28px; padding: 0; }
+#kir-hud .mute { position: absolute; right: 10px; top: 76px; width: ${F(48)}; height: ${F(48)}; pointer-events: auto; cursor: pointer; border: 0; border-radius: 8px;
+  background: rgba(20,17,15,.6); color: #efe6d8; font-size: ${F(22)}; line-height: 1; padding: 0; }
 `;
 
 export interface HudCallbacks {
@@ -226,7 +233,9 @@ export class Hud {
   layout() {
     const r = this.canvas.getBoundingClientRect();
     Object.assign(this.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-    this.stage.style.transform = `scale(${r.width / WORLD.view.width})`;
+    const k = r.width / WORLD.view.width;
+    this.stage.style.transform = `scale(${k})`;
+    this.stage.style.setProperty('--k', String(k)); // sizes in the CSS hold their on-screen minimums at any scale
   }
 
   open() { this.isOpen = true; this.pad.classList.add('open'); this.catcher.style.display = 'block'; }
@@ -270,7 +279,8 @@ export class Hud {
     const list = [...jobs.values()].sort((a, b) => a.due - b.due);
     if (!list.length) return '';
     const line = (e: typeof list[number]) => `<li class="sheet ${e.late ? 'late' : ''}" data-targets="${e.cutting ? 'machine' : 'plyPallet'}">${e.cutting ? '▶ ' : ''}${esc(e.name)}`
-      + `<br><span class="sub">${e.total > 1 ? `${e.left} of ${e.total} left · ` : ''}${esc(e.material)} · due ${e.dueLabel} · ${money(e.price)}</span></li>`;
+      // the detail line breaks only between its parts, never inside one
+      + `<span class="sub">${[e.total > 1 ? `${e.left} of ${e.total} left` : '', esc(e.material), e.dueLabel, money(e.price)].filter(Boolean).map(x => `<span>${x}</span>`).join(' · ')}</span></li>`;
     const shown = this.sheetsOpen ? list : list.slice(0, 3);
     const more = list.length - shown.length;
     const sheets = open.length;
@@ -368,7 +378,7 @@ export class Hud {
         this.pointerEls.set(p.key, e);
       }
       (e.querySelector('.icon') as HTMLSpanElement).textContent = p.icon;
-      e.style.left = `${p.x}px`; e.style.top = `${p.y}px`;
+      e.style.left = `${p.x}px`; e.style.top = `${p.y}px`; // centred by the CSS transform
       (e.querySelector('.arrow') as HTMLSpanElement).style.transform = `rotate(${p.angle}rad) translateX(22px)`;
       e.classList.toggle('ring', p.ring);
     }
