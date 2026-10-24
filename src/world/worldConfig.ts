@@ -27,8 +27,9 @@ export const WORLD = {
   fov: 52,
   camDistance: 13,                     // m from the look-at point
   camPitchDeg: 40,                     // a little lower so the fronts of things show, not just their tops
-  camLerp: 4,                          // follow smoothing (1/s)
-  camLead: 1.2,                        // m ahead in the direction of travel
+  camLerp: 5,                          // follow smoothing (1/s)
+  camLead: 0.6,                        // m ahead in the direction of travel (small floor: don't run ahead)
+  camYardPullback: 1.1,                // camera distance multiplier outside, so the yard reads bigger
   camYawLerp: 1.5,
   wallFadeDistance: 4.5,               // walls this close between camera and player go see-through
 

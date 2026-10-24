@@ -2,7 +2,7 @@
 // the things that come and go (vehicles, the mate, dust). Flat toon colours, warm palette.
 import * as THREE from 'three';
 import {
-  buildGrid, COLS, isOutside, OBJECTS, ROLLER_TILES, ROWS, T, VEHICLE_BAY, type ObjectId, type PlacedObject, type Rect,
+  buildGrid, COLS, DECOR, isOutside, OBJECTS, ROLLER_TILES, ROWS, T, VEHICLE_BAY, objectById, type Decor, type ObjectId, type PlacedObject, type Rect,
 } from '../world/layout.js';
 import { WORLD } from '../world/worldConfig.js';
 import { mergeCells, rectToBox, type Box } from './collide.js';
@@ -97,8 +97,9 @@ function buildFloor(grid: number[][]): THREE.Mesh {
       for (let i = 0; i < 3; i++) if (rnd() < 0.6) ctx.fillRect(x * px + Math.floor(rnd() * px), y * px + Math.floor(rnd() * px), 1, 1);
     }
     if (t === T.TOILET && (x + y) % 2) { ctx.fillStyle = '#cfd3ca'; ctx.fillRect(x * px, y * px, px, px); }
-    if (t === T.STREET && y === ROWS - 2 && x % 4 < 2) { ctx.fillStyle = '#d8d0a0'; ctx.fillRect(x * px, y * px + 3, px, 2); }
+    if (t === T.STREET && x === COLS - 2 && y % 4 < 2) { ctx.fillStyle = '#d8d0a0'; ctx.fillRect(x * px + 3, y * px, 2, px); }
   }
+  paintFloorDecals(ctx, grid, px, rnd);
   const tex = new THREE.CanvasTexture(canvas);
   tex.magFilter = tex.minFilter = THREE.NearestFilter;
   tex.generateMipmaps = false;
@@ -108,6 +109,63 @@ function buildFloor(grid: number[][]): THREE.Mesh {
   floor.position.set(COLS * C / 2, 0, ROWS * C / 2);
   floor.receiveShadow = true;
   return floor;
+}
+
+/** Wear and mess painted into the floor: sawdust drifts, a worn patch at the machine, pallet-jack tracks. */
+function paintFloorDecals(ctx: CanvasRenderingContext2D, grid: number[][], px: number, rnd: () => number) {
+  const centre = (r: Rect) => ({ x: (r.x + r.w / 2) * px, y: (r.y + r.h / 2) * px });
+  const indoors = (cx: number, cy: number) => { const t = grid[Math.floor(cy / px)]?.[Math.floor(cx / px)]; return t === T.FLOOR || t === T.DOCK; };
+
+  // the worn patch in front of the machine, where you stand all day
+  const m = objectById('machine').rect;
+  const wear = ctx.createRadialGradient(centre(m).x, (m.y + m.h + 1.5) * px, 2, centre(m).x, (m.y + m.h + 1.5) * px, 5 * px);
+  wear.addColorStop(0, 'rgba(92,72,50,0.42)'); wear.addColorStop(1, 'rgba(92,72,50,0)');
+  ctx.fillStyle = wear;
+  ctx.save(); ctx.translate(centre(m).x, (m.y + m.h + 1.5) * px); ctx.scale(1, 0.45); ctx.translate(-centre(m).x, -(m.y + m.h + 1.5) * px);
+  ctx.fillRect((m.x - 2) * px, (m.y + m.h - 4) * px, (m.w + 4) * px, 11 * px);
+  ctx.restore();
+
+  // pallet-jack tyre tracks: roller door → dock opening → each pallet
+  const lane = (pts: [number, number][]) => {
+    for (const off of [-0.65, 0.65]) {
+      ctx.strokeStyle = 'rgba(58,44,32,0.32)'; ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      pts.forEach(([x, y], i) => {
+        const [nx, ny] = pts[Math.min(i + 1, pts.length - 1)], [ppx, ppy] = pts[Math.max(i - 1, 0)];
+        const dx = nx - ppx, dy = ny - ppy, d = Math.hypot(dx, dy) || 1;
+        const X = (x + (-dy / d) * off) * px, Y = (y + (dx / d) * off) * px;
+        if (i) ctx.lineTo(X, Y); else ctx.moveTo(X, Y);
+      });
+      ctx.stroke();
+    }
+  };
+  const ply = objectById('plyPallet').rect, fin = objectById('finishedPallet').rect;
+  lane([[29, 31], [25, 31.5], [21, 32.5], [15, 32], [10.5, 30.5], [ply.x + ply.w + 0.4, ply.y + 1.5]]);
+  lane([[29, 30], [25, 30.2], [fin.x + fin.w + 0.6, fin.y + 1.5]]);
+
+  // sawdust: drifts thickest round the extractor, thinning across the floor
+  const ex = centre(objectById('extractor').rect);
+  for (let i = 0; i < 2200; i++) {
+    const a = rnd() * Math.PI * 2, r = Math.pow(rnd(), 1.8) * 16 * px;
+    const x = ex.x + Math.cos(a) * r, y = ex.y + 2 * px + Math.sin(a) * r * 1.2;
+    if (!indoors(x, y)) continue;
+    ctx.fillStyle = rnd() < 0.5 ? 'rgba(236,214,160,0.9)' : 'rgba(214,190,140,0.8)';
+    ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+  }
+  for (let i = 0; i < 14; i++) { // soft drifts banked against the walls nearest the extractor
+    const x = ex.x + (rnd() - 0.5) * 9 * px, y = ex.y + (0.5 + rnd() * 3) * px;
+    if (!indoors(x, y)) continue;
+    const g = ctx.createRadialGradient(x, y, 0, x, y, (1 + rnd() * 1.6) * px);
+    g.addColorStop(0, 'rgba(232,212,164,0.55)'); g.addColorStop(1, 'rgba(232,212,164,0)');
+    ctx.fillStyle = g; ctx.fillRect(x - 3 * px, y - 3 * px, 6 * px, 6 * px);
+  }
+  // and around the machine, where the cutting happens
+  for (let i = 0; i < 500; i++) {
+    const x = (m.x - 1 + rnd() * (m.w + 2)) * px, y = (m.y - 1 + rnd() * (m.h + 2)) * px;
+    if (!indoors(x, y)) continue;
+    ctx.fillStyle = 'rgba(236,214,160,0.85)';
+    ctx.fillRect(Math.floor(x), Math.floor(y), 1, 1);
+  }
 }
 
 // ---------- walls ----------
@@ -216,10 +274,11 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
   extinguisher: (g, w, d, h, o) => extinguisher(g, h, o),
   spareExtinguisher: (g, w, d, h, o) => extinguisher(g, h, o),
   rollerDoor: (g, w, d, h, o) => {
-    const door = new THREE.Group();
-    const slats = boxAt(w, WORLD.lintel, 0.12, o.colour);
-    door.add(slats);
-    for (let i = 1; i < 10; i++) door.add(boxAt(w + 0.01, 0.02, 0.13, 0x7f858b, 0, i * WORLD.lintel / 10));
+    // slats run along the opening, whichever way the wall runs
+    const span = Math.max(w, d), door = new THREE.Group();
+    door.add(boxAt(span, WORLD.lintel, 0.12, o.colour));
+    for (let i = 1; i < 10; i++) door.add(boxAt(span + 0.01, 0.02, 0.13, 0x7f858b, 0, i * WORLD.lintel / 10));
+    if (d > w) door.rotation.y = Math.PI / 2;
     g.add(door);
     return { door };
   },
@@ -302,6 +361,115 @@ function buildObject(o: PlacedObject): ObjectView {
   return { def: o, group: g, box, centre: new THREE.Vector3(g.position.x, o.height, g.position.z), parts };
 }
 
+// ---------- clutter ----------
+
+const cyl = (r: number, h: number, colour: number, x = 0, y0 = 0, z = 0) => {
+  const m = mesh(new THREE.CylinderGeometry(r, r, h, 10), toon(colour));
+  m.position.set(x, y0 + h / 2, z);
+  return m;
+};
+
+/** Workshop clutter, built from boxes and cylinders in the same palette. Group is centred on the footprint. */
+function buildDecor(dc: Decor, grid: number[][]): THREE.Group {
+  const b = rectToBox(dc.rect, C), w = b.maxX - b.minX, d = b.maxZ - b.minZ;
+  const g = new THREE.Group();
+  g.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
+  let seed = dc.rect.x * 31 + dc.rect.y * 17;
+  const rnd = () => (seed = (seed * 16807 + 11) % 2147483647) / 2147483647;
+  // which way is the nearest wall? (things lean against it)
+  const wallSide = (() => {
+    const at = (x: number, y: number) => grid[y]?.[x] === T.WALL;
+    if (at(dc.rect.x - 1, dc.rect.y)) return { x: -1, z: 0 };
+    if (at(dc.rect.x + dc.rect.w, dc.rect.y)) return { x: 1, z: 0 };
+    if (at(dc.rect.x, dc.rect.y - 1)) return { x: 0, z: -1 };
+    return { x: 0, z: 1 };
+  })();
+  switch (dc.kind) {
+    case 'offcutStack': {
+      // sheets of varying size leaning back against the wall
+      const along = wallSide.x ? d : w;
+      for (let i = 0; i < 5; i++) {
+        const hgt = 0.6 + rnd() * 0.7, len = along * (0.35 + rnd() * 0.55);
+        const sheet = boxAt(wallSide.x ? 0.03 : len, hgt, wallSide.x ? len : 0.03, i % 2 ? 0xd6bc8a : 0xc9a874);
+        const off = (rnd() - 0.5) * (along - len);
+        sheet.position.x += wallSide.x ? wallSide.x * (0.12 - i * 0.04) : off;
+        sheet.position.z += wallSide.z ? wallSide.z * (0.12 - i * 0.04) : off;
+        const lean = 0.18 + i * 0.03;
+        if (wallSide.x) sheet.rotation.z = -wallSide.x * lean; else sheet.rotation.x = wallSide.z * lean;
+        g.add(sheet);
+      }
+      break;
+    }
+    case 'pallet':
+      for (const sz of [-1, 0, 1]) g.add(boxAt(w - 0.1, 0.09, 0.12, 0xa07a48, 0, 0, sz * (d / 2 - 0.12)));
+      g.add(boxAt(w - 0.1, 0.05, d - 0.1, 0x8a6a40, 0, 0.09));
+      for (let i = 0; i < 3; i++) g.add(boxAt(w - 0.3 - rnd() * 0.2, 0.04, d - 0.3, i % 2 ? 0xd9be8c : 0xcdb07c, (rnd() - 0.5) * 0.1, 0.14 + i * 0.045));
+      break;
+    case 'bench': {
+      g.add(boxAt(w - 0.05, 0.06, d - 0.15, 0x8a6a40, 0, 0.86));
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(boxAt(0.07, 0.86, 0.07, 0x5a4a38, sx * (w / 2 - 0.1), 0, sz * (d / 2 - 0.12)));
+      g.add(boxAt(w - 0.2, 0.04, d - 0.3, 0x6b5a44, 0, 0.25)); // shelf
+      for (let i = 0; i < 3; i++) { // F-clamps lying on top
+        const clamp = new THREE.Group();
+        clamp.add(boxAt(0.04, 0.03, 0.32, 0x8a8f94), boxAt(0.12, 0.05, 0.04, 0xc0281e, 0.04, 0, 0.12), boxAt(0.12, 0.05, 0.04, 0x8a8f94, 0.04, 0, -0.12));
+        clamp.position.set(-w / 2 + 0.3 + i * 0.35, 0.92, (rnd() - 0.5) * 0.3); clamp.rotation.y = rnd() * 0.6;
+        g.add(clamp);
+      }
+      g.add(boxAt(0.22, 0.14, 0.18, 0x3d5a78, w / 2 - 0.25, 0.92, -0.1)); // vice
+      break;
+    }
+    case 'broom': {
+      const handle = cyl(0.018, 1.25, 0xb08a55);
+      const head = boxAt(0.4, 0.07, 0.07, 0x3a3a3a, 0, 0);
+      const broom = new THREE.Group(); broom.add(handle, head);
+      broom.rotation.z = -0.25; broom.position.set(0.15, 0, wallSide.z * 0.1);
+      g.add(broom);
+      break;
+    }
+    case 'bin':
+      g.add(boxAt(0.42, 0.9, 0.45, 0x2f6b3a), boxAt(0.46, 0.05, 0.5, 0x275a30, 0, 0.9, 0.02));
+      for (const sx of [-1, 1]) { const wheel = cyl(0.07, 0.04, 0x1e1e20, sx * 0.2, 0.0, 0.2); wheel.rotation.z = Math.PI / 2; wheel.position.y = 0.07; g.add(wheel); }
+      break;
+    case 'trolley':
+      g.add(boxAt(w - 0.25, 0.05, d - 0.3, 0x5a5f66, 0, 0.12));
+      g.add(boxAt(0.05, 0.9, d - 0.3, 0x5a5f66, -w / 2 + 0.15, 0.12));
+      for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) { const wh = cyl(0.06, 0.05, 0x1e1e20, sx * (w / 2 - 0.2), 0, sz * (d / 2 - 0.2)); wh.rotation.x = Math.PI / 2; wh.position.y = 0.06; g.add(wh); }
+      g.add(boxAt(w - 0.4, 0.3, d - 0.5, 0xc9a874, 0.05, 0.17)); // a few offcuts on it
+      break;
+    case 'hose': {
+      // a coil of air hose hanging on a hook on the wall
+      const hook = boxAt(0.05, 0.05, 0.18, 0x777777, wallSide.x * 0.2, 1.45, wallSide.z * 0.2);
+      const coil = new THREE.Group();
+      for (let i = 0; i < 3; i++) { const ring = cyl(0.2 - i * 0.03, 0.05, i % 2 ? 0xd4472a : 0xe0602e); ring.rotation.x = Math.PI / 2; coil.add(ring); }
+      coil.position.set(wallSide.x * 0.16, 1.2, wallSide.z * 0.16);
+      if (wallSide.x) coil.rotation.y = Math.PI / 2;
+      g.add(hook, coil);
+      break;
+    }
+    case 'drums': {
+      const cols = [0x3d6f9e, 0xc0281e, 0x4f6e4c];
+      [[-0.22, -0.2], [0.24, -0.15], [0.0, 0.26]].forEach(([x, z], i) => { g.add(cyl(0.29, 0.88, cols[i % 3], x, 0, z)); g.add(cyl(0.3, 0.03, 0x2a2a2a, x, 0.88, z)); });
+      break;
+    }
+    case 'panels':
+      for (let i = 0; i < 7; i++) g.add(boxAt(w - 0.2 - (i % 2) * 0.06, 0.04, d - 0.2, i % 2 ? 0xe9d6ac : 0xddc79a, (rnd() - 0.5) * 0.05, 0.12 + i * 0.045));
+      g.add(boxAt(w - 0.1, 0.12, d - 0.1, 0x8a6a40));
+      break;
+    case 'cable': {
+      // a cable snaking across the floor: short flat segments, walked over
+      const n = 8, len = Math.max(w, d) / n;
+      for (let i = 0; i < n; i++) {
+        const seg = boxAt(len * 1.05, 0.025, 0.05, 0x1e1e20, -Math.max(w, d) / 2 + (i + 0.5) * len, 0, Math.sin(i * 1.3) * 0.18);
+        seg.rotation.y = Math.cos(i * 1.3) * 0.35; seg.castShadow = false;
+        g.add(seg);
+      }
+      if (d > w) g.rotation.y = Math.PI / 2;
+      break;
+    }
+  }
+  return g;
+}
+
 // ---------- vehicles, mate, dust ----------
 
 function buildVehicles() {
@@ -346,7 +514,7 @@ function buildDust(): THREE.Mesh[] {
   for (let i = 0; i < 40; i++) {
     const m = new THREE.Mesh(new THREE.CircleGeometry(0.15 + rnd() * 0.35, 10), mat);
     m.rotation.x = -Math.PI / 2;
-    m.position.set((12 + rnd() * 12) * C, 0.012, (20 + rnd() * 16) * C);
+    m.position.set((9 + rnd() * 11) * C, 0.012, (15.5 + rnd() * 6) * C); // round the extractor
     m.visible = false;
     out.push(m);
   }
@@ -360,6 +528,12 @@ export function buildWorld(scene: THREE.Scene): BuiltWorld {
   scene.background = new THREE.Color(PALETTE.sky);
   const floor = buildFloor(grid);
   scene.add(floor);
+  // gravel out to the horizon, so there's no edge of the world past the yard
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(240, 240), toon(PALETTE.floor[T.GROUND]));
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.set(COLS * C / 2, -0.02, ROWS * C / 2);
+  ground.receiveShadow = true;
+  scene.add(ground);
   const fadeables: Fadeable[] = [];
   const collisionBoxes = buildWalls(grid, scene, fadeables);
   const objects = new Map<ObjectId, ObjectView>();
@@ -379,8 +553,13 @@ export function buildWorld(scene: THREE.Scene): BuiltWorld {
       fadeables.push({ obj: v.group, mats, box: v.box, height: o.height });
     }
   }
-  const rt = ROLLER_TILES;
-  const rollerBox: Box = { minX: rt[0].x * C, minZ: rt[0].y * C, maxX: (rt[rt.length - 1].x + 1) * C, maxZ: (rt[0].y + 1) * C };
+  // clutter: only the big stuff blocks you
+  for (const dc of DECOR) {
+    scene.add(buildDecor(dc, grid));
+    if (dc.solid) collisionBoxes.push(rectToBox(dc.rect, C));
+  }
+  const xs = ROLLER_TILES.map(t => t.x), ys = ROLLER_TILES.map(t => t.y);
+  const rollerBox: Box = { minX: Math.min(...xs) * C, minZ: Math.min(...ys) * C, maxX: (Math.max(...xs) + 1) * C, maxZ: (Math.max(...ys) + 1) * C };
   const vehicles = buildVehicles();
   scene.add(vehicles.ute, vehicles.truck);
   const mate = buildMate(objects.get('smoko')!.box);

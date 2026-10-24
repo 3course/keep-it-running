@@ -9,7 +9,7 @@ import { Hints } from '../ui/hints.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { actionsFor, statusFor, type Action } from '../world/interactables.js';
-import { COLS, OBJECTS, ROLLER_TILES, ROWS, T, ZONES, objectById, zoneAt, type ObjectId } from '../world/layout.js';
+import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
 import { absMinute, startNewDay, type WorldState } from '../world/state.js';
@@ -58,6 +58,7 @@ export class World3D {
   private camYaw = 0;
   private camLook = new THREE.Vector3();
   private lead = { x: 0, z: 0 };
+  private camScale = 1; // pulls back a little outside
 
   // clock, labels, debug
   private paused = false;
@@ -85,7 +86,7 @@ export class World3D {
 
     this.camera = new THREE.PerspectiveCamera(WORLD.fov, VW / VH, 0.1, 120);
     this.built = buildWorld(this.scene);
-    for (const o of OBJECTS) if (o.solid) for (let y = o.rect.y; y < o.rect.y + o.rect.h; y++) for (let x = o.rect.x; x < o.rect.x + o.rect.w; x++) this.solid.add(y * COLS + x);
+    this.solid = solidCells(); // solid objects and the big clutter
 
     // light from the upper left, soft warm fill
     this.scene.add(new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4));
@@ -103,6 +104,11 @@ export class World3D {
     this.buildDebug();
 
     this.pos = { x: w.px, z: w.py };
+    // a save from an older layout can leave you inside a wall: put you back somewhere sensible
+    if (!this.walkable(Math.floor(this.pos.x / C), Math.floor(this.pos.z / C))) {
+      const spot = w.tour ? START_TILE : MACHINE_SPOT;
+      this.pos = { x: (spot.x + 0.5) * C, z: (spot.y + 0.5) * C };
+    }
     this.player.yaw = Math.atan2(-w.fx, -w.fy);
     this.camLook.set(this.pos.x, 0.6, this.pos.z);
     this.paused = resumePaused;
@@ -192,14 +198,19 @@ export class World3D {
   /** Which object (if any) is under a logical-px point. */
   private pick(lx: number, ly: number): ObjectId | null {
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
+    // every visible object along the ray, nearest hit first
+    const hits: { id: ObjectId; dist: number }[] = [];
     for (const h of this.raycaster.intersectObjects(this.built.pickables, true)) {
       let o: THREE.Object3D | null = h.object, visible = true;
       for (let p: THREE.Object3D | null = o; p; p = p.parent) if (!p.visible) visible = false;
       if (!visible) continue;
       while (o && !o.userData.objectId) o = o.parent;
-      if (o) return o.userData.objectId as ObjectId;
+      if (o && !hits.some(x => x.id === o!.userData.objectId)) hits.push({ id: o.userData.objectId as ObjectId, dist: h.distance });
     }
-    return null;
+    if (!hits.length) return null;
+    // small things next to big ones (the extinguisher by the roller door): prefer the smallest one close behind the first hit
+    const area = (id: ObjectId) => { const r = objectById(id).rect; return r.w * r.h; };
+    return hits.filter(x => x.dist - hits[0].dist < 1.5).sort((a, b) => area(a.id) - area(b.id))[0].id;
   }
 
   private tap(lx: number, ly: number) {
@@ -465,7 +476,7 @@ export class World3D {
 
   private onRollerTiles() {
     const c = this.cell();
-    return ROLLER_TILES.some(r => r.x === c.x && Math.abs(r.y - c.y) <= 1);
+    return ROLLER_TILES.some(r => Math.abs(r.x - c.x) + Math.abs(r.y - c.y) <= 1); // on or right next to the door
   }
 
   // ---------- actions and labels ----------
@@ -528,7 +539,8 @@ export class World3D {
     }
     for (const l of this.labelEls) {
       const p = this.project(l.anchor);
-      l.el.style.left = `${Math.max(60, Math.min(VW - 60, p.x))}px`;
+      const half = l.el.offsetWidth / 2 + 4; // keep the whole label on screen, however long it is
+      l.el.style.left = `${Math.max(half, Math.min(VW - half, p.x))}px`;
       l.el.style.top = `${Math.max(70, Math.min(VH - 10, p.y))}px`;
       l.el.style.display = p.behind ? 'none' : 'flex';
     }
@@ -547,8 +559,10 @@ export class World3D {
     this.lead.z += (this.vel.z / WORLD.maxSpeed * WORLD.camLead - this.lead.z) * kl;
     const target = new THREE.Vector3(this.pos.x + this.lead.x, 0.6, this.pos.z + this.lead.z);
     this.camLook.lerp(target, Math.min(1, WORLD.camLerp * dt));
-    const pitch = THREE.MathUtils.degToRad(WORLD.camPitchDeg);
-    const horiz = WORLD.camDistance * Math.cos(pitch), height = WORLD.camDistance * Math.sin(pitch);
+    // outside reads bigger than inside: pull back a touch in the yard
+    this.camScale += ((zone?.outside ? WORLD.camYardPullback : 1) - this.camScale) * Math.min(1, 1.5 * dt);
+    const pitch = THREE.MathUtils.degToRad(WORLD.camPitchDeg), dist = WORLD.camDistance * this.camScale;
+    const horiz = dist * Math.cos(pitch), height = dist * Math.sin(pitch);
     this.camera.position.set(this.camLook.x + Math.sin(this.camYaw) * horiz, this.camLook.y + height, this.camLook.z + Math.cos(this.camYaw) * horiz);
     this.camera.lookAt(this.camLook);
     // the sun follows so the shadow map covers what's on screen
