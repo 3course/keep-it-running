@@ -93,6 +93,16 @@ export interface Distraction {
   hover: number;          // friend: minutes they hang back before starting to talk
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
   orderType?: JobTypeId;  // phone: what kind of job the order is
+  customer?: string;      // phone: who's calling with the order
+}
+
+/** An order call that rang out: they left a voicemail and will wait this long for you to ring back. */
+export interface Callback {
+  id: number;
+  customer: string;
+  sheets: number;
+  orderType: JobTypeId;
+  expiresMinute: number;  // minutes since midnight today; after this they've gone elsewhere
 }
 
 export interface DayStats {
@@ -110,7 +120,7 @@ export interface DayStats {
   sheetsLate: number;
   sheetsScrapped: number;
   sheetsDemanded: number;  // sheets offered today: 7am board, order calls (answered or not), drop-off, rush
-  sheetsMissed: number;    // order calls that went unanswered and went elsewhere
+  sheetsMissed: number;    // order calls that rang out and weren't called back in time
   sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   beers: number;

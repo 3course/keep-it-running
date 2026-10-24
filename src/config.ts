@@ -34,7 +34,7 @@ export const CONFIG = {
       minDemandSheets: 13,                // 7am sheets + orders + drop-off; extra calls are added until the day reaches this
       deadlineMix: { today: 0.6, tomorrow: 0.3, rush: 0.1 }, // today/tomorrow = by close of that day
       rushMinutes: 120,                   // a rush order is due this long after the call
-      missedKeepChance: 0.5,              // unanswered: chance they leave a message instead of going elsewhere
+      callbackMinutes: 60,                // an order call that rings out always leaves a voicemail; ring back within this or the job's gone
       lostJobCallPenalty: 1,              // each sheet lost (undelivered by close the day after it's due) = one fewer call tomorrow, never below callsMin
     },
     cutMinutesMin: 25,
@@ -104,8 +104,8 @@ export const CONFIG = {
     maxActive: 2,
     // friend: hovers for `hoverMinutes` then starts chatting unless you send them off
     friend:  { durationMin: 8, durationMax: 18, hoverMinutes: 3, disengageRapportCost: 5, chatRapportGain: 4, weight: 4 },
-    // window: game minutes it rings (1 game min = 1 real s) — long enough to reach the office from anywhere on the factory floor
-    phone:   { window: 9, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
+    // window: game minutes it rings (1 game min = 1 real s) — long enough to finish what you're doing and get to the office
+    phone:   { window: 30, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
     courier: { window: 3, busyMinutes: 1, ignoredMaterialPenalty: 0.25, signRapportGain: 1, weight: 2 },
     bank:    { window: 2, busyMinutes: 4, ignoreRapportCost: 10, weight: 5 }, // only when cash < 0
   },

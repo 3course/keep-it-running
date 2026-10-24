@@ -44,6 +44,7 @@ const competent: Policy = (g) => {
     else if (d.order) g.respond(d.id, overCommitted(g) ? 'decline' : 'answer');
     else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
   }
+  for (const c of g.callbacks) g.callBack(c.id, overCommitted(g) ? 'decline' : 'answer');
   if (g.machine === 'idle' && g.queued.length) {
     // proactive maintenance between sheets
     if (g.wear.bit < 0.3) { g.replaceConsumable('bit'); return; }
@@ -83,6 +84,7 @@ const sloppy: Policy = (g) => {
     if (d.kind === 'phone' || d.kind === 'bank') g.respond(d.id, 'answer');
     if (d.kind === 'friend') g.respond(d.id, 'chat');
   }
+  for (const c of g.callbacks) g.callBack(c.id);
   if (g.fridgeOpen && g.beersToday < 4 && g.rng.chance(0.02)) g.drinkBeer();
   if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet();
 };

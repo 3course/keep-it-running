@@ -2,7 +2,7 @@ import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeI
 import { FAULTS } from '../data/faults.js';
 import { Rng } from './rng.js';
 import type {
-  ActiveFault, DayStats, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
+  ActiveFault, Callback, DayStats, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
 } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
@@ -13,6 +13,8 @@ const JOB_NAMES = [
   'Shop fit-out panels — Collingwood', 'Bookcase — Malvern East', 'Island bench — Thomastown joiner',
   'Office pods — Richmond', 'Bar front — Footscray',
 ];
+
+const CUSTOMERS = ['Mick', 'Kerry', 'Dave', 'Priya', 'Sal', 'Tran', 'Lou', 'Gus', 'Jen', 'Rob'];
 
 function emptyStats(day: number): DayStats {
   return {
@@ -67,6 +69,7 @@ export class Game {
   distractions: Distraction[] = [];
   busy: { label: string; remaining: number } | null = null; // on the phone etc.
   nextDistractionId = 1;
+  callbacks: Callback[] = [];  // voicemails from order calls that rang out, oldest first
 
   // competence
   competence: number = CONFIG.competence.start;
@@ -166,6 +169,7 @@ export class Game {
     this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
     this.distractions = [];
+    this.callbacks = [];
     this.busy = null;
     this.fault = null;
     this.current = null;
@@ -324,6 +328,7 @@ export class Game {
 
     // people
     this.tickDistractions();
+    this.tickCallbacks();
     this.maybeDistraction();
     while (this.orderCalls.length && this.minute >= this.orderCalls[0].minute) {
       this.spawnOrderCall(this.orderCalls.shift()!.sheets);
@@ -601,6 +606,7 @@ export class Game {
       id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — new order',
       line: `${t.name}: ${sheets} sheet${sheets > 1 ? 's' : ''} of ${t.material}.`,
       remaining: CONFIG.distractions.phone.window, engaged: false, hover: 0, order: sheets, orderType: t.id,
+      customer: this.rng.pick(CUSTOMERS),
     });
     this.say(`Phone ringing — ${t.name.toLowerCase()} order, ${sheets} × ${t.material}`, 'info');
   }
@@ -639,19 +645,50 @@ export class Game {
           this.say(`"Righto, I'll let you get back to it." (+${d.friend.chatRapportGain} rapport)`, 'good');
           break;
         case 'phone':
-          if (dist.order && this.rng.chance(CONFIG.jobs.orders.missedKeepChance)) {
-            this.say('Missed the call, but they left a message.');
-            this.addOrder(dist.order, dist.orderType!);
+          if (dist.order) {
+            // an order call always leaves a voicemail; it's only lost if you don't ring back in time
+            const customer = dist.customer ?? this.rng.pick(CUSTOMERS);
+            this.callbacks.push({
+              id: dist.id, customer, sheets: dist.order, orderType: dist.orderType!,
+              expiresMinute: this.minute + CONFIG.jobs.orders.callbackMinutes,
+            });
+            this.say(`Missed the call. ${customer} left a voicemail: ${dist.order} sheets. Ring back by ${this.formatTime(this.minute + CONFIG.jobs.orders.callbackMinutes)}.`);
           } else {
             this.addRapport(-d.phone.ignoreRapportCost);
-            if (dist.order) this.today.sheetsMissed += dist.order;
-            this.say(`Missed the call. ${dist.order ? `${dist.order}-sheet order went` : 'They went'} elsewhere.`, 'bad');
+            this.say('Missed the call. They went elsewhere.', 'bad');
           }
           break;
         case 'courier': this.courierPenaltyPending = true; this.say('Courier left. Re-delivery fee on the next sheet.', 'bad'); break;
         case 'bank': this.addRapport(-d.bank.ignoreRapportCost); this.spend(CONFIG.economy.bankFee, 'fees', 'dishonour fee'); break;
       }
     }
+  }
+
+  private tickCallbacks() {
+    for (const c of this.callbacks.filter(x => this.minute >= x.expiresMinute)) this.loseCallback(c);
+  }
+
+  private loseCallback(c: Callback) {
+    this.callbacks = this.callbacks.filter(x => x.id !== c.id);
+    this.addRapport(-CONFIG.distractions.phone.ignoreRapportCost);
+    this.today.sheetsMissed += c.sheets;
+    this.say(`Never rang ${c.customer} back. ${c.sheets}-sheet order went elsewhere.`, 'bad');
+  }
+
+  /** Ring back a voicemail from the office phone: take the order, or turn it down. */
+  callBack(id: number, action: 'answer' | 'decline' = 'answer'): boolean {
+    const c = this.callbacks.find(x => x.id === id);
+    if (!c || this.phase !== 'day' || !this.canAct) return false;
+    this.callbacks = this.callbacks.filter(x => x.id !== id);
+    this.busy = { label: `on the phone to ${c.customer}`, remaining: CONFIG.distractions.phone.busyMinutes };
+    if (action === 'decline') {
+      this.today.sheetsDeclined += c.sheets;
+      this.say(`Rang ${c.customer} back. Turned down ${c.sheets} sheets.`);
+      return true;
+    }
+    this.say(`Rang ${c.customer} back.`);
+    this.addOrder(c.sheets, c.orderType);
+    return true;
   }
 
   private removeDistraction(id: number) {
@@ -846,6 +883,7 @@ export class Game {
     this.today.sheetsLost = lost.length;
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
+    for (const c of [...this.callbacks]) this.loseCallback(c); // nobody rings back after knock-off
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
     this.fire = null; this.fireResponse = null; this.spraying = false;
     this.phase = 'daySummary';

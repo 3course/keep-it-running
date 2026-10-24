@@ -2,7 +2,7 @@
 // the things that come and go (vehicles, the mate, dust). Flat toon colours, warm palette.
 import * as THREE from 'three';
 import {
-  buildGrid, COLS, DECOR, isOutside, OBJECTS, ROLLER_TILES, ROWS, T, VEHICLE_BAY, objectById, type Decor, type ObjectId, type PlacedObject, type Rect,
+  buildGrid, COLS, DECOR, DOORWAYS, isOutside, OBJECTS, ROLLER_TILES, ROWS, T, VEHICLE_BAY, objectById, type Decor, type Doorway, type ObjectId, type PlacedObject, type Rect,
 } from '../world/layout.js';
 import { WORLD } from '../world/worldConfig.js';
 import { mergeCells, rectToBox, type Box } from './collide.js';
@@ -76,6 +76,7 @@ export interface BuiltWorld {
   dust: THREE.Mesh[];
   pickables: THREE.Object3D[]; // things a tap can hit: object groups, vehicles, mate
   floor: THREE.Mesh;
+  doorways: DoorwayView[];
 }
 
 // ---------- floor ----------
@@ -207,6 +208,117 @@ function buildWalls(grid: number[][], scene: THREE.Object3D, fadeables: Fadeable
   return boxes;
 }
 
+// ---------- doorways ----------
+
+export interface DoorwayView {
+  def: Doorway;
+  /** Middle of the sign over the doorway, for the crisp DOM lettering. */
+  signAt: THREE.Vector3;
+  /** Warm light spilling out of the doorway (office only); fade its material and the lamp in and out. */
+  spill?: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; lamp: THREE.PointLight };
+}
+
+function signTexture(text: string) {
+  const c = document.createElement('canvas');
+  c.width = 64; c.height = 16;
+  const ctx = c.getContext('2d')!;
+  ctx.fillStyle = '#4a3a22'; ctx.fillRect(0, 0, 64, 16);
+  ctx.fillStyle = '#f4ecd2'; ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(text, 32, 9);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = tex.minFilter = THREE.NearestFilter;
+  tex.generateMipmaps = false;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** A doorway that reads as one: frame, door swung open into the next room, mat on this side, sign over the top. */
+function buildDoorway(dw: Doorway, scene: THREE.Object3D, fadeables: Fadeable[]): DoorwayView {
+  const alongX = dw.along === 'x';
+  // opening in metres: `a` runs along the wall, `n` across it (the swing side is +n when swing is positive)
+  const a0 = (alongX ? dw.cell.x : dw.cell.y) * C, a1 = a0 + 2 * C;
+  const n0 = (alongX ? dw.cell.y : dw.cell.x) * C, n1 = n0 + C;
+  const s = alongX ? dw.swing.y : dw.swing.x;
+  const swingFace = s > 0 ? n1 : n0, matFace = s > 0 ? n0 : n1;
+  const at = (a: number, n: number, y = 0) => (alongX ? new THREE.Vector3(a, y, n) : new THREE.Vector3(n, y, a));
+  const g = new THREE.Group();
+  const fadeMats: THREE.Material[] = [];
+  const own = (colour: number) => { const m = toon(colour, true, { transparent: true }); fadeMats.push(m); return m; };
+
+  // frame: two jambs and a head, standing a little proud of both wall faces
+  const frameMat = own(0x5a3f28), depth = C + 0.06;
+  const piece = (w: number, h: number, a: number, y0: number) => {
+    const m = boxAt(alongX ? w : depth, h, alongX ? depth : w, frameMat);
+    m.position.copy(at(a, (n0 + n1) / 2, y0 + h / 2));
+    g.add(m);
+  };
+  piece(0.07, WORLD.lintel, a0 + 0.035, 0);
+  piece(0.07, WORLD.lintel, a1 - 0.035, 0);
+  piece(a1 - a0, 0.08, (a0 + a1) / 2, WORLD.lintel - 0.04);
+
+  // the door, hinged on the first jamb, swung all the way open into the room it leads to
+  const doorW = a1 - a0 - 0.1, doorH = WORLD.lintel - 0.06;
+  const pivot = new THREE.Group();
+  pivot.position.copy(at(a0 + 0.06, swingFace + s * 0.03));
+  const panel = boxAt(doorW, doorH, 0.045, own(0x9a6a3c), doorW / 2, 0);
+  const inset = boxAt(doorW - 0.2, doorH * 0.36, 0.055, own(0x87592f), doorW / 2, doorH * 0.5);
+  const inset2 = boxAt(doorW - 0.2, doorH * 0.3, 0.055, own(0x87592f), doorW / 2, doorH * 0.1);
+  const knob = boxAt(0.06, 0.06, 0.1, own(0xd8c47a), doorW - 0.1, 0.98);
+  pivot.add(panel, inset, inset2, knob);
+  // local +x → into the room (along the swing), leaning back a touch toward the wall it's hinged on
+  const dir = at(0, s); // direction across the wall
+  pivot.rotation.y = Math.atan2(-dir.z, dir.x) + (alongX ? -s : s) * 0.05;
+  g.add(pivot);
+
+  // doormat on this side
+  const matW = (a1 - a0) - 0.05, matD = 0.55;
+  const matCentre = at((a0 + a1) / 2, matFace - s * (matD / 2 + 0.04), 0);
+  const mat = boxAt(alongX ? matW : matD, 0.018, alongX ? matD : matW, 0x5b4636);
+  mat.position.set(matCentre.x, 0.009, matCentre.z); mat.castShadow = false;
+  const matInner = boxAt(alongX ? matW - 0.1 : matD - 0.1, 0.02, alongX ? matD - 0.1 : matW - 0.1, 0x7a6248);
+  matInner.position.set(matCentre.x, 0.01, matCentre.z); matInner.castShadow = false;
+  scene.add(mat, matInner);
+
+  // sign on both faces of the lintel
+  const tex = signTexture(dw.sign);
+  for (const face of [n0, n1]) {
+    const side = face === n0 ? -1 : 1;
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.2, 0.03), [
+      own(0x2b2418), own(0x2b2418), own(0x2b2418), own(0x2b2418),
+      ...[0, 1].map(() => { const sm = toon(0xffffff, true, { map: tex, transparent: true }); fadeMats.push(sm); return sm; }),
+    ]);
+    m.position.copy(at((a0 + a1) / 2, face + side * 0.03, WORLD.lintel + 0.15));
+    if (!alongX) m.rotation.y = Math.PI / 2;
+    g.add(m);
+  }
+  scene.add(g);
+  const lo = at(a0, n0), hi = at(a1, n1);
+  fadeables.push({ obj: g, mats: fadeMats, box: { minX: Math.min(lo.x, hi.x), minZ: Math.min(lo.z, hi.z), maxX: Math.max(lo.x, hi.x), maxZ: Math.max(lo.z, hi.z) }, height: WORLD.wallHeight });
+
+  const view: DoorwayView = { def: dw, signAt: at((a0 + a1) / 2, (n0 + n1) / 2, WORLD.lintel + 0.15) };
+  if (dw.light) {
+    // warm light from the room beyond, fanning out across this side's floor: bright at the door, fading out
+    const len = 3.2, far = 1.8;
+    const pts: [number, number, number][] = [ // (a, n, brightness)
+      [a0, swingFace, 1], [a1, swingFace, 1], [a1 + far / 2, matFace - s * len, 0], [a0 - far / 2, matFace - s * len, 0],
+    ];
+    const pos: number[] = [], col: number[] = [];
+    for (const [pa, pn, b] of pts) { const v = at(pa, pn, 0.03); pos.push(v.x, v.y, v.z); col.push(b, b * 0.72, b * 0.38); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    const spillMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
+    const spill = new THREE.Mesh(geo, spillMat);
+    spill.visible = false;
+    const lamp = new THREE.PointLight(0xffb060, 0, 6, 1.4);
+    lamp.position.copy(at((a0 + a1) / 2, swingFace + s * 0.9, 1.6));
+    scene.add(spill, lamp);
+    view.spill = { mesh: spill, mat: spillMat, lamp };
+  }
+  return view;
+}
+
 // ---------- objects ----------
 
 type Builder = (g: THREE.Group, w: number, d: number, h: number, o: PlacedObject) => Record<string, THREE.Object3D>;
@@ -287,6 +399,9 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
       g.add(boxAt(0.45, h, 0.45, o.colour, sx, 0, 0));
       g.add(boxAt(0.45, 0.45, 0.08, o.colour, sx, h, -0.2));
     }
+    // an upturned crate between the chairs for the mugs (and so the middle is tappable)
+    g.add(boxAt(0.36, 0.34, 0.36, 0x8a6a40, 0, 0, 0.05));
+    g.add(boxAt(0.08, 0.1, 0.08, 0xe9e2d0, 0.06, 0.34, 0.02));
     return {};
   },
   desk: (g, w, d, h, o) => {
@@ -536,6 +651,7 @@ export function buildWorld(scene: THREE.Scene): BuiltWorld {
   scene.add(ground);
   const fadeables: Fadeable[] = [];
   const collisionBoxes = buildWalls(grid, scene, fadeables);
+  const doorways = DOORWAYS.map(d => buildDoorway(d, scene, fadeables));
   const objects = new Map<ObjectId, ObjectView>();
   const pickables: THREE.Object3D[] = [];
   for (const o of OBJECTS) {
@@ -567,5 +683,5 @@ export function buildWorld(scene: THREE.Scene): BuiltWorld {
   const dust = buildDust();
   for (const m of dust) scene.add(m);
   pickables.push(vehicles.ute, vehicles.truck, mate);
-  return { grid, collisionBoxes, rollerBox, objects, fadeables, vehicles, mate, dust, pickables, floor };
+  return { grid, collisionBoxes, rollerBox, objects, fadeables, vehicles, mate, dust, pickables, floor, doorways };
 }

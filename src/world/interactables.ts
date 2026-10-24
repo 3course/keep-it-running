@@ -13,6 +13,8 @@ export interface Action {
   hold?: boolean;     // hold to do it (spraying)
   /** false: never done automatically on arrival — it costs money or is a choice. Tap the label. */
   auto?: boolean;
+  /** The notepad line this action answers: tapping that line does this on arrival. */
+  key?: string;
 }
 
 const money = (n: number) => `$${Math.round(n)}`;
@@ -115,10 +117,14 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       const a: Action[] = [];
       for (const d of g.distractions) {
         if (d.kind === 'phone' && d.order) {
-          a.push({ label: `Take the order (${d.order} sheets)`, run: () => { g.respond(d.id, 'answer'); } });
+          a.push({ label: `Take the order (${d.order} sheets)`, key: `phone-${d.id}`, run: () => { g.respond(d.id, 'answer'); } });
           a.push({ label: 'Turn it down', auto: false, run: () => { g.respond(d.id, 'decline'); } });
-        } else if (d.kind === 'phone') a.push({ label: 'Answer', run: () => { g.respond(d.id, 'answer'); } });
-        else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', run: () => { g.respond(d.id, 'answer'); } });
+        } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, run: () => { g.respond(d.id, 'answer'); } });
+        else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, run: () => { g.respond(d.id, 'answer'); } });
+      }
+      for (const c of g.callbacks) {
+        a.push({ label: `Call ${c.customer} back (${c.sheets} sheets)`, key: `callback-${c.id}`, run: () => { g.callBack(c.id); } });
+        a.push({ label: `Ring ${c.customer}, turn it down`, auto: false, run: () => { g.callBack(c.id, 'decline'); } });
       }
       return a;
     }

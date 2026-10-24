@@ -92,13 +92,17 @@ const CSS = `
 #kir-hud .hint { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: 280px; padding: 12px 14px; display: none;
   background: #f4ecd2; color: #2b2418; border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.45); text-align: center; pointer-events: none;
   font: 16px ${HAND}; }
+#kir-hud .sign { position: absolute; transform: translate(-50%, -50%); font: bold 10px 'Courier New', monospace; letter-spacing: 1px; color: #f4ecd2;
+  background: #4a3a22; border: 1px solid #2b2418; border-radius: 2px; padding: 1px 5px; white-space: nowrap; pointer-events: none; }
+#kir-hud .pad h3.vm { color: #3d6f9e; }
+#kir-hud .pad li.callback { color: #2e5a86; }
 #kir-hud .mute { position: absolute; right: 10px; top: 62px; width: 32px; height: 28px; pointer-events: auto; cursor: pointer; border: 0; border-radius: 6px;
   background: rgba(20,17,15,.6); color: #efe6d8; font-size: 15px; line-height: 28px; padding: 0; }
 `;
 
 export interface HudCallbacks {
-  /** Walk to the nearest of these (a notepad line was tapped). */
-  goTo: (targets: ObjectId[]) => void;
+  /** Walk to the nearest of these (a notepad line was tapped). `key`: that line, so arriving does its action and not just any. */
+  goTo: (targets: ObjectId[], key?: string) => void;
   toggleMute: () => boolean;
   togglePause: () => void;
   knockOff: () => void;
@@ -192,16 +196,18 @@ export class Hud {
     const sig = JSON.stringify([items.map(i => i.key + i.text), done, open.map(j => [j.id, j.status, g.isLate(j)]), g.day]);
     if (sig === this.padSig) return;
     this.padSig = sig;
-    const now = items.filter(i => i.urgent), later = items.filter(i => !i.urgent);
-    const li = (i: TodoItem) => `<li class="${i.urgent ? 'urgent' : ''}" data-targets="${i.targets.join(',')}">${esc(i.text)}</li>`;
+    const isCallback = (i: TodoItem) => i.key.startsWith('callback-');
+    const now = items.filter(i => i.urgent), later = items.filter(i => !i.urgent && !isCallback(i)), calls = items.filter(isCallback);
+    const li = (i: TodoItem) => `<li class="${i.urgent ? 'urgent' : ''}${isCallback(i) ? ' callback' : ''}" data-key="${esc(i.key)}" data-targets="${i.targets.join(',')}">${esc(i.text)}</li>`;
     this.pad.innerHTML = `
       <h2>Day ${g.day} of ${CONFIG.week.days}</h2>
       <h3>Now</h3><ul>${now.map(li).join('') || '<li class="empty">Nothing on fire. Yet.</li>'}${done.map(d => `<li class="done">${esc(d)}</li>`).join('')}</ul>
       <h3>Can wait</h3><ul>${later.map(li).join('') || '<li class="empty">—</li>'}</ul>
+      ${calls.length ? `<h3 class="vm">Voicemail</h3><ul>${calls.map(li).join('')}</ul>` : ''}
       <h3>Sheets (${open.length})</h3><ul>${open.map(j => `<li class="sheet ${g.isLate(j) ? 'late' : ''}" data-targets="${j.status === 'cutting' ? 'machine' : 'plyPallet'}">${j.status === 'cutting' ? '▶ ' : ''}${esc(j.name)}<br>&nbsp;&nbsp;${esc(j.material)} · due ${g.dueLabel(j)} · ${money(j.price)}</li>`).join('') || '<li class="empty">Board is clear.</li>'}</ul>`;
     for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-targets]'))) {
       const targets = (node.dataset.targets ?? '').split(',').filter(Boolean) as ObjectId[];
-      if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets); });
+      if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets, node.dataset.key); });
     }
   }
 

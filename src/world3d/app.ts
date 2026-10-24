@@ -20,6 +20,7 @@ import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
+import { Trail } from './trail.js';
 
 const C = WORLD.cell;
 const VW = WORLD.view.width, VH = WORLD.view.height;
@@ -45,7 +46,8 @@ export class World3D {
   private path: P[] | null = null;
   private pathIdx = 0;
   private goal: P[] = [];
-  private pending: { id: ObjectId; act: boolean; highlight: boolean } | null = null;
+  /** Where we're walking to; `want`: the notepad line tapped, whose action runs on arrival. */
+  private pending: { id: ObjectId; act: boolean; highlight: boolean; want?: string } | null = null;
   private stuck = { t: 0, x: 0, z: 0, replans: 0 };
   private keys = new Set<string>();
   private ePressed = false;
@@ -73,6 +75,12 @@ export class World3D {
   private ring = new RingSound();
   private flashRing!: THREE.Group;
   private flash: { id: ObjectId; t: number } | null = null;
+  private trail!: Trail;
+  private trailPath: P[] | null = null;   // the walk the trail was laid for (a notepad line)
+  private guideFor: ObjectId | null = null; // first day: the tour stop the trail points at
+  private guideT = 0;
+  private signEls: HTMLDivElement[] = [];
+  private spillLevel = 0;
 
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
@@ -114,7 +122,7 @@ export class World3D {
     this.paused = resumePaused;
 
     this.hud = new Hud(canvas, {
-      goTo: targets => { this.hints.mark('notepad'); this.goToNearest(targets); },
+      goTo: (targets, key) => { this.hints.mark('notepad'); this.goToNearest(targets, key); },
       toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
@@ -123,6 +131,8 @@ export class World3D {
     this.hud.setPaused(this.paused);
     this.hud.setMuted(this.ring.muted);
     this.buildFlashRing();
+    this.trail = new Trail(this.scene);
+    this.buildSigns();
 
     this.fit();
     window.addEventListener('resize', () => this.fit());
@@ -258,10 +268,12 @@ export class World3D {
     this.syncWorld();
     this.move(dt);
     this.updateTour();
+    this.updateTrail(dt);
     this.updateCamera(dt);
     this.updateVisuals(dt);
     this.updateLabels();
     this.updatePointers();
+    this.updateSigns(dt);
     this.updateRing();
     if (!this.hud.summaryShowing) {
       this.hud.update(g, todoItems(g, w), w.done);
@@ -377,12 +389,15 @@ export class World3D {
     this.pos.x = r.x; this.pos.z = r.z;
 
     if (!frozen && this.pending && this.inRange(this.pending.id)) {
-      const { id, act, highlight } = this.pending;
+      const { id, act, highlight, want } = this.pending;
       this.stopWalking();
       if (highlight) this.flash = { id, t: 0 };
       if (act) {
-        const runnable = actionsFor(id, g, w).filter(a => a.run && a.auto !== false);
-        if (runnable.length === 1) this.doAction(runnable[0]);
+        const actions = actionsFor(id, g, w);
+        const wanted = want ? actions.find(a => a.key === want && a.run) : undefined;
+        const runnable = actions.filter(a => a.run && a.auto !== false);
+        if (wanted) this.doAction(wanted);
+        else if (runnable.length === 1) this.doAction(runnable[0]);
       }
     }
     const sp = Math.hypot(this.vel.x, this.vel.z);
@@ -427,10 +442,11 @@ export class World3D {
   private replan() { const p = this.pending; if (!this.planTo(this.goal)) this.stopWalking(); this.pending = p; }
 
   /** Walk to an object and, if there's exactly one obvious thing to do there, do it. */
-  goTo(id: ObjectId, act: boolean, highlight = false) {
+  goTo(id: ObjectId, act: boolean, highlight = false, want?: string) {
     if (this.paused || this.g.phase !== 'day') return;
     if (id === 'duct') id = 'exhaust'; // the fire is at the exhaust unit end of the duct
-    this.pending = { id, act, highlight };
+    this.trailPath = null;
+    this.pending = { id, act, highlight, want };
     if (this.inRange(id)) return; // move() picks it up this frame
     const r = objectById(id).rect, ring: P[] = [];
     for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
@@ -440,7 +456,7 @@ export class World3D {
   }
 
   /** A notepad line: walk to the nearest of its objects (by walking distance), act, and flash it on arrival. */
-  goToNearest(targets: ObjectId[]) {
+  goToNearest(targets: ObjectId[], want?: string) {
     if (!targets.length) return;
     let best = targets[0], bestLen = Infinity;
     if (targets.length > 1) for (const id of targets) {
@@ -453,7 +469,8 @@ export class World3D {
       const len = p ? p.length : Infinity;
       if (len < bestLen) { bestLen = len; best = id; }
     }
-    this.goTo(best, true, true);
+    this.goTo(best, true, true, want);
+    if (this.path) this.layTrail(); // show the way
   }
 
   private walkToPoint(wx: number, wz: number) {
@@ -713,6 +730,73 @@ export class World3D {
     (n.material as THREE.MeshBasicMaterial).opacity = 1 - k;
     const bounce = Math.sin(Math.min(1, f.t / 0.35) * Math.PI) * 0.1;
     v.group.scale.set(1 + bounce * 0.4, 1 + bounce, 1 + bounce * 0.4);
+  }
+
+  /** Dotted path along the walk we just planned (a notepad line was tapped). */
+  private layTrail() {
+    const p = this.path!;
+    this.trail.set([{ x: this.pos.x, z: this.pos.z }, ...p.slice(this.pathIdx).map(c => ({ x: (c.x + 0.5) * C, z: (c.y + 0.5) * C }))]);
+    this.trailPath = p;
+  }
+
+  /**
+   * The notepad trail follows the walk (re-laid if it replans) and fades when the walk ends. On the
+   * first day, when no walk is on, a trail points at the next tour stop and keeps up as you wander.
+   */
+  private updateTrail(dt: number) {
+    if (this.trailPath) {
+      if (!this.path) { this.trail.clear(); this.trailPath = null; }
+      else if (this.path !== this.trailPath) this.layTrail();
+    } else if (tourActive(this.w) && !this.paused && this.g.phase === 'day') {
+      const next = TOUR.find(t => !this.w.tour!.visited.includes(t.id))?.id ?? null;
+      this.guideT -= dt;
+      const stale = next !== this.guideFor || (this.guideT <= 0 && (!this.trail.active || this.trail.offBy(this.pos.x, this.pos.z) > 1.2));
+      if (next && stale) {
+        this.guideFor = next; this.guideT = 0.6;
+        const r = objectById(next).rect, ring: P[] = [];
+        for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+          if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) ring.push({ x, y });
+        }
+        const found = this.inRange(next) ? null : findPath(COLS, ROWS, this.walkable, this.cell(), ring);
+        if (found) this.trail.set([{ x: this.pos.x, z: this.pos.z }, ...smooth(this.walkable, found).slice(1).map(c => ({ x: (c.x + 0.5) * C, z: (c.y + 0.5) * C }))]);
+        else this.trail.clear();
+      }
+    } else if (this.guideFor) { this.guideFor = null; this.trail.clear(); }
+    this.trail.update(dt, this.pos.x, this.pos.z);
+  }
+
+  /** Crisp lettering over each doorway's sign (the 3D sign is only a few pixels at this resolution). */
+  private buildSigns() {
+    for (const d of this.built.doorways) {
+      const el = document.createElement('div');
+      el.className = 'sign';
+      el.textContent = d.def.sign;
+      el.style.display = 'none';
+      this.hud.labels.appendChild(el);
+      this.signEls.push(el);
+    }
+  }
+
+  /** Signs show when they're on screen and near you; the office door glows while the phone rings. */
+  private updateSigns(dt: number) {
+    const show = this.g.phase === 'day' && !this.hud.summaryShowing;
+    this.built.doorways.forEach((d, i) => {
+      const el = this.signEls[i];
+      const p = this.project(d.signAt);
+      const near = Math.hypot(d.signAt.x - this.pos.x, d.signAt.z - this.pos.z) < 11;
+      const vis = show && near && !p.behind && p.x > 10 && p.x < VW - 10 && p.y > 60 && p.y < VH - 10;
+      el.style.display = vis ? 'block' : 'none';
+      if (vis) { el.style.left = `${p.x.toFixed(1)}px`; el.style.top = `${p.y.toFixed(1)}px`; }
+    });
+    const ringing = this.g.phase === 'day' && this.g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
+    this.spillLevel += ((ringing ? 1 : 0) - this.spillLevel) * Math.min(1, 3 * dt);
+    for (const d of this.built.doorways) {
+      if (!d.spill) continue;
+      const k = this.spillLevel * (ringOn(this.time) ? 1 : 0.8);
+      d.spill.mesh.visible = k > 0.01;
+      d.spill.mat.opacity = k * 0.9;
+      d.spill.lamp.intensity = k * 10;
+    }
   }
 
   /** Small icons on the screen edge pointing at problems you can't see. */

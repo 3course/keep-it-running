@@ -101,7 +101,7 @@ export const DECOR: Decor[] = [
   { kind: 'offcutStack', rect: { x: 6, y: 28, w: 1, h: 3 }, solid: true },   // leaning on the west wall
   { kind: 'offcutStack', rect: { x: 17, y: 14, w: 3, h: 1 }, solid: true },  // leaning on the north wall
   { kind: 'pallet', rect: { x: 6, y: 31, w: 3, h: 3 }, solid: true },        // second, half-empty pallet
-  { kind: 'bin', rect: { x: 6, y: 36, w: 1, h: 1 }, solid: true },
+  { kind: 'bin', rect: { x: 10, y: 37, w: 1, h: 1 }, solid: true },        // against the office wall, clear of its door
   { kind: 'broom', rect: { x: 17, y: 37, w: 1, h: 1 }, solid: false },
   { kind: 'bench', rect: { x: 12, y: 36, w: 3, h: 2 }, solid: true },        // workbench with clamps
   { kind: 'hose', rect: { x: 6, y: 22, w: 1, h: 1 }, solid: false },         // air hose coiled on a hook
@@ -121,6 +121,18 @@ export const MACHINE_SPOT = { x: 13, y: 28 };
 
 /** Cells of the roller door (in the dock's east wall). */
 export const ROLLER_TILES = Array.from({ length: 6 }, (_, i) => ({ x: 29, y: 28 + i }));
+
+/**
+ * Doorways that should read as doors from the room you're in: a door swung open into the room it
+ * leads to, a mat on your side, a sign over the top. `cell` is the doorway's first cell (it's 2 wide,
+ * along the wall); `swing` is the direction the door opens into, as a unit step in cells.
+ */
+export interface Doorway { sign: string; cell: { x: number; y: number }; along: 'x' | 'y'; swing: { x: number; y: number }; light?: boolean }
+export const DOORWAYS: Doorway[] = [
+  { sign: 'OFFICE', cell: { x: 6, y: 38 }, along: 'x', swing: { x: 0, y: 1 }, light: true }, // warm light spills out while the phone rings
+  { sign: 'STORAGE', cell: { x: 25, y: 21 }, along: 'x', swing: { x: 0, y: -1 } },
+  { sign: 'YARD', cell: { x: 5, y: 16 }, along: 'y', swing: { x: -1, y: 0 } },
+];
 
 /** Where the ute and truck park on the apron (cells). Vehicles face north. */
 export const VEHICLE_BAY: Rect = { x: 31, y: 26, w: 6, h: 10 };

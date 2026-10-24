@@ -71,5 +71,10 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (w.utePresent) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'rollerDoor');
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
   if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.queued.length && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
-  return [...now, ...later];
+
+  // voicemails sit under the main list: they'll wait, but not forever
+  const callbacks: TodoItem[] = g.callbacks.map(c => ({
+    key: `callback-${c.id}`, text: `Call back ${c.customer} (${Math.max(0, c.expiresMinute - g.minute)}m)`, targets: ['phone'], urgent: false,
+  }));
+  return [...now, ...later, ...callbacks];
 }
