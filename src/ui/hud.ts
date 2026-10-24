@@ -36,11 +36,19 @@ const CSS = `
 #kir-hud .pad ul { list-style: none; margin: 0; padding: 0; }
 #kir-hud .pad li { font-size: 15px; line-height: 26px; cursor: pointer; }
 #kir-hud .pad li.urgent { color: #9a1f12; }
-#kir-hud .pad li.done { text-decoration: line-through; color: #8a7d64; cursor: default; }
-#kir-hud .pad li.sheet { font-size: 13px; cursor: default; }
+#kir-hud .pad li.sheet { font-size: 13px; line-height: 18px; padding: 4px 0; }
+#kir-hud .pad li.sheet .sub { color: #6b5d45; }
 #kir-hud .pad li.sheet.late { color: #9a1f12; }
-#kir-hud .pad li.news { color: #3d6f9e; font-size: 14px; cursor: default; }
-#kir-hud .pad li.news::before { content: '• '; }
+#kir-hud .pad li.more { font-size: 13px; color: #3d6f9e; text-decoration: underline; }
+#kir-hud .toast { position: absolute; left: 50%; bottom: 70px; transform: translateX(-50%); max-width: 330px; padding: 7px 14px; border-radius: 16px;
+  background: rgba(20,17,15,.82); color: #efe6d8; font: 13px 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: auto; cursor: pointer; opacity: 0; transition: opacity .25s; }
+#kir-hud .toast.show { opacity: 1; }
+#kir-hud .log .card { text-align: left; max-height: 70%; display: flex; flex-direction: column; }
+#kir-hud .log ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; font-size: 13px; line-height: 20px; }
+#kir-hud .log li { border-bottom: 1px solid #3a3129; padding: 3px 0; }
+#kir-hud .log li.empty { color: #a2937f; border: 0; }
+#kir-hud .log button { align-self: center; background: #4a4540; }
 #kir-hud .bubble { position: absolute; transform: translate(-50%, -100%); background: #f4ecd2; color: #2b2418; font: 15px ${HAND};
   padding: 5px 10px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.4); white-space: nowrap; pointer-events: none; display: none; }
 #kir-hud .bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -6px; border: 7px solid transparent; border-bottom: 0; border-top-color: #f4ecd2; }
@@ -150,6 +158,12 @@ export class Hud {
   private hint: HTMLDivElement;
   private mute: HTMLButtonElement;
   private padSig = '';
+  private toast: HTMLDivElement;
+  private toastTimer = 0;
+  private toastSeen: string | null | undefined = undefined; // newest log line already toasted (undefined: not started)
+  private logPanel: HTMLDivElement;
+  private logLines: string[] = [];
+  private sheetsOpen = false; // "+ N more jobs" expanded
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
   private canChip: HTMLButtonElement;
@@ -194,11 +208,15 @@ export class Hud {
     this.mute = el('button', { className: 'mute' });
     this.ply = el('div', { className: 'modal ply' });
     this.bubble = el('div', { className: 'bubble' });
+    this.toast = el('div', { className: 'toast' });
+    this.toast.addEventListener('click', () => this.showLog());
+    this.logPanel = el('div', { className: 'modal log' });
+    this.logPanel.addEventListener('click', e => { if (e.target === this.logPanel) this.hideLog(); });
     this.canChip = el('button', { className: 'canchip' });
     this.canChip.style.display = 'none';
     this.canChip.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.cb.putCanDown(); });
     this.mute.addEventListener('click', e => { e.stopPropagation(); this.setMuted(this.cb.toggleMute()); });
-    this.stage.append(this.labels, this.bubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.canChip, this.eod, this.ply, this.summary, this.pausedEl, tag);
+    this.stage.append(this.labels, this.bubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
     document.body.appendChild(this.root);
     window.addEventListener('resize', this.onResize);
     this.layout();
@@ -214,7 +232,54 @@ export class Hud {
   open() { this.isOpen = true; this.pad.classList.add('open'); this.catcher.style.display = 'block'; }
   close() { this.isOpen = false; this.pad.classList.remove('open'); this.catcher.style.display = 'none'; }
 
-  update(g: Game, items: TodoItem[], done: string[]) {
+  /** Newest event as a toast strip: one line, 2.5 s, a newer one replaces it. Tap it for the Log. */
+  private updateToast(log: string[]) {
+    this.logLines = log;
+    const newest = log[0] ?? null;
+    if (this.toastSeen === undefined) { this.toastSeen = newest; return; } // don't replay the last session's news
+    if (newest === this.toastSeen) return;
+    this.toastSeen = newest;
+    if (!newest) return;
+    this.toast.textContent = newest;
+    this.toast.classList.add('show');
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toast.classList.remove('show'), 2500);
+  }
+
+  /** Today's events, newest first, in a scrollable panel. */
+  showLog() {
+    const lines = this.logLines;
+    this.logPanel.innerHTML = `<div class="card"><h1>Today so far</h1><ul>${lines.map(l => `<li>${esc(l)}</li>`).join('') || '<li class="empty">Nothing yet.</li>'}</ul><button>Close</button></div>`;
+    this.logPanel.querySelector('button')!.addEventListener('click', () => this.hideLog());
+    this.logPanel.style.display = 'flex';
+  }
+  hideLog() { this.logPanel.style.display = 'none'; }
+
+  /** The sheets on the board, one line per job: the next three by due time, the rest behind "+ N more jobs". */
+  private sheetsHtml(g: Game): string {
+    const open = [...g.jobs].filter(j => j.status === 'queued' || j.status === 'cutting');
+    const jobs = new Map<string, { name: string; left: number; total: number; material: string; due: number; dueLabel: string; price: number; cutting: boolean; late: boolean }>();
+    for (const j of open) {
+      const m = /^(.*) \((\d+)\/(\d+)\)$/.exec(j.name);
+      const name = m ? m[1] : j.name, total = m ? Number(m[3]) : 1;
+      const key = `${name}|${j.dueDay}|${j.deadlineMinute}`;
+      const e = jobs.get(key) ?? { name, left: 0, total, material: j.material.replace(/^\d+mm /, ''), due: g.dueAt(j), dueLabel: g.dueLabel(j), price: 0, cutting: false, late: false };
+      e.left += 1; e.price += j.price; e.cutting ||= j.status === 'cutting'; e.late ||= g.isLate(j);
+      jobs.set(key, e);
+    }
+    const list = [...jobs.values()].sort((a, b) => a.due - b.due);
+    if (!list.length) return '';
+    const line = (e: typeof list[number]) => `<li class="sheet ${e.late ? 'late' : ''}" data-targets="${e.cutting ? 'machine' : 'plyPallet'}">${e.cutting ? '▶ ' : ''}${esc(e.name)}`
+      + `<br><span class="sub">${e.total > 1 ? `${e.left} of ${e.total} left · ` : ''}${esc(e.material)} · due ${e.dueLabel} · ${money(e.price)}</span></li>`;
+    const shown = this.sheetsOpen ? list : list.slice(0, 3);
+    const more = list.length - shown.length;
+    const sheets = open.length;
+    return `<h3>Sheets (${sheets} sheet${sheets === 1 ? '' : 's'}, ${list.length} job${list.length === 1 ? '' : 's'})</h3><ul>${shown.map(line).join('')}`
+      + (more > 0 ? `<li class="more" data-more="1">+ ${more} more job${more === 1 ? '' : 's'}</li>` : list.length > 3 ? `<li class="more" data-more="0">Show fewer</li>` : '') + '</ul>';
+  }
+
+  update(g: Game, items: TodoItem[], log: string[]) {
+    this.updateToast(log);
     const ot = g.overtime ? ' · OT' : '';
     const cashCls = g.cash < 0 ? 'cash neg' : 'cash';
     const html = `${g.formatTime()}${ot}<br><span class="${cashCls}">${money(g.cash)}</span>`;
@@ -227,18 +292,19 @@ export class Hud {
     this.dot.classList.toggle('pulse', items.some(i => i.key.startsWith('phone-') || i.key.startsWith('bank-')));
 
     const open = [...g.jobs].filter(j => j.status === 'queued' || j.status === 'cutting').sort((a, b) => g.dueAt(a) - g.dueAt(b));
-    const sig = JSON.stringify([items.map(i => i.key + i.text), done, open.map(j => [j.id, j.status, g.isLate(j)]), g.day]);
+    const sig = JSON.stringify([items.map(i => i.key + i.text), open.map(j => [j.id, j.status, g.isLate(j)]), g.day, this.sheetsOpen]);
     if (sig === this.padSig) return;
     this.padSig = sig;
     const isCallback = (i: TodoItem) => i.key.startsWith('callback-');
     const now = items.filter(i => i.urgent), later = items.filter(i => !i.urgent && !isCallback(i)), calls = items.filter(isCallback);
     const li = (i: TodoItem) => `<li class="${i.urgent ? 'urgent' : ''}${isCallback(i) ? ' callback' : ''}" data-key="${esc(i.key)}" data-targets="${i.targets.join(',')}">${esc(i.text)}</li>`;
-    this.pad.innerHTML = `
-      <h2>Day ${g.day} of ${CONFIG.week.days}</h2>
-      <h3>Now</h3><ul>${now.map(li).join('') || '<li class="empty">Nothing on fire. Yet.</li>'}${done.map(d => d.startsWith('• ') ? `<li class="news">${esc(d.slice(2))}</li>` : `<li class="done">${esc(d)}</li>`).join('')}</ul>
-      <h3>Can wait</h3><ul>${later.map(li).join('') || '<li class="empty">—</li>'}</ul>
-      ${calls.length ? `<h3 class="vm">Voicemail</h3><ul>${calls.map(li).join('')}</ul>` : ''}
-      <h3>Sheets (${open.length})</h3><ul>${open.map(j => `<li class="sheet ${g.isLate(j) ? 'late' : ''}" data-targets="${j.status === 'cutting' ? 'machine' : 'plyPallet'}">${j.status === 'cutting' ? '▶ ' : ''}${esc(j.name)}<br>&nbsp;&nbsp;${esc(j.material)} · due ${g.dueLabel(j)} · ${money(j.price)}</li>`).join('') || '<li class="empty">Board is clear.</li>'}</ul>`;
+    // only sections with something in them: the list is just the list
+    const section = (title: string, list: TodoItem[], cls = '') => list.length ? `<h3${cls ? ` class="${cls}"` : ''}>${title}</h3><ul>${list.map(li).join('')}</ul>` : '';
+    const body = section('Now', now) + section('Can wait', later) + section('Voicemail', calls, 'vm') + this.sheetsHtml(g);
+    this.pad.innerHTML = `<h2>Day ${g.day} of ${CONFIG.week.days}</h2>${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
+    for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-more]'))) {
+      node.addEventListener('click', () => { this.sheetsOpen = node.dataset.more === '1'; this.padSig = ''; this.update(g, items, log); });
+    }
     for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-targets]'))) {
       const targets = (node.dataset.targets ?? '').split(',').filter(Boolean) as ObjectId[];
       if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets, node.dataset.key); });
@@ -344,7 +410,7 @@ export class Hud {
   showSummary(): HTMLDivElement { this.close(); this.summary.style.display = 'block'; this.summary.scrollTop = 0; return this.summary; }
   hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
   get summaryShowing() { return this.summary.style.display === 'block'; }
-  setHudVisible(v: boolean) { for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.mute]) e.style.visibility = v ? 'visible' : 'hidden'; }
+  setHudVisible(v: boolean) { for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.mute, this.toast]) e.style.visibility = v ? 'visible' : 'hidden'; }
 
   destroy() {
     window.removeEventListener('resize', this.onResize);

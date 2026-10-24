@@ -28,7 +28,7 @@ export interface WorldState {
   toiletUntil: number | null;    // absolute game minute
   rollerUpUntil: number | null;  // absolute game minute
   sheetsSeen: number;            // today.sheetsDone last frame, to fill the offcut bin
-  done: string[];                // to-do items crossed off today, and news ("• 4 sheets of formply left")
+  done: string[];                // today's events, newest first: crossed-off to-dos ("✓ Clamp the sheet") and news ("4 sheets of formply left")
   newsSeen?: number;             // today's Game log entries already scanned for stock news
   shrugs?: number;               // bumped when you reach for a sheet that isn't there (the view shrugs)
   canSpots?: Record<number, { x: number; z: number }>; // where each can that's been put down is (metres)
@@ -37,6 +37,14 @@ export interface WorldState {
 }
 
 export const absMinute = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
+
+/** Today's event log (shown as toasts, and in the Log panel). The same line never goes in twice in a row. */
+export function logEvent(w: WorldState, text: string) {
+  const line = text.replace(/^• /, '');
+  if (w.done[0] === line) return;
+  w.done.unshift(line);
+  if (w.done.length > 60) w.done.length = 60;
+}
 
 export function newWorld(g: Game): WorldState {
   const t = WORLD.cell;

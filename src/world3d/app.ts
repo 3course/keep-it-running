@@ -12,7 +12,7 @@ import { actionsFor, statusFor, uiHooks, type Action } from '../world/interactab
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
-import { absMinute, startNewDay, type WorldState } from '../world/state.js';
+import { absMinute, logEvent, startNewDay, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { WORLD } from '../world/worldConfig.js';
 import { buildWorld, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
@@ -133,7 +133,7 @@ export class World3D {
 
     this.hud = new Hud(canvas, {
       goTo: (targets, key) => { this.hints.mark('notepad'); this.goToNearest(targets, key); },
-      putCanDown: () => { if (this.g.heldCan) { this.putCanDown(); this.player.hop(); this.w.done.unshift('• Put the can down'); this.w.done = this.w.done.slice(0, 6); this.save(); } },
+      putCanDown: () => { if (this.g.heldCan) { this.putCanDown(); this.player.hop(); logEvent(this.w, 'Put the can down'); this.save(); } },
       toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
@@ -437,7 +437,7 @@ export class World3D {
     const today = g.log.filter(l => l.dayIndex === g.dayIndex);
     for (const l of today.slice(w.newsSeen ?? 0)) {
       if (/^(\d+ sheets? of .+ left|Out of .+|Fumbled: .+|.+ grabbed a beer from the fridge|Finished the beer)\.$/.test(l.text)) {
-        w.done.unshift(`• ${l.text.replace(/\. Again\.$/, ' — again').replace(/\.$/, '')}`); w.done = w.done.slice(0, 6);
+        logEvent(w, l.text.replace(/\. Again\.$/, ' — again').replace(/\.$/, ''));
       }
       if (l.text.startsWith('Fumbled: ')) this.player.stumble();
       if (l.text.startsWith('Yuck')) this.say('Yuck. Warm.');
@@ -457,8 +457,7 @@ export class World3D {
     for (const t of TOUR) {
       if (w.tour!.visited.includes(t.id) || !this.inRange(t.id)) continue;
       w.tour!.visited.push(t.id);
-      w.done.unshift(t.text);
-      w.done = w.done.slice(0, 6);
+      logEvent(w, `✓ ${t.text}`);
       this.save();
     }
   }
@@ -655,10 +654,9 @@ export class World3D {
     const after = new Set(todoItems(this.g, this.w).map(i => i.key));
     // a line that vanished because of this action is done — except "grab the next sheet", which just hides while your hands are full
     let crossed = 0;
-    for (const i of before) if (!after.has(i.key) && (i.key !== 'next' || this.w.carrying === 'sheet')) { this.w.done.unshift(i.text); crossed++; }
+    for (const i of before) if (!after.has(i.key) && (i.key !== 'next' || this.w.carrying === 'sheet')) { logEvent(this.w, `✓ ${i.text}`); crossed++; }
     // nothing on the list to cross off: say what happened instead
-    if (!crossed) this.w.done.unshift(`• ${said}`);
-    this.w.done = this.w.done.slice(0, 6);
+    if (!crossed) logEvent(this.w, said);
     this.labelSig = '';
     this.save();
   }
