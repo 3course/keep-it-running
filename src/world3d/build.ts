@@ -215,7 +215,7 @@ export interface DoorwayView {
   /** Middle of the sign over the doorway, for the crisp DOM lettering. */
   signAt: THREE.Vector3;
   /** Warm light spilling out of the doorway (office only); fade its material and the lamp in and out. */
-  spill?: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; lamp: THREE.PointLight };
+  spill?: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; lamp: THREE.PointLight | null };
 }
 
 function signTexture(text: string) {
@@ -233,7 +233,7 @@ function signTexture(text: string) {
 }
 
 /** A doorway that reads as one: frame, door swung open into the next room, mat on this side, sign over the top. */
-function buildDoorway(dw: Doorway, scene: THREE.Object3D, fadeables: Fadeable[]): DoorwayView {
+function buildDoorway(dw: Doorway, scene: THREE.Object3D, fadeables: Fadeable[], pointLights: boolean): DoorwayView {
   const alongX = dw.along === 'x';
   // opening in metres: `a` runs along the wall, `n` across it (the swing side is +n when swing is positive)
   const a0 = (alongX ? dw.cell.x : dw.cell.y) * C, a1 = a0 + 2 * C;
@@ -311,9 +311,11 @@ function buildDoorway(dw: Doorway, scene: THREE.Object3D, fadeables: Fadeable[])
     const spillMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide });
     const spill = new THREE.Mesh(geo, spillMat);
     spill.visible = false;
-    const lamp = new THREE.PointLight(0xffb060, 0, 6, 1.4);
-    lamp.position.copy(at((a0 + a1) / 2, swingFace + s * 0.9, 1.6));
-    scene.add(spill, lamp);
+    // the lamp inside is a real light only where the GPU can afford it; the floor spill does the work either way
+    const lamp = pointLights ? new THREE.PointLight(0xffb060, 0, 6, 1.4) : null;
+    lamp?.position.copy(at((a0 + a1) / 2, swingFace + s * 0.9, 1.6));
+    scene.add(spill);
+    if (lamp) scene.add(lamp);
     view.spill = { mesh: spill, mat: spillMat, lamp };
   }
   return view;
@@ -666,7 +668,8 @@ function buildDust(): THREE.Mesh[] {
 
 // ---------- everything ----------
 
-export function buildWorld(scene: THREE.Scene): BuiltWorld {
+/** `pointLights`: false on weak GPUs (glows stand in for lamps). */
+export function buildWorld(scene: THREE.Scene, pointLights = true): BuiltWorld {
   const grid = buildGrid();
   scene.background = new THREE.Color(PALETTE.sky);
   const floor = buildFloor(grid);
@@ -679,7 +682,7 @@ export function buildWorld(scene: THREE.Scene): BuiltWorld {
   scene.add(ground);
   const fadeables: Fadeable[] = [];
   const collisionBoxes = buildWalls(grid, scene, fadeables);
-  const doorways = DOORWAYS.map(d => buildDoorway(d, scene, fadeables));
+  const doorways = DOORWAYS.map(d => buildDoorway(d, scene, fadeables, pointLights));
   const objects = new Map<ObjectId, ObjectView>();
   const pickables: THREE.Object3D[] = [];
   for (const o of OBJECTS) {

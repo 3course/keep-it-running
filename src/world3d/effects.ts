@@ -1,5 +1,6 @@
 // Fire and smoke at the exhaust unit, and the extinguisher spray. Smoke is a pool of soft spheres
-// that rise, swell and fade; fire is a few flickering emissive shapes with a point light.
+// that rise, swell and fade; fire is a few flickering emissive shapes with a point light (or, on weak
+// GPUs, just an additive glow).
 import * as THREE from 'three';
 
 interface Puff { m: THREE.Mesh; age: number; life: number; vx: number; vz: number }
@@ -8,13 +9,14 @@ export class Effects {
   private puffs: Puff[] = [];
   private spray: Puff[] = [];
   private flames: THREE.Mesh[] = [];
-  private light: THREE.PointLight;
+  private light: THREE.PointLight | null = null;
+  private glow: THREE.Sprite | null = null;
   private fireGroup = new THREE.Group();
   private emitAcc = 0;
   private sprayAcc = 0;
   private t = 0;
 
-  constructor(scene: THREE.Scene, private origin: THREE.Vector3) {
+  constructor(scene: THREE.Scene, private origin: THREE.Vector3, pointLight = true) {
     for (let i = 0; i < 26; i++) {
       const m = new THREE.Mesh(new THREE.SphereGeometry(1, 8, 6), new THREE.MeshBasicMaterial({ color: 0xbdb6aa, transparent: true, opacity: 0, depthWrite: false }));
       m.visible = false; scene.add(m);
@@ -31,9 +33,20 @@ export class Effects {
       f.position.set(x, s * 0.8, z); f.userData.base = s;
       this.flames.push(f); this.fireGroup.add(f);
     }
-    this.light = new THREE.PointLight(0xff7a2a, 0, 6, 1.6);
-    this.light.position.set(0, 0.8, 0.6);
-    this.fireGroup.add(this.light);
+    if (pointLight) {
+      this.light = new THREE.PointLight(0xff7a2a, 0, 6, 1.6);
+      this.light.position.set(0, 0.8, 0.6);
+      this.fireGroup.add(this.light);
+    } else {
+      // no light: a soft additive halo stands in for the glow it would cast
+      const c = document.createElement('canvas'); c.width = c.height = 32;
+      const ctx = c.getContext('2d')!, grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
+      grad.addColorStop(0, 'rgba(255,170,80,1)'); grad.addColorStop(1, 'rgba(255,120,40,0)');
+      ctx.fillStyle = grad; ctx.fillRect(0, 0, 32, 32);
+      this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
+      this.glow.position.set(0, 0.7, 0);
+      this.fireGroup.add(this.glow);
+    }
     this.fireGroup.position.copy(origin);
     this.fireGroup.visible = false;
     scene.add(this.fireGroup);
@@ -79,7 +92,9 @@ export class Effects {
         f.scale.set(big * (0.9 + Math.random() * 0.15), big * flick, big * (0.9 + Math.random() * 0.15));
         f.position.y = s * 0.8 * big * flick;
       });
-      this.light.intensity = (flames === 2 ? 9 : 5) * (0.75 + 0.25 * Math.sin(this.t * 23) * Math.sin(this.t * 7));
+      const flicker = 0.75 + 0.25 * Math.sin(this.t * 23) * Math.sin(this.t * 7);
+      if (this.light) this.light.intensity = (flames === 2 ? 9 : 5) * flicker;
+      if (this.glow) { this.glow.scale.setScalar((flames === 2 ? 3.2 : 2) * flicker); this.glow.material.opacity = 0.7 * flicker; }
     }
 
     // spray: white particles from the nozzle to the fire

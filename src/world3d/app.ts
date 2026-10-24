@@ -20,6 +20,8 @@ import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
+import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
+import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
 
 const C = WORLD.cell;
@@ -30,13 +32,20 @@ interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
 
 export class World3D {
   readonly renderer: THREE.WebGLRenderer;
-  readonly scene = new THREE.Scene();
+  scene = new THREE.Scene();       // rebuilt from state if the GPU context is lost and comes back
   readonly camera: THREE.PerspectiveCamera;
-  private built: BuiltWorld;
-  private player: PlayerView;
-  private effects: Effects;
+  private built!: BuiltWorld;
+  private player!: PlayerView;
+  private effects!: Effects;
   private hud: Hud;
-  private sun: THREE.DirectionalLight;
+  private sun!: THREE.DirectionalLight;
+  private tier: TierSettings;
+  // renderer health
+  private started = false;         // a frame has rendered
+  private failed = false;          // the failure card is up; the loop has stopped
+  private contextLost = false;
+  private pausedBeforeLoss = false;
+  private lostTimer = 0;
   private raycaster = new THREE.Raycaster();
   private solid = new Set<number>();
 
@@ -93,34 +102,25 @@ export class World3D {
   private pendingCan: number | null = null;
   private sipsSeen = 0;
 
-  constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean) {
-    this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
+  /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
+  constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
+    this.tier = TIERS[gpu.tier];
+    this.renderer = new THREE.WebGLRenderer({ antialias: this.tier.antialias, powerPreference: this.tier.powerPreference });
     this.renderer.setPixelRatio(1);
     this.renderer.setSize(Math.round(VW * WORLD.renderScale), Math.round(VH * WORLD.renderScale), false);
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.enabled = this.tier.shadows;
+    this.renderer.shadowMap.type = this.tier.shadowType;
+    // a shader that won't compile is a dead view, not just a console message
+    this.renderer.debug.onShaderError = (gl, program) => this.fail(`shader program failed to link: ${gl.getProgramInfoLog(program) || 'no log'}`);
     const canvas = this.renderer.domElement;
     Object.assign(canvas.style, { position: 'absolute', imageRendering: 'pixelated', touchAction: 'none' });
     container.appendChild(canvas);
+    canvas.addEventListener('webglcontextlost', e => this.onContextLost(e));
+    canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
 
     this.camera = new THREE.PerspectiveCamera(WORLD.fov, VW / VH, 0.1, 120);
-    this.built = buildWorld(this.scene);
     this.solid = solidCells(); // solid objects and the big clutter
-
-    // light from the upper left, soft warm fill
-    this.scene.add(new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4));
-    this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    const sc = this.sun.shadow.camera;
-    sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14; sc.near = 1; sc.far = 50;
-    this.sun.shadow.bias = -0.0015;
-    this.scene.add(this.sun, this.sun.target);
-
-    this.player = new PlayerView(this.scene);
-    const ex = this.built.objects.get('exhaust')!;
-    this.effects = new Effects(this.scene, new THREE.Vector3(ex.centre.x, ex.def.height + 0.15, ex.centre.z));
-    this.buildDebug();
+    this.buildScene();
 
     this.pos = { x: w.px, z: w.py };
     // a save from an older layout can leave you inside a wall: put you back somewhere sensible
@@ -128,7 +128,6 @@ export class World3D {
       const spot = w.tour ? START_TILE : MACHINE_SPOT;
       this.pos = { x: (spot.x + 0.5) * C, z: (spot.y + 0.5) * C };
     }
-    this.player.yaw = Math.atan2(-w.fx, -w.fy);
     this.camLook.set(this.pos.x, 0.6, this.pos.z);
     this.paused = resumePaused;
 
@@ -142,9 +141,9 @@ export class World3D {
     });
     this.hud.setPaused(this.paused);
     this.hud.setMuted(this.ring.muted);
-    this.buildFlashRing();
+    if (gpu.tier !== 'full') this.hud.setTagNote(`${gpu.tier === 'bare' ? 'safe, no shadows' : 'safe'} (${gpu.why})`);
+    this.buildDebugLabels();
     uiHooks.orderPly = () => this.hud.showPlyOrder(this.g, (t, n) => { if (this.g.orderPly(t, n)) { this.player.hop(); this.save(); } });
-    this.trail = new Trail(this.scene);
     this.buildSigns();
 
     this.fit();
@@ -269,7 +268,25 @@ export class World3D {
   // ---------- frame ----------
 
   private frame(now: number) {
+    if (this.failed) return; // the failure card is up: stop
     requestAnimationFrame(t => this.frame(t));
+    if (this.contextLost) { this.last = now; return; } // clock stopped until the view's back
+    try {
+      this.step(now);
+    } catch (e) {
+      // the first frame failing means the view never started; later, log it and keep the game going
+      if (!this.started) this.fail(e);
+      else console.error('[Keep It Running] frame error', e);
+      return;
+    }
+    if (!this.started) {
+      this.started = true;
+      if (this.renderer.getContext().isContextLost()) this.fail('the WebGL context was lost during the first frame');
+      else console.info(`[Keep It Running] 3D view running · tier ${this.gpu.tier} (${this.gpu.why}) · ${this.gpu.renderer}`);
+    }
+  }
+
+  private step(now: number) {
     const dtMs = this.last ? now - this.last : 16;
     this.last = now;
     const dt = Math.min(0.05, dtMs / 1000);
@@ -316,6 +333,72 @@ export class World3D {
       this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? this.hints.current : null);
     }
     this.renderer.render(this.scene, this.camera);
+  }
+
+  // ---------- renderer health ----------
+
+  /** Everything in the 3D scene, built from the shed's data and the current state. Run again after a lost context. */
+  private buildScene() {
+    this.built = buildWorld(this.scene, this.tier.pointLights);
+
+    // light from the upper left, soft warm fill
+    this.scene.add(new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4));
+    this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
+    this.sun.castShadow = this.tier.shadows;
+    this.sun.shadow.mapSize.set(this.tier.shadowMapSize, this.tier.shadowMapSize);
+    const sc = this.sun.shadow.camera;
+    sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14; sc.near = 1; sc.far = 50;
+    this.sun.shadow.bias = -0.0015;
+    this.scene.add(this.sun, this.sun.target);
+
+    this.player = new PlayerView(this.scene);
+    this.player.yaw = Math.atan2(-this.w.fx, -this.w.fy);
+    const ex = this.built.objects.get('exhaust')!;
+    this.effects = new Effects(this.scene, new THREE.Vector3(ex.centre.x, ex.def.height + 0.15, ex.centre.z), this.tier.pointLights);
+    this.buildDebug();
+    this.buildFlashRing();
+    this.trail = new Trail(this.scene);
+    this.trailPath = null; this.guideFor = null;
+    this.canMeshes.clear();
+    this.labelSig = '';
+  }
+
+  /** Give up on the 3D view: save, stop the loop, and put the details where they can be copied. */
+  private fail(error: unknown) {
+    if (this.failed) return;
+    this.failed = true;
+    try { this.save(); } catch { /* the save is best-effort here */ }
+    const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    showRendererFailure(describeGpu(this.gpu, msg), this.started ? 'The 3D view stopped on this device' : undefined);
+  }
+
+  private onContextLost(e: Event) {
+    e.preventDefault(); // ask for it back
+    if (!this.started) { this.fail('the WebGL context was lost while starting (the GPU process may have crashed)'); return; }
+    if (this.contextLost || this.failed) return;
+    this.contextLost = true;
+    this.pausedBeforeLoss = this.paused;
+    this.setPaused(true); // saves
+    showRestarting();
+    console.warn('[Keep It Running] WebGL context lost; waiting for it to come back');
+    this.lostTimer = window.setTimeout(() => {
+      if (this.contextLost) { this.contextLost = false; this.fail("the WebGL context was lost and didn't come back within 10 s"); }
+    }, 10000);
+  }
+
+  /** The GPU's back: three re-creates its own GL state; we rebuild the scene from state and carry on. */
+  private onContextRestored() {
+    if (!this.contextLost || this.failed) return;
+    window.clearTimeout(this.lostTimer);
+    try {
+      this.scene = new THREE.Scene();
+      this.buildScene();
+    } catch (e) { this.contextLost = false; this.fail(e); return; }
+    this.contextLost = false;
+    this.last = 0;
+    hideOverlay();
+    this.setPaused(this.pausedBeforeLoss);
+    console.info('[Keep It Running] WebGL context restored; scene rebuilt');
   }
 
   private showSummary() {
@@ -775,6 +858,8 @@ export class World3D {
   }
 
   private buildDebug() {
+    const visible = this.debug.visible && this.started; // keep the overlay's state across a rebuild
+    this.debug = new THREE.Group();
     const pts: number[] = [];
     const rect = (x0: number, z0: number, x1: number, z1: number) => {
       const y = 0.05;
@@ -788,17 +873,19 @@ export class World3D {
     for (const o of OBJECTS) rect(o.rect.x * C - r, o.rect.y * C - r, (o.rect.x + o.rect.w) * C + r, (o.rect.y + o.rect.h) * C + r);
     const rangeGeo = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
     this.debug.add(new THREE.LineSegments(rangeGeo, new THREE.LineBasicMaterial({ color: 0xff3bd4 })));
-    this.debug.visible = false;
+    this.debug.visible = visible;
     this.scene.add(this.debug);
-    queueMicrotask(() => {
-      for (const z of ZONES) {
-        const el = document.createElement('div');
-        el.textContent = z.name;
-        Object.assign(el.style, { position: 'absolute', transform: 'translate(-50%,-50%)', font: '11px monospace', color: '#00e5ff', background: '#000a', padding: '1px 3px', display: 'none' });
-        this.hud.labels.appendChild(el);
-        this.debugLabels.push({ el, at: new THREE.Vector3((z.rect.x + z.rect.w / 2) * C, 0.1, (z.rect.y + z.rect.h / 2) * C) });
-      }
-    });
+  }
+
+  /** Zone names for the debug overlay (DOM, made once). */
+  private buildDebugLabels() {
+    for (const z of ZONES) {
+      const el = document.createElement('div');
+      el.textContent = z.name;
+      Object.assign(el.style, { position: 'absolute', transform: 'translate(-50%,-50%)', font: '11px monospace', color: '#00e5ff', background: '#000a', padding: '1px 3px', display: 'none' });
+      this.hud.labels.appendChild(el);
+      this.debugLabels.push({ el, at: new THREE.Vector3((z.rect.x + z.rect.w / 2) * C, 0.1, (z.rect.y + z.rect.h / 2) * C) });
+    }
   }
 
   // ---------- wayfinding ----------
@@ -954,7 +1041,7 @@ export class World3D {
       const k = this.spillLevel * (ringOn(this.time) ? 1 : 0.8);
       d.spill.mesh.visible = k > 0.01;
       d.spill.mat.opacity = k * 0.9;
-      d.spill.lamp.intensity = k * 10;
+      if (d.spill.lamp) d.spill.lamp.intensity = k * 10;
     }
   }
 

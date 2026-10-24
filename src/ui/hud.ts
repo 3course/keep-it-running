@@ -152,6 +152,9 @@ export class Hud {
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
   private canChip: HTMLButtonElement;
+  private tag!: HTMLDivElement;
+  /** A note after the build tag: which render tier this device is on, when it isn't the full one. */
+  setTagNote(note: string) { this.tag.textContent = `${BUILD_TAG} · ${note}`; }
   get plyShowing() { return this.ply.style.display === 'flex'; }
   private onResize = () => this.layout();
   isOpen = false;
@@ -184,7 +187,7 @@ export class Hud {
     this.knob = el('div', { className: 'knob' });
     this.stick.appendChild(this.knob);
     this.summary = el('div', { className: 'summary' });
-    const tag = el('div', { className: 'tag', textContent: BUILD_TAG });
+    const tag = this.tag = el('div', { className: 'tag', textContent: BUILD_TAG });
     this.pointers = el('div', { className: 'pointers' });
     this.hint = el('div', { className: 'hint' });
     this.mute = el('button', { className: 'mute' });
