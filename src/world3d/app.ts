@@ -54,6 +54,10 @@ export class World3D {
   private ptr: { id: number; x0: number; y0: number; t0: number; stickable: boolean; active: boolean } | null = null;
   private stickVec = { x: 0, y: 0 };
   private labelHold = false;
+  private labelPressed = false;  // a finger is down on a label: don't move or rebuild them under it
+  private labelPressedAt = 0;
+  /** Every action done, for tests and debugging: what was tapped and what it said. */
+  readonly actionLog: { label: string; said: string; t: number }[] = [];
   private objectHold = false;
 
   // camera
@@ -193,7 +197,12 @@ export class World3D {
     };
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
-    window.addEventListener('pointerup', () => { this.labelHold = false; });
+    const release = () => {
+      this.labelHold = false;
+      if (this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('pointercancel', release);
     window.addEventListener('keydown', e => {
       this.ring.unlock();
       const k = e.key.toLowerCase();
@@ -512,15 +521,20 @@ export class World3D {
 
   // ---------- actions and labels ----------
 
+  /** Do an action and always answer it: a hop, and a line in the notepad's recent events. */
   private doAction(a: Action) {
     if (this.paused || this.g.phase !== 'day' || !a.run) return;
     const before = todoItems(this.g, this.w);
-    a.run();
+    const said = a.run() || a.done || a.label;
     this.player.hop();
     this.hints.mark('interact');
+    this.actionLog.push({ label: a.label, said, t: this.time });
     const after = new Set(todoItems(this.g, this.w).map(i => i.key));
     // a line that vanished because of this action is done — except "grab the next sheet", which just hides while your hands are full
-    for (const i of before) if (!after.has(i.key) && (i.key !== 'next' || this.w.carrying === 'sheet')) this.w.done.unshift(i.text);
+    let crossed = 0;
+    for (const i of before) if (!after.has(i.key) && (i.key !== 'next' || this.w.carrying === 'sheet')) { this.w.done.unshift(i.text); crossed++; }
+    // nothing on the list to cross off: say what happened instead
+    if (!crossed) this.w.done.unshift(`• ${said}`);
     this.w.done = this.w.done.slice(0, 6);
     this.labelSig = '';
     this.save();
@@ -545,7 +559,7 @@ export class World3D {
     const near = this.paused || g.phase !== 'day' ? [] : OBJECTS.filter(o => o.id !== 'duct' && this.inRange(o.id));
     const entries = near.map(o => ({ o, acts: actionsFor(o.id, g, w), status: statusFor(o.id, g, w) })).filter(e => e.acts.length || e.status);
     const sig = JSON.stringify(entries.map(e => [e.o.id, e.acts.map(a => a.label), e.status, g.spraying]));
-    if (sig !== this.labelSig) {
+    if (sig !== this.labelSig && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
       this.labelSig = sig;
       for (const l of this.labelEls) l.el.remove();
       this.labelEls = [];
@@ -559,7 +573,12 @@ export class World3D {
           if (a.hold) b.className = held ? 'held' : 'hold';
           b.addEventListener('pointerdown', e => {
             e.preventDefault(); e.stopPropagation();
-            if (a.hold) this.labelHold = true; else this.doAction(a);
+            this.labelPressed = true; this.labelPressedAt = this.time;
+            if (a.hold) { this.labelHold = true; return; }
+            this.doAction(a);
+            // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
+            b.classList.add('tick');
+            b.textContent = `✓ ${a.label}`;
           });
           el.appendChild(b);
         }
@@ -569,6 +588,9 @@ export class World3D {
         this.labelEls.push({ id: o.id, el, anchor: new THREE.Vector3(v.centre.x, o.height + 0.35, v.centre.z) });
       }
     }
+    // labels hold still under a finger (a lost pointerup can't freeze them for good)
+    if (this.labelPressed && this.time - this.labelPressedAt < 2) return;
+    this.labelPressed = false;
     for (const l of this.labelEls) {
       const p = this.project(l.anchor);
       const half = l.el.offsetWidth / 2 + 4; // keep the whole label on screen, however long it is
@@ -911,6 +933,7 @@ export class World3D {
     const b = [...this.hud.labels.querySelectorAll<HTMLButtonElement>('.lbl button')].find(x => x.textContent === text);
     if (!b) return false;
     b.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    window.dispatchEvent(new PointerEvent('pointerup'));
     return true;
   }
   get playerPos() { return { x: this.pos.x, z: this.pos.z, tile: this.cell(), zone: zoneAt(this.cell().x, this.cell().y)?.name ?? null }; }

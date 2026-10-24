@@ -69,6 +69,8 @@ const CSS = `
   border-radius: 8px; padding: 7px 11px; box-shadow: 0 3px 0 #14110f; white-space: nowrap; max-width: 300px; overflow: hidden; text-overflow: ellipsis; touch-action: none; }
 #kir-hud .lbl button.hold { background: #f2a35b; }
 #kir-hud .lbl button.held { background: #8fd37a; }
+#kir-hud .lbl button.tick { background: #8fd37a; animation: kir-tick .35s ease-out; }
+@keyframes kir-tick { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
 #kir-hud .lbl .status { font: 12px 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.8); padding: 4px 7px; border-radius: 5px;
   white-space: pre-line; text-align: center; max-width: 270px; }
 #kir-hud .stick { position: absolute; width: 88px; height: 88px; margin: -44px 0 0 -44px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
