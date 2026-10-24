@@ -1,8 +1,12 @@
 name: Deploy to GitHub Pages
 
+# One site, two builds: main at /keep-it-running/ and the world branch at /keep-it-running/preview/.
+# Both are built on every push to either branch and deployed together, so neither overwrites the other.
+# This file must be the same on main and world.
+
 on:
   push:
-    branches: [main]
+    branches: [main, world]
   workflow_dispatch:
 
 permissions:
@@ -19,15 +23,46 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main
+      - uses: actions/checkout@v4
+        with:
+          ref: world
+          path: world
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npm run build
+          cache-dependency-path: |
+            main/package-lock.json
+            world/package-lock.json
+
+      - name: Build main
+        working-directory: main
+        env:
+          VITE_BASE: /keep-it-running/
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build world (preview)
+        working-directory: world
+        env:
+          VITE_BASE: /keep-it-running/preview/
+        run: |
+          npm ci
+          npm run build
+
+      - name: Combine
+        run: |
+          mkdir -p site/preview
+          cp -r main/dist/. site/
+          cp -r world/dist/. site/preview/
+
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: dist
+          path: site
 
   deploy:
     needs: build
