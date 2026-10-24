@@ -77,9 +77,9 @@ export const OBJECTS: PlacedObject[] = [
   { id: 'extinguisher', name: 'Extinguisher', rect: { x: 28, y: 34, w: 1, h: 1 }, height: 0.6, colour: 0xc0281e, solid: true },
   { id: 'rollerDoor', name: 'Roller door', rect: { x: 29, y: 28, w: 1, h: 6 }, height: 2.4, colour: 0x9ea4aa, solid: false },
   { id: 'smoko', name: 'Smoko chairs', rect: { x: 24, y: 42, w: 3, h: 1 }, height: 0.45, colour: 0x7a5a3a, solid: true },
-  // office (x 6..17, y 39..45): door at the west end, phone in the far corner
+  // office (x 6..17, y 39..45): door at the west end, the phone on the wall just inside it (answer it from the doorway)
   { id: 'desk', name: 'Desk', rect: { x: 9, y: 45, w: 4, h: 1 }, height: 0.75, colour: 0x6b4e33, solid: true },
-  { id: 'phone', name: 'Phone', rect: { x: 16, y: 45, w: 1, h: 1 }, height: 0.75, colour: 0x5a4632, solid: true },
+  { id: 'phone', name: 'Phone', rect: { x: 8, y: 39, w: 1, h: 1 }, height: 1.5, colour: 0x5a4632, solid: false }, // wall-mounted beside the doorframe
   { id: 'fridge', name: 'Bar fridge', rect: { x: 17, y: 40, w: 1, h: 2 }, height: 0.9, colour: 0xe4e4e0, solid: true },
   // toilet, storage
   { id: 'toilet', name: 'Toilet', rect: { x: 20, y: 45, w: 1, h: 1 }, height: 0.45, colour: 0xf4f4f0, solid: true },

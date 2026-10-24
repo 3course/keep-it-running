@@ -11,7 +11,7 @@ export const WORLD = {
 
   // player
   playerRadius: 0.22,
-  maxSpeed: 3.0,                       // m/s at full stick — machine→phone ≈ 4 s, machine→exhaust unit ≈ 6 s
+  maxSpeed: 3.0,                       // m/s at full stick — machine→phone ≈ 2 s (it's by the office door), machine→exhaust unit ≈ 6 s
   accel: 9,                            // how quickly velocity chases the stick (1/s)
   turnRate: 10,                        // facing catch-up (1/s)
   hopVelocity: 2.4,                    // m/s up on tapping an interactable

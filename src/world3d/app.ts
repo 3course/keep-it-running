@@ -814,7 +814,7 @@ export class World3D {
     const ringing = g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
     const hs = o('phone').parts.handset;
     hs.rotation.z = ringing ? Math.sin(this.time * 40) * 0.2 : 0;
-    hs.position.y = o('phone').def.height + (ringing ? Math.abs(Math.sin(this.time * 20)) * 0.04 : 0);
+    hs.position.y = (hs.userData.baseY as number) + (ringing ? Math.abs(Math.sin(this.time * 20)) * 0.04 : 0);
     o('fridge').parts.glow.visible = g.fridgeOpen;
     // roller door rolls up into the lintel
     const door = o('rollerDoor').parts.door;
