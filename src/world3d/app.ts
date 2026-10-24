@@ -15,7 +15,7 @@ import { writeSave } from '../world/save.js';
 import { absMinute, startNewDay, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { WORLD } from '../world/worldConfig.js';
-import { buildWorld, type BuiltWorld, type ObjectView } from './build.js';
+import { buildWorld, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { PlayerView } from './player.js';
@@ -26,7 +26,7 @@ const C = WORLD.cell;
 const VW = WORLD.view.width, VH = WORLD.view.height;
 const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
-interface LabelEntry { id: ObjectId; el: HTMLDivElement; anchor: THREE.Vector3 }
+interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
 
 export class World3D {
   readonly renderer: THREE.WebGLRenderer;
@@ -87,6 +87,11 @@ export class World3D {
   private spillLevel = 0;
   private shrugsSeen = 0;
   private bubbleT = 0;
+  private bubbleText = '';
+  // beer: cans put down around the shed, the one we're walking over to, sips seen
+  private canMeshes = new Map<number, THREE.Group>();
+  private pendingCan: number | null = null;
+  private sipsSeen = 0;
 
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
@@ -129,6 +134,7 @@ export class World3D {
 
     this.hud = new Hud(canvas, {
       goTo: (targets, key) => { this.hints.mark('notepad'); this.goToNearest(targets, key); },
+      putCanDown: () => { if (this.g.heldCan) { this.putCanDown(); this.player.hop(); this.w.done.unshift('• Put the can down'); this.w.done = this.w.done.slice(0, 6); this.save(); } },
       toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
@@ -218,6 +224,15 @@ export class World3D {
   private ndc(lx: number, ly: number) { return new THREE.Vector2(lx / VW * 2 - 1, -(ly / VH * 2 - 1)); }
 
   /** Which object (if any) is under a logical-px point. */
+  /** A can on the floor under a logical-px point (they're small: a generous invisible hit box each). */
+  private pickCan(lx: number, ly: number): number | null {
+    this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
+    const hit = this.raycaster.intersectObjects([...this.canMeshes.values()], true)[0];
+    let o: THREE.Object3D | null = hit?.object ?? null;
+    while (o && o.userData.canId === undefined) o = o.parent;
+    return o ? (o.userData.canId as number) : null;
+  }
+
   private pick(lx: number, ly: number): ObjectId | null {
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
     // every visible object along the ray, nearest hit first
@@ -236,6 +251,14 @@ export class World3D {
   }
 
   private tap(lx: number, ly: number) {
+    const can = this.pickCan(lx, ly);
+    if (can !== null) {
+      const spot = this.w.canSpots![can];
+      this.player.hop();
+      this.walkToPoint(spot.x, spot.z);
+      this.pendingCan = can;
+      return;
+    }
     const id = this.pick(lx, ly);
     if (id) { this.player.hop(); this.goTo(id, true); return; }
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
@@ -330,12 +353,17 @@ export class World3D {
     // stock news from the economy goes on the notepad: "4 sheets of formply left", "Out of MDF."
     const today = g.log.filter(l => l.dayIndex === g.dayIndex);
     for (const l of today.slice(w.newsSeen ?? 0)) {
-      if (/^(\d+ sheets? of .+ left|Out of .+)\.$/.test(l.text)) { w.done.unshift(`• ${l.text.replace(/\.$/, '')}`); w.done = w.done.slice(0, 6); }
+      if (/^(\d+ sheets? of .+ left|Out of .+|Fumbled: .+|.+ grabbed a beer from the fridge|Finished the beer)\.$/.test(l.text)) {
+        w.done.unshift(`• ${l.text.replace(/\. Again\.$/, ' — again').replace(/\.$/, '')}`); w.done = w.done.slice(0, 6);
+      }
+      if (l.text.startsWith('Fumbled: ')) this.player.stumble();
+      if (l.text.startsWith('Yuck')) this.say('Yuck. Warm.');
     }
     w.newsSeen = today.length;
     // the roller door stays up while you're carrying ply in from the truck
     if (g.truckOnApron?.stage === 'unloading') w.rollerUpUntil = Math.max(w.rollerUpUntil ?? 0, t + 2);
-    if ((w.shrugs ?? 0) !== this.shrugsSeen) { this.shrugsSeen = w.shrugs ?? 0; this.player.shrug(); this.bubbleT = 1.6; }
+    if ((w.shrugs ?? 0) !== this.shrugsSeen) { this.shrugsSeen = w.shrugs ?? 0; this.player.shrug(); this.say('None left'); }
+    if (g.sips !== this.sipsSeen) { this.sipsSeen = g.sips; this.player.sip(); }
     if (w.tour && !w.tour.cutStarted && w.bed === 'running') { w.tour.cutStarted = true; this.save(); } // the day proper starts now
   }
 
@@ -393,8 +421,8 @@ export class World3D {
       if (sx || sy) {
         this.stopWalking();
         const fwd = { x: -Math.sin(this.camYaw), z: -Math.cos(this.camYaw) }, right = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };
-        tx = (right.x * sx - fwd.x * sy) * WORLD.maxSpeed;
-        tz = (right.z * sx - fwd.z * sy) * WORLD.maxSpeed;
+        tx = (right.x * sx - fwd.x * sy) * this.maxSpeed;
+        tz = (right.z * sx - fwd.z * sy) * this.maxSpeed;
       } else if (this.path) {
         const t = this.followPath();
         tx = t.x; tz = t.z;
@@ -411,6 +439,15 @@ export class World3D {
     if (r.hitZ) this.vel.z *= 0.3;
     this.pos.x = r.x; this.pos.z = r.z;
 
+    if (!frozen && this.pendingCan !== null) {
+      const spot = this.w.canSpots?.[this.pendingCan];
+      if (!spot) this.pendingCan = null;
+      else if (Math.hypot(spot.x - this.pos.x, spot.z - this.pos.z) <= WORLD.interactRange + 0.2) {
+        const act = this.canActions(this.pendingCan)[0];
+        this.stopWalking();
+        if (act) this.doAction(act);
+      }
+    }
     if (!frozen && this.pending && this.inRange(this.pending.id)) {
       const { id, act, highlight, want } = this.pending;
       this.stopWalking();
@@ -446,11 +483,13 @@ export class World3D {
       }
       this.stuck.t = this.time; this.stuck.x = this.pos.x; this.stuck.z = this.pos.z;
     }
-    const s = WORLD.maxSpeed * (final ? Math.min(1, d / 0.6 + 0.3) : 1);
+    const s = this.maxSpeed * (final ? Math.min(1, d / 0.6 + 0.3) : 1);
     return { x: dx / d * s, z: dz / d * s };
   }
 
-  private stopWalking() { this.path = null; this.pending = null; }
+  private stopWalking() { this.path = null; this.pending = null; this.pendingCan = null; }
+  /** Top walking speed now: beer and a full bladder both slow you down. */
+  private get maxSpeed() { return WORLD.maxSpeed * this.g.walkMult(); }
   private cell(): P { return { x: Math.floor(this.pos.x / C), y: Math.floor(this.pos.z / C) }; }
 
   private planTo(goals: P[]): boolean {
@@ -525,6 +564,7 @@ export class World3D {
   private doAction(a: Action) {
     if (this.paused || this.g.phase !== 'day' || !a.run) return;
     const before = todoItems(this.g, this.w);
+    if (a.twoHands && this.g.heldCan) this.putCanDown();
     const said = a.run() || a.done || a.label;
     this.player.hop();
     this.hints.mark('interact');
@@ -556,14 +596,26 @@ export class World3D {
 
   private updateLabels() {
     const g = this.g, w = this.w;
-    const near = this.paused || g.phase !== 'day' ? [] : OBJECTS.filter(o => o.id !== 'duct' && this.inRange(o.id));
-    const entries = near.map(o => ({ o, acts: actionsFor(o.id, g, w), status: statusFor(o.id, g, w) })).filter(e => e.acts.length || e.status);
-    const sig = JSON.stringify(entries.map(e => [e.o.id, e.acts.map(a => a.label), e.status, g.spraying]));
+    const live = !this.paused && g.phase === 'day';
+    const near = live ? OBJECTS.filter(o => o.id !== 'duct' && this.inRange(o.id)) : [];
+    const entries: { id: string; anchor: THREE.Vector3; acts: Action[]; status: string | null }[] = near.map(o => {
+      const v = this.built.objects.get(o.id)!;
+      return { id: o.id as string, anchor: new THREE.Vector3(v.centre.x, o.height + 0.35, v.centre.z), acts: actionsFor(o.id, g, w), status: statusFor(o.id, g, w) };
+    });
+    // cans on the floor within reach
+    for (const c of live ? g.cans : []) {
+      const spot = w.canSpots?.[c.id];
+      if (c.held || !spot || Math.hypot(spot.x - this.pos.x, spot.z - this.pos.z) > WORLD.interactRange + 0.2) continue;
+      const status = c.fill > 0 ? `Beer · ${Math.round(c.fill * 100)}% left${c.warm ? ' · warm' : ''}` : 'Empty can';
+      entries.push({ id: `can-${c.id}`, anchor: new THREE.Vector3(spot.x, 0.55, spot.z), acts: this.canActions(c.id), status });
+    }
+    const shown = entries.filter(e => e.acts.length || e.status);
+    const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => a.label), e.status, g.spraying]));
     if (sig !== this.labelSig && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
       this.labelSig = sig;
       for (const l of this.labelEls) l.el.remove();
       this.labelEls = [];
-      for (const { o, acts, status } of entries) {
+      for (const { id, anchor, acts, status } of shown) {
         const el = document.createElement('div');
         el.className = 'lbl';
         for (const a of acts) {
@@ -584,8 +636,7 @@ export class World3D {
         }
         if (status) { const s = document.createElement('div'); s.className = 'status'; s.textContent = status; el.appendChild(s); }
         this.hud.labels.appendChild(el);
-        const v = this.built.objects.get(o.id)!;
-        this.labelEls.push({ id: o.id, el, anchor: new THREE.Vector3(v.centre.x, o.height + 0.35, v.centre.z) });
+        this.labelEls.push({ id, el, anchor });
       }
     }
     // labels hold still under a finger (a lost pointerup can't freeze them for good)
@@ -715,6 +766,10 @@ export class World3D {
 
     // player
     this.player.setCarry(w.carrying);
+    const held = g.heldCan;
+    this.player.setCan(held ? (held.fill > 0 ? 'full' : 'empty') : null);
+    this.updateCans();
+    this.hud.setCanChip(held && g.phase === 'day' ? (held.fill > 0 ? 'Put the beer down' : 'Put the empty down') : null);
     this.player.setVisible(w.toiletUntil === null);
     this.player.update(dt, this.pos.x, this.pos.z, this.vel.x, this.vel.z);
   }
@@ -810,13 +865,61 @@ export class World3D {
     this.trail.update(dt, this.pos.x, this.pos.z);
   }
 
+  private say(text: string) { this.bubbleText = text; this.bubbleT = 1.6; }
+
+  /** What you can do with a can lying about: pick it up, if your hands are free. */
+  private canActions(id: number): Action[] {
+    const g = this.g, w = this.w, c = g.cans.find(x => x.id === id);
+    if (!c || c.held || g.heldCan || w.carrying !== null) return [];
+    return [{ label: c.fill > 0 ? 'Pick up the beer' : 'Pick up the empty', done: c.fill > 0 ? 'Picked the beer back up' : 'Picked up an empty', run: () => {
+      if (!g.pickUpCan(id)) return "Can't pick it up";
+      delete w.canSpots![id];
+    } }];
+  }
+
+  /** The can in your hand goes down at your feet, a little in front. */
+  private putCanDown() {
+    const c = this.g.putDownCan();
+    if (!c) return;
+    const w = this.w, side = (c.id % 3 - 1) * 0.12;
+    (w.canSpots ??= {})[c.id] = { x: this.pos.x + w.fx * 0.3 - w.fy * side, z: this.pos.z + w.fy * 0.3 + w.fx * side };
+  }
+
+  /** A mesh per can that's been put down: standing if there's beer in it, on its side when it's empty. */
+  private updateCans() {
+    const g = this.g, w = this.w;
+    const down = new Map(g.cans.filter(c => !c.held && w.canSpots?.[c.id]).map(c => [c.id, c]));
+    for (const [id, m] of this.canMeshes) if (!down.has(id)) { this.scene.remove(m); this.canMeshes.delete(id); }
+    for (const [id, c] of down) {
+      let m = this.canMeshes.get(id);
+      if (!m) {
+        m = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.15, 8), new THREE.MeshToonMaterial({ color: 0xc0281e, gradientMap: toonRamp() }));
+        body.castShadow = true;
+        const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), new THREE.MeshBasicMaterial({ visible: false }));
+        hitbox.position.y = 0.2;
+        m.add(body, hitbox);
+        m.userData.canId = id;
+        this.scene.add(m);
+        this.canMeshes.set(id, m);
+      }
+      const spot = w.canSpots![id];
+      const body = m.children[0] as THREE.Mesh;
+      const empty = c.fill <= 0;
+      body.rotation.z = empty ? Math.PI / 2 : 0;
+      body.position.y = empty ? 0.06 : 0.075;
+      (body.material as THREE.MeshToonMaterial).color.setHex(empty ? 0x8a6a62 : c.warm ? 0xb05a3a : 0xc0281e);
+      m.position.set(spot.x, 0, spot.z);
+    }
+  }
+
   /** "None left" over your head after reaching for ply that isn't there. */
   private updateBubble(dt: number) {
     this.bubbleT = Math.max(0, this.bubbleT - dt);
     const b = this.hud.bubble;
     if (this.bubbleT <= 0) { b.style.display = 'none'; return; }
     const p = this.project(new THREE.Vector3(this.pos.x, 1.35, this.pos.z));
-    b.textContent = 'None left';
+    b.textContent = this.bubbleText;
     b.style.display = 'block';
     b.style.left = `${p.x.toFixed(1)}px`; b.style.top = `${p.y.toFixed(1)}px`;
   }

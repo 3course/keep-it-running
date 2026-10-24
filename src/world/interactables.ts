@@ -21,6 +21,15 @@ export interface Action {
   key?: string;
   /** What it leaves in the notepad's recent events. */
   done?: string;
+  /** Needs both hands: a can in your hand gets put down at your feet first. */
+  twoHands?: boolean;
+}
+
+/** Binning the can in your hand: at any bin. */
+function canBin(g: Game): Action[] {
+  const c = g.heldCan;
+  if (!c) return [];
+  return [{ label: c.fill > 0 ? 'Bin the beer' : 'Bin the empty', done: c.fill > 0 ? 'Poured it out' : 'Empty in the bin', run: () => { g.binCan(); } }];
 }
 
 const money = (n: number) => `$${Math.round(n)}`;
@@ -67,8 +76,8 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         if (!g.loadNextSheet()) return "Machine won't start";
         w.bed = 'running'; w.bedJobId = g.current?.id ?? null;
       } });
-      if (w.bed === 'done' && empty) a.push({ label: 'Unload', done: 'Cut sheet off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'cut'; } });
-      if (w.bed === 'scrap' && empty) a.push({ label: 'Clear the scrap', done: 'Scrap off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'scrap'; } });
+      if (w.bed === 'done' && empty) a.push({ label: 'Unload', twoHands: true, done: 'Cut sheet off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'cut'; } });
+      if (w.bed === 'scrap' && empty) a.push({ label: 'Clear the scrap', twoHands: true, done: 'Scrap off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'scrap'; } });
       if (w.bed === 'empty' && empty && g.machine === 'idle' && canSwap(g) && worn(g, 'spoilboard')) {
         a.push({ label: `New spoilboard (${money(c.spoilboard.replaceCost)})`, auto: false, done: 'Fitting a new spoilboard', run: () => {
           if (!g.replaceConsumable('spoilboard')) return "Can't swap the spoilboard right now";
@@ -84,7 +93,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       }
       if (!empty || w.bed !== 'empty' || g.machineDown || !g.queued.length) return [];
       const next = g.nextUp();
-      if (next) return [{ label: `Grab sheet (${next.material})`, done: `Grabbed a sheet of ${next.material}`, run: () => { if (g.takeSheet()) w.carrying = 'sheet'; else return 'None left'; } }];
+      if (next) return [{ label: `Grab sheet (${next.material})`, twoHands: true, done: `Grabbed a sheet of ${next.material}`, run: () => { if (g.takeSheet()) w.carrying = 'sheet'; else return 'None left'; } }];
       // the work's there but the ply isn't
       return [{ label: 'Grab a sheet', done: 'None left — order ply', run: () => { w.shrugs = (w.shrugs ?? 0) + 1; } }];
     }
@@ -93,12 +102,12 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'offcutBin': {
       const a: Action[] = [];
       if (w.carrying === 'scrap') a.push({ label: 'Bin the scrap', done: 'Scrap binned', run: () => { w.carrying = null; w.offcutBin = Math.min(1, w.offcutBin + 2 * WORLD.offcutsPerSheet); } });
-      if (empty && w.offcutBin >= WORLD.offcutsEmptyAt) a.push({ label: 'Bag the offcuts', done: 'Offcuts bagged', run: () => { w.carrying = 'offcuts'; w.offcutBin = 0; } });
-      return a;
+      if (empty && w.offcutBin >= WORLD.offcutsEmptyAt) a.push({ label: 'Bag the offcuts', twoHands: true, done: 'Offcuts bagged', run: () => { w.carrying = 'offcuts'; w.offcutBin = 0; } });
+      return [...a, ...canBin(g)];
     }
     case 'skip':
-      return w.carrying === 'bag' || w.carrying === 'offcuts' || w.carrying === 'scrap'
-        ? [{ label: 'Tip it in', done: 'Tipped in the skip', run: () => { w.carrying = null; } }] : [];
+      return [...(w.carrying === 'bag' || w.carrying === 'offcuts' || w.carrying === 'scrap'
+        ? [{ label: 'Tip it in', done: 'Tipped in the skip', run: () => { w.carrying = null; } }] : []), ...canBin(g)];
     case 'bitRack':
       return empty && canSwap(g) && worn(g, 'bit') ? [{ label: `Swap bit (${money(c.bit.replaceCost)})`, auto: false, done: 'Swapping the bit', run: () => {
         if (!g.replaceConsumable('bit')) return "Can't swap the bit right now";
@@ -106,8 +115,8 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       } }] : [];
     case 'extractor': {
       const a: Action[] = [];
-      if (w.oldBagWaiting && empty) a.push({ label: 'Lift out the old bag', done: 'Old bag out', run: () => { w.oldBagWaiting = false; w.carrying = 'bag'; } });
-      else if (empty && canSwap(g) && worn(g, 'filter')) a.push({ label: `Change bag (${money(c.filter.replaceCost)})`, auto: false, done: 'Changing the extractor bag', run: () => {
+      if (w.oldBagWaiting && empty) a.push({ label: 'Lift out the old bag', twoHands: true, done: 'Old bag out', run: () => { w.oldBagWaiting = false; w.carrying = 'bag'; } });
+      else if (empty && canSwap(g) && worn(g, 'filter')) a.push({ label: `Change bag (${money(c.filter.replaceCost)})`, auto: false, twoHands: true, done: 'Changing the extractor bag', run: () => {
         if (!g.replaceConsumable('filter')) return "Can't change the bag right now";
         w.watchingSwap = 'filter';
       } });
@@ -122,7 +131,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'spareExtinguisher': {
       const hook = id === 'extinguisher' ? 'wall' : 'shed';
       // only worth taking down when there's a fire to put out
-      if (empty && w.hooks[hook] && g.fire) return [{ label: 'Grab extinguisher', done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
+      if (empty && w.hooks[hook] && g.fire) return [{ label: 'Grab extinguisher', twoHands: true, done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
       if (w.carrying === 'extinguisher' && !w.hooks[hook]) return [{ label: 'Hang it up', done: 'Extinguisher back on its hook', run: () => { w.hooks[hook] = true; w.carrying = null; w.extinguisherFrom = null; } }];
       return [];
     }
@@ -135,7 +144,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         else a.push({ label: 'Sign for the ply', key: 'ply-sign', done: 'Signed for the ply', run: () => { if (!g.signDelivery(truck.id, true)) return "Couldn't sign"; } });
       }
       if (truck?.stage === 'unloading' && empty) {
-        a.push({ label: `Grab a bundle (${truck.bundles.length} left)`, key: 'ply-unload', done: 'Grabbed a bundle of ply', run: () => { w.carrying = 'bundle'; } });
+        a.push({ label: `Grab a bundle (${truck.bundles.length} left)`, twoHands: true, key: 'ply-unload', done: 'Grabbed a bundle of ply', run: () => { w.carrying = 'bundle'; } });
       }
       const courier = g.distractions.find(d => d.kind === 'courier');
       if (courier && g.canAct) a.push({ label: 'Sign for delivery', done: 'Signed for the delivery', run: () => { if (g.respond(courier.id, 'sign')) w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
@@ -173,10 +182,13 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'desk':
       return g.canAct ? [{ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() }] : [];
     case 'fridge':
-      return g.fridgeOpen && g.canAct ? [{ label: `Beer (${money(CONFIG.competence.beerCost)})`, auto: false, done: 'Cracked a beer', run: () => { g.drinkBeer(); } }] : [];
+      return g.fridgeOpen && g.canAct && !g.heldCan ? [{ label: `Beer (${money(CONFIG.beer.cost)})`, auto: false, done: 'Cracked a beer', run: () => { if (!g.buyBeer()) return 'Fridge is shut'; } }] : [];
     case 'toilet':
       // only once there's a reason to go
-      return g.beersToday > 0 ? [{ label: 'Use the loo', auto: false, done: 'Off to the loo', run: () => { w.toiletUntil = absMinute(g) + WORLD.toiletMinutes; } }] : [];
+      return g.needLoo && g.canAct ? [{ label: 'Use the loo', key: 'loo', done: 'Off to the loo', run: () => {
+        if (!g.useToilet()) return "Can't go right now";
+        w.toiletUntil = absMinute(g) + CONFIG.beer.toiletMinutes;
+      } }] : [];
     default:
       return [];
   }

@@ -24,6 +24,10 @@ export class PlayerView {
   private hopV = 0;
   private lastYaw = 0;
   private shrugT = 0;   // counts down through a shrug
+  private sipT = 0;     // counts down through a sip
+  private stumbleT = 0; // counts down through a stumble
+  private can: THREE.Group;
+  private canBody: THREE.Mesh;
   yaw = 0;
 
   constructor(scene: THREE.Scene) {
@@ -49,6 +53,14 @@ export class PlayerView {
     this.carryMesh.position.set(0, 0.62, -0.28);
     this.carried.add(this.carryMesh);
     this.carried.visible = false;
+    // a can in the right hand, held at the hip between sips
+    this.can = new THREE.Group();
+    this.canBody = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.13, 8), toon(0xc0281e, true));
+    const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, 0.015, 8), toon(0xc8c8c8));
+    lid.position.y = 0.072;
+    this.can.add(this.canBody, lid);
+    this.can.visible = false;
+    this.bodyPivot.add(this.can);
     this.root.add(this.bodyPivot);
     scene.add(this.root);
 
@@ -57,6 +69,16 @@ export class PlayerView {
     this.shadow.renderOrder = 1;
     scene.add(this.shadow);
   }
+
+  /** null: no can. 'full': a beer (with some in it). 'empty': done. */
+  setCan(c: 'full' | 'empty' | null) {
+    this.can.visible = c !== null;
+    if (c) (this.canBody.material as THREE.MeshToonMaterial).color.setHex(c === 'full' ? 0xc0281e : 0x8a6a62);
+  }
+  /** Can up to the mouth and back down. */
+  sip() { this.sipT = 0.8; }
+  /** A lurch forward and a wobble: a fumbled step. */
+  stumble() { this.stumbleT = 0.9; }
 
   /** Shoulders up, head tilted, a wobble side to side: "none left". */
   shrug() { this.shrugT = 0.9; }
@@ -108,9 +130,16 @@ export class PlayerView {
     this.root.rotation.y = this.yaw;
     this.bodyPivot.position.y = bob;
     this.shrugT = Math.max(0, this.shrugT - dt);
+    this.sipT = Math.max(0, this.sipT - dt);
+    this.stumbleT = Math.max(0, this.stumbleT - dt);
+    const sipK = this.sipT > 0 ? Math.sin((0.8 - this.sipT) / 0.8 * Math.PI) : 0;   // 0 → 1 → 0
+    const stumbleK = this.stumbleT > 0 ? Math.sin((0.9 - this.stumbleT) / 0.9 * Math.PI) : 0;
+    // can: at the hip, swung up to the mouth for a sip
+    this.can.position.set(0.22 - sipK * 0.14, 0.48 + sipK * 0.42, -0.06 - sipK * 0.14);
+    this.can.rotation.x = sipK * 1.1;
     const shrug = this.shrugT > 0 ? Math.sin((0.9 - this.shrugT) / 0.9 * Math.PI) : 0;
-    this.bodyPivot.rotation.z = -this.lean + shrug * Math.sin(this.shrugT * 22) * 0.12;
-    this.bodyPivot.rotation.x = -0.12 * k;
+    this.bodyPivot.rotation.z = -this.lean + shrug * Math.sin(this.shrugT * 22) * 0.12 + stumbleK * Math.sin(this.stumbleT * 18) * 0.2;
+    this.bodyPivot.rotation.x = -0.12 * k - stumbleK * 0.45 + sipK * 0.12; // head back for a sip, pitch forward in a stumble
     this.bodyPivot.scale.set(1 + sq * 0.6 + shrug * 0.08, 1 - sq - shrug * 0.06, 1 + sq * 0.6);
     this.feet.forEach((f, i) => {
       const s = Math.sin(this.phase + i * Math.PI);

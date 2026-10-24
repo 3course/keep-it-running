@@ -79,6 +79,7 @@ export interface ActiveFault {
   path?: FixPath;
   stepIndex: number;
   sheetScrapped: boolean;
+  redo?: boolean;         // the last go at this step was fumbled: doing it again costs time, not parts
 }
 
 export type DistractionKind = 'friend' | 'phone' | 'courier' | 'bank';
@@ -94,6 +95,7 @@ export interface Distraction {
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
   orderType?: JobTypeId;  // phone: what kind of job the order is
   customer?: string;      // phone: who's calling with the order
+  grabbedBeer?: boolean;  // friend: already helped themselves to one from the fridge
 }
 
 /**
@@ -109,6 +111,17 @@ export interface Delivery {
   signBy: number;         // minute the driver gives up (while waiting)
   bundles: JobTypeId[][]; // still on the truck (while unloading)
   feeOwed: boolean;       // a redelivery: the fee is charged again when it turns up
+}
+
+/** A can of beer: in your hand (being drunk) or put down somewhere, with what's left in it. */
+export interface Can {
+  id: number;
+  fill: number;            // 1 full … 0 empty
+  held: boolean;
+  downSince: number | null; // minute it was put down (today)
+  warm: boolean;           // left down too long
+  drunkMinutes: number;    // minutes of drinking so far (for the sips)
+  yuck: boolean;           // already pulled a face at this warm can
 }
 
 /** An order call that rang out: they left a voicemail and will wait this long for you to ring back. */
@@ -139,6 +152,8 @@ export interface DayStats {
   sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
   stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
+  fumbles: number;         // steps that had to be redone (beer)
+  looTrips: number;
   beers: number;
   firesSpot: number;       // spot fires started
   firesDuct: number;       // spot fires that became duct fires

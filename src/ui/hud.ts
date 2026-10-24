@@ -112,6 +112,9 @@ const CSS = `
   background: #4a3a22; border: 1px solid #2b2418; border-radius: 2px; padding: 1px 5px; white-space: nowrap; pointer-events: none; }
 #kir-hud .pad h3.vm { color: #3d6f9e; }
 #kir-hud .pad li.callback { color: #2e5a86; }
+#kir-hud .canchip { position: absolute; right: 10px; bottom: 26px; pointer-events: auto; font: 600 14px 'Courier New', monospace; color: #efe6d8;
+  background: rgba(20,17,15,.75); border: 2px solid #c0281e; border-radius: 18px; padding: 8px 12px; touch-action: none; }
+#kir-hud .canchip::before { content: '🍺 '; }
 #kir-hud .mute { position: absolute; right: 10px; top: 62px; width: 32px; height: 28px; pointer-events: auto; cursor: pointer; border: 0; border-radius: 6px;
   background: rgba(20,17,15,.6); color: #efe6d8; font-size: 15px; line-height: 28px; padding: 0; }
 `;
@@ -119,6 +122,8 @@ const CSS = `
 export interface HudCallbacks {
   /** Walk to the nearest of these (a notepad line was tapped). `key`: that line, so arriving does its action and not just any. */
   goTo: (targets: ObjectId[], key?: string) => void;
+  /** The can chip: put the can in your hand down where you stand. */
+  putCanDown: () => void;
   toggleMute: () => boolean;
   togglePause: () => void;
   knockOff: () => void;
@@ -146,6 +151,7 @@ export class Hud {
   private padSig = '';
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
+  private canChip: HTMLButtonElement;
   get plyShowing() { return this.ply.style.display === 'flex'; }
   private onResize = () => this.layout();
   isOpen = false;
@@ -184,8 +190,11 @@ export class Hud {
     this.mute = el('button', { className: 'mute' });
     this.ply = el('div', { className: 'modal ply' });
     this.bubble = el('div', { className: 'bubble' });
+    this.canChip = el('button', { className: 'canchip' });
+    this.canChip.style.display = 'none';
+    this.canChip.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.cb.putCanDown(); });
     this.mute.addEventListener('click', e => { e.stopPropagation(); this.setMuted(this.cb.toggleMute()); });
-    this.stage.append(this.labels, this.bubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.eod, this.ply, this.summary, this.pausedEl, tag);
+    this.stage.append(this.labels, this.bubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.canChip, this.eod, this.ply, this.summary, this.pausedEl, tag);
     document.body.appendChild(this.root);
     window.addEventListener('resize', this.onResize);
     this.layout();
@@ -258,6 +267,12 @@ export class Hud {
     render();
     this.ply.style.display = 'flex';
   }
+  setCanChip(text: string | null) {
+    if (!text) { if (this.canChip.style.display !== 'none') this.canChip.style.display = 'none'; return; }
+    if (this.canChip.textContent !== text) this.canChip.textContent = text;
+    if (this.canChip.style.display !== 'block') this.canChip.style.display = 'block';
+  }
+
   hidePlyOrder() { this.ply.style.display = 'none'; }
 
   setPaused(paused: boolean) { this.pausedEl.style.display = paused ? 'flex' : 'none'; }

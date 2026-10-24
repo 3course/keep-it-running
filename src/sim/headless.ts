@@ -138,7 +138,10 @@ const sloppy: Policy = (g) => {
   for (const c of g.callbacks) g.callBack(c.id);
   sloppyOrders(g);
   if (g.rng.chance(0.5)) handleTruck(g); // gets round to it
-  if (g.fridgeOpen && g.beersToday < 4 && g.rng.chance(0.02)) g.drinkBeer();
+  // a can at 2pm and another at 4pm, or as soon after as they're free (the empty goes in the bin first); the loo once it's really slowing them down
+  const due = (g.minute >= 16 * 60 ? 2 : g.minute >= 14 * 60 ? 1 : 0) - g.beersToday;
+  if (due > 0 && g.canAct) { if (g.heldCan) g.binCan(); g.buyBeer(); }
+  if (g.needLoo && g.looSlow >= 0.15) g.useToilet();
   if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet();
 };
 
@@ -189,6 +192,7 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
     `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport} stock=${CONFIG.jobs.types.map(t => g.stock[t.id]).join('/')}`,
   );
   const fires = (d: DayStats) => `${d.firesSpot}/${d.firesDuct}/${d.firesExtractor}`;
+  if (name === 'sloppy') console.log(`${''.padEnd(13)}beer: ${wk('beers').trim()} cans/day, fumbles ${wk('fumbles').trim()}/day (week ${g.week.reduce((s, d) => s + d.fumbles, 0)}), loo trips ${wk('looTrips').trim()}/day (week ${g.week.reduce((s, d) => s + d.looTrips, 0)})`);
   console.log(`${''.padEnd(13)}fires spot/duct/extractor: day1 ${fires(d1)} | week per day ${wk('firesSpot').trim()}/${wk('firesDuct').trim()}/${wk('firesExtractor').trim()} | by day ${g.week.map(fires).join('  ')}`);
   // Per job type, whole week: contribution = revenue - boards (incl. ruined) - fault fixes while it was on the bed.
   // Labour, consumables and overheads are shared and not split, so these margins sit above the week margin.

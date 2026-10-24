@@ -34,7 +34,6 @@ export const WORLD = {
   wallFadeDistance: 4.5,               // walls this close between camera and player go see-through
 
   interactRange: 0.7,                  // m from the player's centre to an object's footprint
-  toiletMinutes: 10,                   // game minutes on the loo (no effect yet)
   offerSwapBelow: 0.6,                 // swap labels (bit, bag, spoilboard) only show once the part is this worn
   rollerOpenMinutes: 4,                // game minutes the roller door stays up after a pickup or delivery
   offcutsPerSheet: 0.25,               // offcut bin fill per sheet cut (1 = full)

@@ -24,6 +24,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   const add = (urgent: boolean, key: string, text: string, targets: ObjectId | ObjectId[] = []) =>
     (urgent ? now : later).push({ key, text, targets: Array.isArray(targets) ? targets : [targets], urgent });
 
+  // after a couple of beers this one goes right to the top
+  if (g.needLoo) add(true, 'loo', g.looSlow > 0 ? `Need the loo (walking ${Math.round(g.looSlow * 100)}% slower)` : 'Need the loo', 'toilet');
+
   // the ply truck: it won't wait (and on the first day it's the first thing you do)
   const truck = g.truckOnApron;
   if (truck?.stage === 'waiting') add(true, 'ply-sign', `Sign for the ply truck (${Math.max(0, truck.signBy - g.minute)}m)`, 'rollerDoor');

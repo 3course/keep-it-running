@@ -131,16 +131,31 @@ export const CONFIG = {
   competence: {
     start: 90,
     max: 100,
-    beerPenalty: 15,
-    beerCost: 8,
-    fridgeUnlockHour: 14,
     recoveryPerMinute: 0.08,
-    beerFriendDurationMult: 1.5,   // friends stay longer once you've had one
     misclickThreshold: 60,         // below this, misclicks start
     misclickDivisor: 200,          // chance = (threshold - competence) / divisor
     inputDelayMsPerPoint: 12,      // ms of input lag per point below max
     durationPenaltyDivisor: 100,   // step time multiplier = 1 + (max - c)/divisor
     sleepRecovery: 20,             // competence back overnight
+  },
+
+  // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
+  beer: {
+    cost: 8,
+    fridgeUnlockHour: 14,
+    drinkMinutes: 30,              // a can lasts this long in your hand
+    sipEveryMinutes: 4,            // a visible sip this often
+    slowPerCan: 0.15,              // task and walk speed lost per can, ramping in over drinkMinutes
+    fumblePerCan: 0.10,            // chance a step has to be redone, per can, ramping in the same way
+    decayMinutes: 60,              // effects wear off linearly over this long after the last sip
+    warmAfterMinutes: 30,          // a can put down this long goes warm
+    friendDurationMult: 1.5,       // friends stay longer once you've had one
+    looAfterBeers: 2,              // "Need the loo" after this many cans since the last visit
+    looEveryMinutes: 10,           // each this long without going…
+    looSlowStep: 0.05,             // …costs this much walk speed…
+    looSlowMax: 0.25,              // …up to this
+    toiletMinutes: 10,
+    mateGrabsBeerAt: 3,            // this many empties lying about: a mate who's in grabs one from your fridge
   },
 
   rapport: { start: 100, min: 0, max: 100, rushJobChance: 0.4 }, // rush-job odds on a call scale with rapport

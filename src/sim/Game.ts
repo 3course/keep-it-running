@@ -2,7 +2,7 @@ import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeI
 import { FAULTS } from '../data/faults.js';
 import { Rng } from './rng.js';
 import type {
-  ActiveFault, Callback, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
+  ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
 } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
@@ -20,7 +20,7 @@ function emptyStats(day: number): DayStats {
   return {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
-    beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0,
+    beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
   };
 }
 
@@ -81,6 +81,15 @@ export class Game {
   competence: number = CONFIG.competence.start;
   beersToday = 0;
 
+  // beer: cans you hold or have put down, how much has gone in, and the loo
+  cans: Can[] = [];
+  nextCanId = 1;
+  alcohol = 0;          // cans' worth taking effect (ramps up while you drink, wears off after)
+  alcoholAtLastSip = 0;
+  sips = 0;             // visible sips so far, for the view to animate
+  looSince: number | null = null; // minute you started needing the loo
+  beersAtLoo = 0;       // beersToday at the last visit
+
   upgrades = new Set<UpgradeId>();
   /** Running totals per job type since the game started (for the balance sim; shared costs like labour aren't split). */
   typeLedger = Object.fromEntries(CONFIG.jobs.types.map(t => [t.id, { revenue: 0, boards: 0, fixes: 0, cut: 0, scrapped: 0, minutes: 0 }])) as
@@ -113,7 +122,20 @@ export class Game {
   get weekMargin(): number { const r = this.weekRevenue; return r > 0 ? (r - this.weekCosts) / r : 0; }
   get friendPresent(): boolean { return this.distractions.some(d => d.kind === 'friend' && d.engaged); }
   get canAct(): boolean { return this.busy === null && this.fireResponse === null; }
-  get fridgeOpen(): boolean { return this.hour >= CONFIG.competence.fridgeUnlockHour; }
+  get fridgeOpen(): boolean { return this.hour >= CONFIG.beer.fridgeUnlockHour; }
+  get heldCan(): Can | undefined { return this.cans.find(c => c.held); }
+  get needLoo(): boolean { return this.looSince !== null; }
+  /** Task and walk speed lost to beer, 0…0.6. */
+  get beerSlow(): number { return Math.min(0.6, CONFIG.beer.slowPerCan * this.alcohol); }
+  get fumbleChance(): number { return CONFIG.beer.fumblePerCan * this.alcohol; }
+  /** Walk speed lost to needing the loo. */
+  get looSlow(): number {
+    const b = CONFIG.beer;
+    return this.looSince === null ? 0 : Math.min(b.looSlowMax, b.looSlowStep * Math.floor((this.minute - this.looSince) / b.looEveryMinutes));
+  }
+  /** Walking speed as a fraction of sober, comfortable speed. */
+  walkMult(): number { return (1 - this.beerSlow) * (1 - this.looSlow); }
+  private walkMinutes(m: number) { return Math.ceil(m / this.walkMult()); }
   get queued(): Job[] { return this.jobs.filter(j => j.status === 'queued'); }
 
   formatTime(m = this.minute): string {
@@ -161,7 +183,7 @@ export class Game {
     const c = CONFIG.competence;
     let m = 1 + (c.max - this.competence) / c.durationPenaltyDivisor;
     if (this.friendPresent) m *= CONFIG.faults.attentionSplitDurationMult;
-    return m;
+    return m / (1 - this.beerSlow);
   }
   misclickChance(): number {
     const c = CONFIG.competence;
@@ -179,6 +201,7 @@ export class Game {
     this.overtime = false;
     this.today = emptyStats(this.day);
     this.beersToday = 0;
+    this.cans = []; this.alcohol = 0; this.alcoholAtLastSip = 0; this.looSince = null; this.beersAtLoo = 0; // slept it off; the shed got tidied
     this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
     this.distractions = [];
@@ -306,6 +329,8 @@ export class Game {
     // competence recovery
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.recoveryPerMinute);
 
+    this.tickBeer();
+
     // you, busy
     if (this.busy) {
       this.busy.remaining -= 1;
@@ -315,7 +340,9 @@ export class Game {
     // replacing a consumable
     if (this.replacing) {
       this.replacing.remaining -= 1;
-      if (this.replacing.remaining <= 0) {
+      if (this.replacing.remaining <= 0 && this.fumbled(`fitting the ${this.replacing.key}`)) {
+        this.replacing.remaining = Math.ceil(CONFIG.consumables[this.replacing.key].replaceMinutes * this.stepDurationMult());
+      } else if (this.replacing.remaining <= 0) {
         this.wear[this.replacing.key] = 1;
         this.say(`New ${this.replacing.key} fitted.`, 'good');
         this.replacing = null;
@@ -326,7 +353,9 @@ export class Game {
     // machine
     if (this.machine === 'loading') {
       this.loadingRemaining -= 1;
-      if (this.loadingRemaining <= 0) {
+      if (this.loadingRemaining <= 0 && this.fumbled('loading the sheet')) {
+        this.loadingRemaining = Math.ceil(CONFIG.jobs.loadMinutes * this.stepDurationMult());
+      } else if (this.loadingRemaining <= 0) {
         this.machine = 'cutting';
         this.say(`Cutting: ${this.current!.name}`);
         this.maybeFault(true);
@@ -430,6 +459,8 @@ export class Game {
         if (f.phase === 'wrongCall') {
           f.phase = 'diagnose';
           this.say("Nope. That wasn't it.", 'bad');
+        } else if (this.fumbled(f.busyLabel.toLowerCase())) {
+          f.phase = 'step'; f.redo = true; // same step again
         } else {
           this.say(`Done: ${f.busyLabel}`);
           f.stepIndex += 1;
@@ -487,7 +518,7 @@ export class Game {
   /** Go and deal with the fire: walk to the extinguisher, grab it and carry it to the duct. */
   fightFire(): boolean {
     if (this.phase !== 'day' || !this.fire || !this.canAct) return false;
-    this.fireResponse = { step: 'toExtinguisher', remaining: CONFIG.fire.walkToExtinguisherMinutes };
+    this.fireResponse = { step: 'toExtinguisher', remaining: this.walkMinutes(CONFIG.fire.walkToExtinguisherMinutes) };
     return true;
   }
 
@@ -501,7 +532,7 @@ export class Game {
       r.remaining -= 1;
       if (r.remaining <= 0) {
         if (r.step === 'toExtinguisher') { r.step = 'grab'; r.remaining = c.grabMinutes; }
-        else if (r.step === 'grab') { r.step = 'toDuct'; r.remaining = c.walkToDuctMinutes; }
+        else if (r.step === 'grab') { r.step = 'toDuct'; r.remaining = this.walkMinutes(c.walkToDuctMinutes); }
         else if (r.step === 'toDuct') { r.step = 'atDuct'; r.remaining = 0; }
         else { this.fireResponse = null; this.say('Extinguisher back on the wall.'); }
       }
@@ -530,7 +561,7 @@ export class Game {
     this.extinguisherUsesToday += 1;
     this.say('Fire out.', 'good');
     if (this.extinguisherUsesToday % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
-    this.fireResponse = { step: 'returning', remaining: c.walkBackMinutes };
+    this.fireResponse = { step: 'returning', remaining: this.walkMinutes(c.walkBackMinutes) };
     this.settleMachine();
   }
 
@@ -603,7 +634,7 @@ export class Game {
       case 'friend': {
         const who = this.rng.pick(['Macca', 'Jules', 'Big Tony', 'Sal from next door', 'Your brother-in-law']);
         let dur = this.rng.int(d.friend.durationMin, d.friend.durationMax);
-        if (this.beersToday > 0) dur = Math.round(dur * CONFIG.competence.beerFriendDurationMult);
+        if (this.beersToday > 0) dur = Math.round(dur * CONFIG.beer.friendDurationMult);
         dist = { id, kind, title: `${who} wandered in`, line: '"Mate. Got a sec?"', remaining: dur, engaged: false, hover: d.friend.hoverMinutes };
         break;
       }
@@ -837,7 +868,7 @@ export class Game {
     const d = this.deliveries.find(x => x.id === id);
     if (!d || d.stage !== 'unloading' || !d.bundles.length || this.phase !== 'day' || !this.canAct) return false;
     for (const t of d.bundles.shift()!) this.stock[t] += 1;
-    if (!walked) this.busy = { label: 'unloading ply', remaining: CONFIG.supply.unloadTripMinutes };
+    if (!walked) this.busy = { label: 'unloading ply', remaining: this.walkMinutes(CONFIG.supply.unloadTripMinutes) };
     if (!d.bundles.length) {
       this.deliveries = this.deliveries.filter(x => x.id !== id);
       this.say(`Ply's on the pallet: ${CONFIG.jobs.types.map(t => `${this.stock[t.id]} ${this.stockWord(t.id)}`).join(', ')}.`, 'good');
@@ -890,8 +921,11 @@ export class Game {
     const f = this.fault;
     if (!f || f.phase !== 'step' || !f.path || !this.canAct) return false;
     const step = f.path.steps[f.stepIndex];
-    if (step.cost > 0) this.spend(step.cost, 'fixes', step.label.toLowerCase());
-    if (this.current) this.typeLedger[this.current.type].fixes += step.cost;
+    if (!f.redo) {
+      if (step.cost > 0) this.spend(step.cost, 'fixes', step.label.toLowerCase());
+      if (this.current) this.typeLedger[this.current.type].fixes += step.cost;
+    }
+    f.redo = false;
     f.phase = 'working';
     f.busyLabel = step.label;
     f.busyRemaining = Math.max(1, Math.ceil(step.minutes * this.stepDurationMult()));
@@ -976,14 +1010,91 @@ export class Game {
     this.say(`A joiner dropped off ${j.material}: ${j.name}. $${j.price} if it's cut tonight.`, 'good');
   }
 
-  drinkBeer(): boolean {
-    if (this.phase !== 'day' || !this.fridgeOpen || !this.canAct) return false;
-    this.spend(CONFIG.competence.beerCost, 'beer', 'beer');
+  // ---------- beer ----------
+
+  /** A can from the fridge, into your hand. One can in hand at a time. */
+  buyBeer(): boolean {
+    if (this.phase !== 'day' || !this.fridgeOpen || !this.canAct || this.heldCan) return false;
+    this.spend(CONFIG.beer.cost, 'beer', 'beer');
+    this.cans.push({ id: this.nextCanId++, fill: 1, held: true, downSince: null, warm: false, drunkMinutes: 0, yuck: false });
     this.beersToday += 1;
     this.today.beers += 1;
-    this.competence = Math.max(0, this.competence - CONFIG.competence.beerPenalty);
     this.say(this.beersToday === 1 ? 'Cold one. Well earned.' : `Beer #${this.beersToday}. Things feel… fine.`);
     return true;
+  }
+
+  /** Put the can in your hand down (two hands needed, or just done with it). */
+  putDownCan(): Can | null {
+    const c = this.heldCan;
+    if (!c) return null;
+    c.held = false; c.downSince = this.minute;
+    return c;
+  }
+
+  pickUpCan(id: number): boolean {
+    const c = this.cans.find(x => x.id === id);
+    if (!c || c.held || this.heldCan) return false;
+    c.held = true; c.downSince = null;
+    return true;
+  }
+
+  /** Into a bin: the one in your hand. */
+  binCan(): boolean {
+    const c = this.heldCan;
+    if (!c) return false;
+    this.cans = this.cans.filter(x => x.id !== c.id);
+    return true;
+  }
+
+  get emptiesAbout(): number { return this.cans.filter(c => !c.held && c.fill <= 0).length; }
+
+  useToilet(): boolean {
+    if (this.phase !== 'day' || !this.canAct || !this.needLoo) return false;
+    this.busy = { label: 'on the loo', remaining: CONFIG.beer.toiletMinutes };
+    this.looSince = null;
+    this.beersAtLoo = this.beersToday;
+    this.today.looTrips += 1;
+    return true;
+  }
+
+  /** A finished step that has to be done again: a beer's worth of clumsiness. */
+  private fumbled(what: string): boolean {
+    if (this.fumbleChance <= 0 || !this.rng.chance(this.fumbleChance)) return false;
+    this.today.fumbles += 1;
+    this.say(`Fumbled: ${what}. Again.`, 'bad');
+    return true;
+  }
+
+  private tickBeer() {
+    const b = CONFIG.beer;
+    const c = this.heldCan;
+    if (c && c.fill > 0) {
+      // a minute of drinking: the can goes down, the beer goes in
+      const sip = Math.min(c.fill, 1 / b.drinkMinutes);
+      c.fill = Math.max(0, c.fill - sip);
+      if (c.fill < 1e-6) c.fill = 0;
+      this.alcohol += sip;
+      this.alcoholAtLastSip = this.alcohol;
+      if (c.drunkMinutes++ % b.sipEveryMinutes === 0) {
+        this.sips += 1;
+        if (c.warm && !c.yuck) { c.yuck = true; this.say('Yuck. Warm beer.'); }
+      }
+      if (c.fill === 0) this.say('Finished the beer.');
+    } else if (this.alcohol > 0) {
+      // wearing off: gone decayMinutes after the last sip
+      this.alcohol = Math.max(0, this.alcohol - this.alcoholAtLastSip / b.decayMinutes);
+    }
+    for (const can of this.cans) {
+      if (!can.held && !can.warm && can.fill > 0 && can.downSince !== null && this.minute - can.downSince >= b.warmAfterMinutes) can.warm = true;
+    }
+    if (this.looSince === null && this.beersToday - this.beersAtLoo >= b.looAfterBeers) { this.looSince = this.minute; this.say('Need the loo.'); }
+    // a mate who's in, and empties all over the place: they take that as an invitation
+    const mate = this.distractions.find(d => d.kind === 'friend' && !d.grabbedBeer);
+    if (mate && this.emptiesAbout >= b.mateGrabsBeerAt) {
+      mate.grabbedBeer = true;
+      this.spend(b.cost, 'beer', 'beer');
+      this.say(`${mate.title.replace(' wandered in', '')} grabbed a beer from the fridge.`, 'bad');
+    }
   }
 
   knockOff() {

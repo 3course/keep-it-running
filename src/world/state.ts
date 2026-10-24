@@ -31,6 +31,7 @@ export interface WorldState {
   done: string[];                // to-do items crossed off today, and news ("• 4 sheets of formply left")
   newsSeen?: number;             // today's Game log entries already scanned for stock news
   shrugs?: number;               // bumped when you reach for a sheet that isn't there (the view shrugs)
+  canSpots?: Record<number, { x: number; z: number }>; // where each can that's been put down is (metres)
   /** First day only: the walk-round before the first cut. The clock waits until that cut starts. */
   tour?: { visited: ObjectId[]; cutStarted: boolean } | null;
 }
@@ -59,7 +60,7 @@ export function startNewDay(w: WorldState, g: Game) {
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
   w.carrying = null; w.extinguisherFrom = null; w.hooks = { wall: true, shed: true };
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
-  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0;
+  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {};
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it
   // a sheet cutting at knock-off was scrapped by Game; it's still lying on the bed
   if (w.bed === 'running') w.bed = 'scrap';
