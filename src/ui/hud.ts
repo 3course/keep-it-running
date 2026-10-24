@@ -12,20 +12,21 @@ const HAND = "'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', c
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 
 /**
- * A size that scales with the viewport but never drops below `n` real pixels on screen. Every font and
- * touch target in the HUD goes through this: on a phone the minimums hold, on a big screen it all grows.
- * (`--k` is the stage's scale: logical px → screen px.)
+ * A size that scales with the viewport but never drops below `n` px. Every font and touch target in the HUD
+ * goes through this: `--s` is 1 on a phone and grows on bigger screens (see Hud.layout).
  */
-const F = (n: number) => `max(${n}px, calc(${n}px / var(--k, 1)))`;
+const F = (n: number) => `calc(${n}px * var(--s, 1))`;
+/** Safe-area insets (notches, home bars), so controls stay clear of them. */
+const SAT = 'env(safe-area-inset-top, 0px)', SAR = 'env(safe-area-inset-right, 0px)', SAB = 'env(safe-area-inset-bottom, 0px)', SAL = 'env(safe-area-inset-left, 0px)';
 
 const CSS = `
-#kir-hud { position: fixed; pointer-events: none; z-index: 10; overflow: hidden; }
-#kir-hud .stage { position: absolute; left: 0; top: 0; width: ${WORLD.view.width}px; height: ${WORLD.view.height}px; transform-origin: 0 0; font-family: 'Courier New', monospace; }
-#kir-hud .clock { position: absolute; right: 10px; top: 10px; pointer-events: auto; padding: 5px 10px; border-radius: 8px; min-height: ${F(48)}; box-sizing: border-box;
+#kir-hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; overflow: hidden; }
+#kir-hud .stage { position: absolute; inset: 0; font-family: 'Courier New', monospace; }
+#kir-hud .clock { position: absolute; right: calc(10px + ${SAR}); top: calc(10px + ${SAT}); pointer-events: auto; padding: 5px 10px; border-radius: 8px; min-height: ${F(48)}; box-sizing: border-box;
   background: rgba(20,17,15,.6); color: #efe6d8; font-size: ${F(18)}; text-align: right; line-height: 1.25; cursor: pointer; }
 #kir-hud .clock .cash { color: #f2c76b; }
 #kir-hud .clock .neg { color: #f08a6b; }
-#kir-hud .tab { position: absolute; left: 0; top: 150px; width: ${F(48)}; height: ${F(130)}; pointer-events: auto; cursor: pointer;
+#kir-hud .tab { position: absolute; left: ${SAL}; top: calc(${F(150)} + ${SAT}); transition: left .22s ease-out; width: ${F(48)}; height: ${F(130)}; pointer-events: auto; cursor: pointer;
   background: #f4ecd2; border: 1px solid #b9a77a; border-left: none; border-radius: 0 10px 10px 0; box-shadow: 2px 2px 6px rgba(0,0,0,.4);
   writing-mode: vertical-rl; text-orientation: mixed; font-family: ${HAND}; font-size: ${F(20)}; color: #4a3a22; display: flex; align-items: center; justify-content: center; }
 #kir-hud .tab .dot { writing-mode: horizontal-tb; position: absolute; top: -8px; right: -8px; min-width: ${F(24)}; height: ${F(24)}; border-radius: 12px;
@@ -33,7 +34,8 @@ const CSS = `
 #kir-hud .tab .dot.pulse { animation: kir-pulse .7s ease-in-out infinite; }
 @keyframes kir-pulse { 0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(192,40,30,.7); } 50% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(192,40,30,0); } }
 #kir-hud .catcher { position: absolute; inset: 0; pointer-events: auto; display: none; }
-#kir-hud .pad { position: absolute; left: 0; top: 60px; bottom: 60px; width: calc(100% - 30px); max-width: 360px; pointer-events: auto; transform: translateX(-105%);
+#kir-hud .pad { position: absolute; left: ${SAL}; top: calc(${F(60)} + ${SAT}); bottom: calc(${F(60)} + ${SAB}); width: calc(100% - 30px); max-width: ${F(360)}; pointer-events: auto;
+  transform: translateX(calc(-100% - ${SAL} - 20px));
   transition: transform .22s ease-out; background: #f4ecd2; border-radius: 0 10px 10px 0; box-shadow: 4px 4px 14px rgba(0,0,0,.5);
   padding: 14px 16px 14px 20px; box-sizing: border-box; overflow-y: auto; font-family: ${HAND}; color: #2b2418;
   background-image: repeating-linear-gradient(#f4ecd2 0 calc(${F(32)} - 1px), #c9d6e6 calc(${F(32)} - 1px) ${F(32)}); }
@@ -47,7 +49,7 @@ const CSS = `
 #kir-hud .pad li.sheet .sub span { white-space: nowrap; }
 #kir-hud .pad li.sheet.late { color: #9a1f12; }
 #kir-hud .pad li.more { color: #3d6f9e; text-decoration: underline; }
-#kir-hud .toast { position: absolute; left: 50%; bottom: 76px; transform: translateX(-50%); max-width: calc(100% - 24px); padding: 10px 16px; border-radius: 22px;
+#kir-hud .toast { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); bottom: calc(${F(76)} + ${SAB}); transform: translateX(-50%); max-width: calc(100% - 24px); padding: 10px 16px; border-radius: 22px;
   min-height: ${F(44)}; box-sizing: border-box; background: rgba(20,17,15,.82); color: #efe6d8; font: ${F(18)} 'Courier New', monospace;
   width: max-content; text-align: center; text-wrap: balance; line-height: 1.25; pointer-events: none; cursor: pointer; opacity: 0; transition: opacity .25s; }
 #kir-hud .toast.show { opacity: 1; pointer-events: auto; } /* faded out, it mustn't eat taps on the world */
@@ -73,7 +75,9 @@ const CSS = `
 #kir-hud .ply .row button:disabled { background: #4a4540; color: #a2937f; }
 #kir-hud .ply .close { display: block; margin: 12px auto 0; background: #4a4540; }
 #kir-hud .pad .empty { font-size: ${F(19)}; color: #8a7d64; }
-#kir-hud .modal { position: absolute; inset: 0; background: rgba(0,0,0,.65); pointer-events: auto; display: none; align-items: center; justify-content: center; }
+#kir-hud .modal { position: absolute; inset: 0; background: rgba(0,0,0,.65); pointer-events: auto; display: none; align-items: center; justify-content: center;
+  padding: ${SAT} ${SAR} ${SAB} ${SAL}; }
+#kir-hud .modal .card { max-height: calc(100% - 20px); overflow-y: auto; }
 #kir-hud .modal .card { width: calc(100% - 24px); max-width: 360px; background: #241f1a; border: 2px solid #d48a3c; color: #efe6d8; padding: 18px; box-sizing: border-box; text-align: center; }
 #kir-hud .modal h1 { font-size: ${F(26)}; margin: 0 0 10px; font-weight: normal; }
 #kir-hud .modal p { font-size: ${F(18)}; color: #a2937f; margin: 8px 0; line-height: 1.35; }
@@ -92,12 +96,13 @@ const CSS = `
 @keyframes kir-tick { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
 #kir-hud .lbl .status { font: ${F(16)} 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.8); padding: 5px 8px; border-radius: 6px;
   white-space: pre-line; text-align: center; max-width: 330px; }
-#kir-hud .stick { position: absolute; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
+#kir-hud .stick { position: absolute; width: ${F(96)}; height: ${F(96)}; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
   background: rgba(20,17,15,.15); display: none; pointer-events: none; }
-#kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: 40px; height: 40px; margin: -20px 0 0 -20px; border-radius: 50%; background: rgba(255,255,255,.6); }
-#kir-hud .tag { position: absolute; right: 4px; bottom: 2px; font: ${F(10)} 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
+#kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: ${F(40)}; height: ${F(40)}; margin: calc(${F(-20)}) 0 0 calc(${F(-20)}); border-radius: 50%; background: rgba(255,255,255,.6); }
+#kir-hud .tag { position: absolute; right: calc(4px + ${SAR}); bottom: calc(2px + ${SAB}); font: ${F(10)} 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
 #kir-hud .summary { position: absolute; inset: 0; background: #14110f; color: #efe6d8; pointer-events: auto; overflow-y: auto; display: none;
-  padding: 14px 14px 30px; box-sizing: border-box; font: ${F(17)} 'Courier New', monospace; }
+  padding: calc(14px + ${SAT}) calc(14px + ${SAR}) calc(30px + ${SAB}) calc(14px + ${SAL}); box-sizing: border-box; font: ${F(17)} 'Courier New', monospace; }
+#kir-hud .summary > * { max-width: ${F(560)}; margin-left: auto; margin-right: auto; }
 #kir-hud .summary h1 { font-size: ${F(26)}; font-weight: normal; margin: 0; }
 #kir-hud .summary h2 { font-size: ${F(14)}; color: #a2937f; margin: 0 0 6px; font-weight: normal; letter-spacing: 1px; text-transform: uppercase; }
 #kir-hud .summary .sub { color: #a2937f; margin: 4px 0 10px; }
@@ -124,18 +129,23 @@ const CSS = `
   border-top: 7px solid transparent; border-bottom: 7px solid transparent; border-left: 10px solid #f2c76b; transform-origin: 5px 7px; }
 #kir-hud .ptr.ring { transform: translate(-50%, -50%) scale(1.2); border-color: #f08a6b; }
 #kir-hud .ptr.ring .arrow { border-left-color: #f08a6b; }
-#kir-hud .hint { position: absolute; left: 50%; bottom: 130px; transform: translateX(-50%); width: calc(100% - 40px); max-width: 340px; padding: 14px 16px; display: none; box-sizing: border-box;
+#kir-hud .hint { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); bottom: calc(${F(130)} + ${SAB}); transform: translateX(-50%); width: calc(100% - 40px); max-width: 340px; padding: 14px 16px; display: none; box-sizing: border-box;
   background: #f4ecd2; color: #2b2418; border-radius: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.45); text-align: center; pointer-events: none;
   font: ${F(20)} ${HAND}; }
 #kir-hud .sign { position: absolute; transform: translate(-50%, -50%); font: bold ${F(13)} 'Courier New', monospace; letter-spacing: 1px; color: #f4ecd2;
   background: #4a3a22; border: 1px solid #2b2418; border-radius: 3px; padding: 2px 6px; white-space: nowrap; pointer-events: none; }
 #kir-hud .pad h3.vm { color: #3d6f9e; }
 #kir-hud .pad li.callback { color: #2e5a86; }
-#kir-hud .canchip { position: absolute; right: 10px; bottom: 26px; pointer-events: auto; font: 600 ${F(18)} 'Courier New', monospace; color: #efe6d8; min-height: ${F(48)};
+#kir-hud .canchip { position: absolute; right: calc(10px + ${SAR}); bottom: calc(${F(26)} + ${SAB}); pointer-events: auto; font: 600 ${F(18)} 'Courier New', monospace; color: #efe6d8; min-height: ${F(48)};
   background: rgba(20,17,15,.75); border: 2px solid #c0281e; border-radius: 24px; padding: 8px 14px; touch-action: none; }
 #kir-hud .canchip::before { content: '🍺 '; }
-#kir-hud .mute { position: absolute; right: 10px; top: 76px; width: ${F(48)}; height: ${F(48)}; pointer-events: auto; cursor: pointer; border: 0; border-radius: 8px;
+#kir-hud .mute, #kir-hud .fs { position: absolute; right: calc(10px + ${SAR}); top: calc(${F(76)} + ${SAT}); width: ${F(48)}; height: ${F(48)}; pointer-events: auto; cursor: pointer; border: 0; border-radius: 8px;
   background: rgba(20,17,15,.6); color: #efe6d8; font-size: ${F(22)}; line-height: 1; padding: 0; }
+#kir-hud .fs { top: calc(${F(132)} + ${SAT}); }
+/* landscape: the notepad is a column pinned on the left (the tab folds it away); the stick lives bottom-left */
+#kir-hud.land .pad { top: calc(10px + ${SAT}); bottom: calc(10px + ${SAB}); width: var(--padw); max-width: none; border-radius: 0 10px 10px 0; }
+#kir-hud.land .pad.open { transform: none; }
+#kir-hud.land .tab { top: calc(${F(20)} + ${SAT}); }
 `;
 
 export interface HudCallbacks {
@@ -174,6 +184,15 @@ export class Hud {
   private logPanel: HTMLDivElement;
   private logLines: string[] = [];
   private sheetsOpen = false; // "+ N more jobs" expanded
+  private fsBtn: HTMLButtonElement | null = null;
+  private land = false;       // landscape layout
+  private pinned = true;      // landscape: the notepad column is showing
+  private s = 1;              // HUD scale (1 on a phone)
+  private vh = 844;
+  /** HUD scale: 1 on a phone, bigger on big screens. CSS px per reference px. */
+  get unit() { return this.s; }
+  /** CSS px on the left covered by the pinned notepad column (landscape), so the view can centre on the rest. */
+  get coverLeft() { return this.land && this.pinned ? Math.max(0, Math.round(this.pad.getBoundingClientRect().right)) : 0; }
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
   readonly mateBubble: HTMLDivElement; // what the mate at the door is saying
@@ -182,7 +201,6 @@ export class Hud {
   /** A note after the build tag: which render tier this device is on, when it isn't the full one. */
   setTagNote(note: string) { this.tag.textContent = `${BUILD_TAG} · ${note}`; }
   get plyShowing() { return this.ply.style.display === 'flex'; }
-  private onResize = () => this.layout();
   isOpen = false;
 
   constructor(private canvas: HTMLCanvasElement, private cb: HudCallbacks) {
@@ -202,7 +220,10 @@ export class Hud {
     this.tab = el('div', { className: 'tab', textContent: 'Notepad' });
     this.dot = el('span', { className: 'dot' });
     this.tab.appendChild(this.dot);
-    this.tab.addEventListener('click', () => (this.isOpen ? this.close() : this.open()));
+    this.tab.addEventListener('click', () => {
+      if (this.land) this.setPinned(!this.pinned);
+      else if (this.isOpen) this.close(); else this.open();
+    });
     this.pad = el('div', { className: 'pad' });
     this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
@@ -228,23 +249,63 @@ export class Hud {
     this.canChip.style.display = 'none';
     this.canChip.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.cb.putCanDown(); });
     this.mute.addEventListener('click', e => { e.stopPropagation(); this.setMuted(this.cb.toggleMute()); });
+    // desktop: a fullscreen button (phones launch the installed app standalone)
+    if (matchMedia('(pointer: fine)').matches && document.fullscreenEnabled) {
+      const fs = this.fsBtn = el('button', { className: 'fs', title: 'Fullscreen', textContent: '⛶' });
+      fs.addEventListener('click', e => {
+        e.stopPropagation();
+        if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen().catch(() => {});
+      });
+      document.addEventListener('fullscreenchange', () => { fs.title = document.fullscreenElement ? 'Leave fullscreen' : 'Fullscreen'; });
+    }
+    try { this.pinned = localStorage.getItem('kir-pad-pinned') !== '0'; } catch { /* default: pinned */ }
     this.stage.append(this.labels, this.bubble, this.mateBubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
+    if (this.fsBtn) this.stage.appendChild(this.fsBtn);
     document.body.appendChild(this.root);
-    window.addEventListener('resize', this.onResize);
-    this.layout();
+    this.layout(window.innerWidth, window.innerHeight);
   }
 
-  /** Keep the overlay exactly over the (letterboxed, FIT-scaled) canvas. */
-  layout() {
-    const r = this.canvas.getBoundingClientRect();
-    Object.assign(this.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
-    const k = r.width / WORLD.view.width;
-    this.stage.style.transform = `scale(${k})`;
-    this.stage.style.setProperty('--k', String(k)); // sizes in the CSS hold their on-screen minimums at any scale
+  /**
+   * Lay the HUD out for a w×h viewport (CSS px). Portrait: the phone layout, notepad behind its tab.
+   * Landscape: the notepad is a column pinned on the left. Type and targets grow on bigger screens.
+   */
+  layout(w: number, h: number) {
+    this.vh = h;
+    this.s = Math.min(1.8, Math.max(1, Math.min(w, h) / 600));
+    this.stage.style.setProperty('--s', String(this.s));
+    const land = w > h;
+    if (land !== this.land) {
+      this.land = land;
+      this.root.classList.toggle('land', land);
+      this.catcher.style.display = 'none';
+      if (land) this.pad.classList.toggle('open', this.pinned);
+      else { this.isOpen = false; this.pad.classList.remove('open'); }
+    }
+    this.stage.style.setProperty('--padw', `${Math.round(Math.min(w * 0.36, 360 * this.s))}px`);
+    this.placeTab();
   }
 
-  open() { this.isOpen = true; this.pad.classList.add('open'); this.catcher.style.display = 'block'; }
-  close() { this.isOpen = false; this.pad.classList.remove('open'); this.catcher.style.display = 'none'; }
+  /** Landscape: the tab rides on the column's right edge, so it folds the notepad away and back. */
+  private placeTab() {
+    const padw = this.stage.style.getPropertyValue('--padw') || '0px';
+    this.tab.style.left = this.land && this.pinned ? `calc(${padw} + env(safe-area-inset-left, 0px))` : '';
+    this.stage.style.setProperty('--cover', this.land && this.pinned ? padw : '0px');
+  }
+
+  open() {
+    if (this.land) { this.setPinned(true); return; }
+    this.isOpen = true; this.pad.classList.add('open'); this.catcher.style.display = 'block';
+  }
+  close() {
+    if (this.land) return; // the pinned column only folds away from its tab
+    this.isOpen = false; this.pad.classList.remove('open'); this.catcher.style.display = 'none';
+  }
+  private setPinned(p: boolean) {
+    this.pinned = p;
+    this.pad.classList.toggle('open', p);
+    try { localStorage.setItem('kir-pad-pinned', p ? '1' : '0'); } catch { /* fine */ }
+    this.placeTab();
+  }
 
   /** Newest event as a toast strip: one line, 2.5 s, a newer one replaces it. Tap it for the Log. */
   private updateToast(log: string[]) {
@@ -289,7 +350,7 @@ export class Hud {
     const shown = this.sheetsOpen ? list : list.slice(0, 3);
     const more = list.length - shown.length;
     const sheets = open.length;
-    return `<h3>Sheets (${sheets} sheet${sheets === 1 ? '' : 's'}, ${list.length} job${list.length === 1 ? '' : 's'})</h3><ul>${shown.map(line).join('')}`
+    return `<h3>Jobs (${list.length}) · ${sheets} sheet${sheets === 1 ? '' : 's'}</h3><ul>${shown.map(line).join('')}`
       + (more > 0 ? `<li class="more" data-more="1">+ ${more} more job${more === 1 ? '' : 's'}</li>` : list.length > 3 ? `<li class="more" data-more="0">Show fewer</li>` : '') + '</ul>';
   }
 
@@ -322,7 +383,7 @@ export class Hud {
     }
     for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-targets]'))) {
       const targets = (node.dataset.targets ?? '').split(',').filter(Boolean) as ObjectId[];
-      if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets, node.dataset.key); });
+      if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets, node.dataset.key); }); // close() leaves a pinned column alone
     }
   }
 
@@ -416,15 +477,12 @@ export class Hud {
   hideEndOfDay() { this.eod.style.display = 'none'; }
   get endOfDayShowing() { return this.eod.style.display === 'flex'; }
 
-  /** Logical-px scale of the stage (CSS px per logical px). */
-  get scale() { return this.canvas.getBoundingClientRect().width / WORLD.view.width; }
-  /** Client (CSS) coordinates → logical 390x844 coordinates. */
-  toLogical(clientX: number, clientY: number) {
-    const r = this.canvas.getBoundingClientRect(), k = r.width / WORLD.view.width;
-    return { x: (clientX - r.left) / k, y: (clientY - r.top) / k };
-  }
+  /** Client (CSS) coordinates → HUD coordinates. The canvas and HUD both fill the viewport, so they're the same. */
+  toLogical(clientX: number, clientY: number) { return { x: clientX, y: clientY }; }
 
+  /** The stick, drawn where the drag started (portrait) or at its home bottom-left of the play area (landscape). */
   showStick(x: number, y: number, dx: number, dy: number) {
+    if (this.land) { x = this.coverLeft + 90 * this.s; y = this.vh - 90 * this.s; }
     Object.assign(this.stick.style, { display: 'block', left: `${x}px`, top: `${y}px` });
     this.knob.style.transform = `translate(${dx}px, ${dy}px)`;
   }
@@ -434,12 +492,12 @@ export class Hud {
   showSummary(): HTMLDivElement { this.close(); this.summary.style.display = 'block'; this.summary.scrollTop = 0; return this.summary; }
   hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
   get summaryShowing() { return this.summary.style.display === 'block'; }
-  setHudVisible(v: boolean) { for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.mute, this.toast]) e.style.visibility = v ? 'visible' : 'hidden'; }
-
-  destroy() {
-    window.removeEventListener('resize', this.onResize);
-    this.root.remove();
+  setHudVisible(v: boolean) {
+    for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.mute, this.toast, this.fsBtn]) if (e) e.style.visibility = v ? 'visible' : 'hidden';
+    if (this.land) this.pad.style.visibility = v ? 'visible' : 'hidden';
   }
+
+  destroy() { this.root.remove(); }
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}): HTMLElementTagNameMap[K] {

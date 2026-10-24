@@ -26,7 +26,6 @@ import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.
 import { Trail } from './trail.js';
 
 const C = WORLD.cell;
-const VW = WORLD.view.width, VH = WORLD.view.height;
 const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
 interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
@@ -41,6 +40,10 @@ export class World3D {
   private hud: Hud;
   private sun!: THREE.DirectionalLight;
   private tier: TierSettings;
+  // the viewport in CSS px: the canvas fills it, the render is 1/3 of it, the HUD lays out in it
+  private vw: number = WORLD.view.width;
+  private vh: number = WORLD.view.height;
+  private coverLeft = 0;           // px on the left covered by the pinned notepad (landscape)
   // renderer health
   private started = false;         // a frame has rendered
   private failed = false;          // the failure card is up; the loop has stopped
@@ -109,18 +112,19 @@ export class World3D {
     this.tier = TIERS[gpu.tier];
     this.renderer = new THREE.WebGLRenderer({ antialias: this.tier.antialias, powerPreference: this.tier.powerPreference });
     this.renderer.setPixelRatio(1);
-    this.renderer.setSize(Math.round(VW * WORLD.renderScale), Math.round(VH * WORLD.renderScale), false);
+    this.vw = window.innerWidth; this.vh = window.innerHeight;
+    this.renderer.setSize(Math.round(this.vw * WORLD.renderScale), Math.round(this.vh * WORLD.renderScale), false);
     this.renderer.shadowMap.enabled = this.tier.shadows;
     this.renderer.shadowMap.type = this.tier.shadowType;
     // a shader that won't compile is a dead view, not just a console message
     this.renderer.debug.onShaderError = (gl, program) => this.fail(`shader program failed to link: ${gl.getProgramInfoLog(program) || 'no log'}`);
     const canvas = this.renderer.domElement;
-    Object.assign(canvas.style, { position: 'absolute', imageRendering: 'pixelated', touchAction: 'none' });
+    Object.assign(canvas.style, { position: 'fixed', left: '0', top: '0', width: '100dvw', height: '100dvh', imageRendering: 'pixelated', touchAction: 'none' });
     container.appendChild(canvas);
     canvas.addEventListener('webglcontextlost', e => this.onContextLost(e));
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
 
-    this.camera = new THREE.PerspectiveCamera(WORLD.fov, VW / VH, 0.1, 120);
+    this.camera = new THREE.PerspectiveCamera(WORLD.fov, this.vw / this.vh, 0.1, 120);
     this.solid = solidCells(); // solid objects and the big clutter
     this.buildScene();
 
@@ -150,6 +154,8 @@ export class World3D {
 
     this.fit();
     window.addEventListener('resize', () => this.fit());
+    window.visualViewport?.addEventListener('resize', () => this.fit());
+    screen.orientation?.addEventListener?.('change', () => this.fit());
     this.bindInput(canvas);
     document.addEventListener('visibilitychange', () => { if (document.hidden) { this.setPaused(true); this.save(); } });
     window.addEventListener('pagehide', () => this.save());
@@ -157,13 +163,30 @@ export class World3D {
     requestAnimationFrame(t => this.frame(t));
   }
 
-  /** Fit the portrait canvas into the window; the render stays at 1/3 resolution, upscaled with chunky pixels. */
+  /**
+   * Fill the viewport, any shape. The render is always 1/3 of it, upscaled with chunky pixels. Portrait keeps
+   * the vertical field of view; landscape locks the horizontal one instead, so the shed doesn't shrink.
+   */
   private fit() {
-    const aw = window.innerWidth, ah = window.innerHeight;
-    const s = Math.min(aw / VW, ah / VH);
-    const cw = VW * s, ch = VH * s;
-    Object.assign(this.renderer.domElement.style, { width: `${cw}px`, height: `${ch}px`, left: `${(aw - cw) / 2}px`, top: `${(ah - ch) / 2}px` });
-    this.hud?.layout();
+    const aw = Math.max(1, window.innerWidth), ah = Math.max(1, window.innerHeight);
+    this.vw = aw; this.vh = ah;
+    this.renderer.setSize(Math.round(aw * WORLD.renderScale), Math.round(ah * WORLD.renderScale), false);
+    const aspect = aw / ah;
+    this.camera.aspect = aspect;
+    this.camera.fov = aspect <= 1 ? WORLD.fov
+      : THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(WORLD.landscapeHFov) / 2) / aspect));
+    this.camera.updateProjectionMatrix();
+    this.hud?.layout(aw, ah);
+    this.coverLeft = -1; // re-apply the view offset next frame
+  }
+
+  /** In landscape the notepad sits pinned on the left: centre the view on the part of the screen that's left. */
+  private updateViewOffset() {
+    const cover = this.hud.coverLeft;
+    if (cover === this.coverLeft) return;
+    this.coverLeft = cover;
+    if (cover > 0) this.camera.setViewOffset(this.vw, this.vh, -cover / 2, 0, this.vw, this.vh);
+    else this.camera.clearViewOffset();
   }
 
   // ---------- input ----------
@@ -222,7 +245,7 @@ export class World3D {
     window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
   }
 
-  private ndc(lx: number, ly: number) { return new THREE.Vector2(lx / VW * 2 - 1, -(ly / VH * 2 - 1)); }
+  private ndc(lx: number, ly: number) { return new THREE.Vector2(lx / this.vw * 2 - 1, -(ly / this.vh * 2 - 1)); }
 
   /** Which object (if any) is under a logical-px point. */
   /** A can on the floor under a logical-px point (they're small: a generous invisible hit box each). */
@@ -323,6 +346,7 @@ export class World3D {
     this.move(dt);
     this.updateTour();
     this.updateTrail(dt);
+    this.updateViewOffset();
     this.updateCamera(dt);
     this.updateVisuals(dt);
     this.updateLabels();
@@ -675,7 +699,7 @@ export class World3D {
 
   private project(v: THREE.Vector3) {
     const p = v.clone().project(this.camera);
-    return { x: (p.x + 1) / 2 * VW, y: (1 - p.y) / 2 * VH, behind: p.z > 1 };
+    return { x: (p.x + 1) / 2 * this.vw, y: (1 - p.y) / 2 * this.vh, behind: p.z > 1 };
   }
 
   private updateLabels() {
@@ -729,8 +753,8 @@ export class World3D {
     for (const l of this.labelEls) {
       const p = this.project(l.anchor);
       const half = l.el.offsetWidth / 2 + 4; // keep the whole label on screen, however long it is
-      l.el.style.left = `${Math.max(half, Math.min(VW - half, p.x))}px`;
-      l.el.style.top = `${Math.max(70, Math.min(VH - 10, p.y))}px`;
+      l.el.style.left = `${Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x))}px`;
+      l.el.style.top = `${Math.max(l.el.offsetHeight + 8, 70, Math.min(this.vh - 10, p.y))}px`; // the whole stack on screen, short screens too
       l.el.style.display = p.behind ? 'none' : 'flex';
     }
     for (const d of this.debugLabels) { const p = this.project(d.at); d.el.style.left = `${p.x}px`; d.el.style.top = `${p.y}px`; }
@@ -1040,7 +1064,7 @@ export class World3D {
     b.style.display = p.behind ? 'none' : 'block';
     // keep the whole bubble on screen, even when the mate's at the edge (their pointer shows where)
     const half = b.offsetWidth / 2 + 6;
-    const x = Math.max(half, Math.min(VW - half, p.x)), y = Math.max(b.offsetHeight + 80, Math.min(VH - 20, p.y));
+    const x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x)), y = Math.max(b.offsetHeight + 80, Math.min(this.vh - 20, p.y));
     b.style.left = `${x.toFixed(1)}px`; b.style.top = `${y.toFixed(1)}px`;
   }
 
@@ -1063,7 +1087,7 @@ export class World3D {
       const el = this.signEls[i];
       const p = this.project(d.signAt);
       const near = Math.hypot(d.signAt.x - this.pos.x, d.signAt.z - this.pos.z) < 11;
-      const vis = show && near && !p.behind && p.x > 10 && p.x < VW - 10 && p.y > 60 && p.y < VH - 10;
+      const vis = show && near && !p.behind && p.x > 10 && p.x < this.vw - 10 && p.y > 60 && p.y < this.vh - 10;
       el.style.display = vis ? 'block' : 'none';
       if (vis) { el.style.left = `${p.x.toFixed(1)}px`; el.style.top = `${p.y.toFixed(1)}px`; }
     });
@@ -1090,12 +1114,13 @@ export class World3D {
       if (g.truckOnApron || g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
       else if (w.utePresent) problems.push({ key: 'ute', icon: '🛻', pos: this.built.vehicles.ute.position.clone().setY(1.2) });
       if (g.distractions.some(d => d.kind === 'friend')) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });
-      const cx = VW / 2, cy = VH / 2, minX = 26, maxX = VW - 26, minY = 112, maxY = VH - 64;
+      const left = Math.max(0, this.coverLeft), u = this.hud.unit;
+      const cx = (left + this.vw) / 2, cy = this.vh / 2, minX = left + 26 * u, maxX = this.vw - 26 * u, minY = 130 * u, maxY = this.vh - 70 * u;
       for (const pb of problems) {
         const p = pb.pos.clone().project(this.camera);
-        let sx = (p.x + 1) / 2 * VW, sy = (1 - p.y) / 2 * VH;
+        let sx = (p.x + 1) / 2 * this.vw, sy = (1 - p.y) / 2 * this.vh;
         const behind = p.z > 1;
-        if (!behind && sx > 16 && sx < VW - 16 && sy > 70 && sy < VH - 16) continue; // on screen: no pointer
+        if (!behind && sx > left + 16 && sx < this.vw - 16 && sy > 70 && sy < this.vh - 16) continue; // on screen: no pointer
         let dx = sx - cx, dy = sy - cy;
         if (behind) { dx = -dx; dy = -dy; }
         if (!dx && !dy) dy = 1;
@@ -1138,13 +1163,13 @@ export class World3D {
 
   /** CSS-pixel screen position of a world point. */
   screenOfPoint(x: number, y: number, z: number) {
-    const p = this.project(new THREE.Vector3(x, y, z)), r = this.renderer.domElement.getBoundingClientRect(), k = r.width / VW;
-    return { x: r.left + p.x * k, y: r.top + p.y * k };
+    const p = this.project(new THREE.Vector3(x, y, z));
+    return { x: p.x, y: p.y }; // the canvas fills the viewport: its px are CSS px
   }
   screenOf(id: ObjectId) { const v = this.built.objects.get(id)!; return this.screenOfPoint(v.centre.x, v.def.height * 0.6, v.centre.z); }
   onScreen(id: ObjectId) {
     const v = this.built.objects.get(id)!, p = this.project(new THREE.Vector3(v.centre.x, v.def.height * 0.6, v.centre.z));
-    return !p.behind && p.x > 20 && p.x < VW - 20 && p.y > 90 && p.y < VH - 20;
+    return !p.behind && p.x > 20 && p.x < this.vw - 20 && p.y > 90 && p.y < this.vh - 20;
   }
   labelScreens() {
     return [...this.hud.labels.querySelectorAll<HTMLButtonElement>('.lbl button')].map(b => {

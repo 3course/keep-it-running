@@ -3,7 +3,7 @@
 // Units are metres and seconds unless noted.
 
 export const WORLD = {
-  view: { width: 390, height: 844 },   // logical portrait canvas (CSS px before fitting)
+  view: { width: 390, height: 844 },   // the reference phone: HUD sizes are tuned for it (the canvas fills whatever the screen is)
   renderScale: 1 / 3,                  // internal render target vs logical size: ~130x281, upscaled nearest-neighbour
   cell: 0.5,                           // m per layout cell
   wallHeight: 2.4,
@@ -24,7 +24,8 @@ export const WORLD = {
   tapMaxMove: 12,
 
   // camera
-  fov: 52,
+  fov: 52,                             // vertical, in portrait
+  landscapeHFov: 64,                   // horizontal, in landscape (so a wide screen shows more, not smaller)
   camDistance: 13,                     // m from the look-at point
   camPitchDeg: 40,                     // a little lower so the fronts of things show, not just their tops
   camLerp: 5,                          // follow smoothing (1/s)
