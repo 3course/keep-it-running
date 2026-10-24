@@ -1,5 +1,5 @@
 import type { Game } from '../sim/Game.js';
-import { START_TILE } from './layout.js';
+import { MACHINE_SPOT, START_TILE, type ObjectId } from './layout.js';
 import { WORLD } from './worldConfig.js';
 
 /** What the player can be carrying. One thing at a time. */
@@ -29,6 +29,8 @@ export interface WorldState {
   rollerUpUntil: number | null;  // absolute game minute
   sheetsSeen: number;            // today.sheetsDone last frame, to fill the offcut bin
   done: string[];                // to-do items crossed off today
+  /** First day only: the walk-round before the first cut. The clock waits until that cut starts. */
+  tour?: { visited: ObjectId[]; cutStarted: boolean } | null;
 }
 
 export const absMinute = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
@@ -42,14 +44,16 @@ export function newWorld(g: Game): WorldState {
     bed: 'empty', bedJobId: null, finishedStack: 0, utePresent: false, offcutBin: 0,
     oldBagWaiting: false, watchingSwap: null, toiletUntil: null, rollerUpUntil: null,
     sheetsSeen: g.today.sheetsDone, done: [],
+    tour: g.dayIndex === 1 ? { visited: [], cutStarted: false } : null, // a fresh save starts with the tour
   };
 }
 
-/** Overnight: back at the roller door, hands empty, extinguishers rehung, pickups collected. The bed keeps what's on it. */
+/** Overnight: back at the machine, hands empty, extinguishers rehung, pickups collected. The bed keeps what's on it. */
 export function startNewDay(w: WorldState, g: Game) {
   const t = WORLD.cell;
   w.dayIndex = g.dayIndex;
-  w.px = (START_TILE.x + 0.5) * t; w.py = (START_TILE.y + 0.5) * t; w.fx = 0; w.fy = -1;
+  w.px = (MACHINE_SPOT.x + 0.5) * t; w.py = (MACHINE_SPOT.y + 0.5) * t; w.fx = 0; w.fy = -1;
+  w.tour = null;
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
   w.carrying = null; w.extinguisherFrom = null; w.hooks = { wall: true, shed: true };
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;

@@ -91,6 +91,9 @@ export const objectById = (id: ObjectId) => OBJECTS.find(o => o.id === id)!;
 /** Where the player starts each day: just inside the roller door. */
 export const START_TILE = { x: 12, y: 65 };
 
+/** Where the player starts every day after the first: in front of the machine. */
+export const MACHINE_SPOT = { x: 12, y: 32 };
+
 /** Cells of the roller door. */
 export const ROLLER_TILES = Array.from({ length: 6 }, (_, i) => ({ x: 9 + i, y: 68 }));
 

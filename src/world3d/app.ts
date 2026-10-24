@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
+import { Hints } from '../ui/hints.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { actionsFor, statusFor, type Action } from '../world/interactables.js';
@@ -12,12 +13,13 @@ import { COLS, OBJECTS, ROLLER_TILES, ROWS, T, ZONES, objectById, zoneAt, type O
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
 import { absMinute, startNewDay, type WorldState } from '../world/state.js';
-import { todoItems } from '../world/todo.js';
+import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { WORLD } from '../world/worldConfig.js';
 import { buildWorld, type BuiltWorld, type ObjectView } from './build.js';
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { PlayerView } from './player.js';
+import { RingSound, ringOn } from './ring.js';
 
 const C = WORLD.cell;
 const VW = WORLD.view.width, VH = WORLD.view.height;
@@ -43,7 +45,7 @@ export class World3D {
   private path: P[] | null = null;
   private pathIdx = 0;
   private goal: P[] = [];
-  private pending: { id: ObjectId; act: boolean } | null = null;
+  private pending: { id: ObjectId; act: boolean; highlight: boolean } | null = null;
   private stuck = { t: 0, x: 0, z: 0, replans: 0 };
   private keys = new Set<string>();
   private ePressed = false;
@@ -66,6 +68,10 @@ export class World3D {
   private debug = new THREE.Group();
   private debugLabels: { el: HTMLDivElement; at: THREE.Vector3 }[] = [];
   private time = 0;
+  private hints = new Hints();
+  private ring = new RingSound();
+  private flashRing!: THREE.Group;
+  private flash: { id: ObjectId; t: number } | null = null;
 
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
@@ -102,12 +108,15 @@ export class World3D {
     this.paused = resumePaused;
 
     this.hud = new Hud(canvas, {
-      goTo: id => this.goTo(id, true),
+      goTo: targets => { this.hints.mark('notepad'); this.goToNearest(targets); },
+      toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
       overtime: () => { this.g.startOvertime(); this.hud.hideEndOfDay(); this.save(); },
     });
     this.hud.setPaused(this.paused);
+    this.hud.setMuted(this.ring.muted);
+    this.buildFlashRing();
 
     this.fit();
     window.addEventListener('resize', () => this.fit());
@@ -131,19 +140,21 @@ export class World3D {
 
   private bindInput(canvas: HTMLCanvasElement) {
     canvas.addEventListener('pointerdown', e => {
+      this.ring.unlock(); // audio may only start after a gesture
       if (this.paused || this.g.phase !== 'day') return;
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
       const hit = this.pick(L.x, L.y);
       if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; return; }
-      this.ptr = { id: e.pointerId, x0: L.x, y0: L.y, t0: performance.now(), stickable: L.y > VH * 0.5, active: false };
+      // a drag anywhere is the stick; a quick tap uses whatever's under it
+      this.ptr = { id: e.pointerId, x0: L.x, y0: L.y, t0: performance.now(), stickable: true, active: false };
     });
     canvas.addEventListener('pointermove', e => {
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
       const L = this.hud.toLogical(e.clientX, e.clientY);
       const dx = L.x - p.x0, dy = L.y - p.y0, d = Math.hypot(dx, dy);
-      if (p.stickable && !p.active && d > WORLD.stickDeadzone) { p.active = true; this.stopWalking(); }
+      if (p.stickable && !p.active && d > WORLD.stickDeadzone) { p.active = true; this.stopWalking(); this.hints.mark('drag'); }
       if (p.active) {
         const k = Math.min(1, d / WORLD.stickRadius);
         this.stickVec = d > 0 ? { x: dx / d * k, y: dy / d * k } : { x: 0, y: 0 };
@@ -165,7 +176,9 @@ export class World3D {
     canvas.addEventListener('pointercancel', up);
     window.addEventListener('pointerup', () => { this.labelHold = false; });
     window.addEventListener('keydown', e => {
+      this.ring.unlock();
       const k = e.key.toLowerCase();
+      if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) this.hints.mark('drag');
       if (k === '`') { this.debug.visible = !this.debug.visible; this.debugLabels.forEach(d => { d.el.style.display = this.debug.visible ? 'block' : 'none'; }); }
       if (k === ' ') { this.setPaused(!this.paused); e.preventDefault(); }
       if (k === 'e' && !e.repeat) this.ePressed = true;
@@ -220,7 +233,8 @@ export class World3D {
     else if (this.hud.endOfDayShowing) this.hud.hideEndOfDay();
 
     this.updateSpray();
-    if (g.phase === 'day' && !this.paused) {
+    // first day: the clock waits at 7:00 while you walk round, until the first cut starts
+    if (g.phase === 'day' && !this.paused && !tourActive(w)) {
       this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
       let ticked = false;
       while (this.acc >= CONFIG.clock.realMsPerGameMinute && g.phase === 'day') {
@@ -232,10 +246,16 @@ export class World3D {
     }
     this.syncWorld();
     this.move(dt);
+    this.updateTour();
     this.updateCamera(dt);
     this.updateVisuals(dt);
     this.updateLabels();
-    if (!this.hud.summaryShowing) this.hud.update(g, todoItems(g, w), w.done);
+    this.updatePointers();
+    this.updateRing();
+    if (!this.hud.summaryShowing) {
+      this.hud.update(g, todoItems(g, w), w.done);
+      this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? this.hints.current : null);
+    }
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -246,7 +266,7 @@ export class World3D {
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
     const week = () => renderWeekSummary(this.hud.showSummary(), g, done);
     if (g.phase === 'weekSummary') { week(); return; }
-    renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save());
+    renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset());
   }
 
   /** Keep the physical shed in step with what the economy just did. */
@@ -270,6 +290,20 @@ export class World3D {
     if (w.toiletUntil !== null && t >= w.toiletUntil) w.toiletUntil = null;
     if (w.rollerUpUntil !== null && t >= w.rollerUpUntil && !this.onRollerTiles()) w.rollerUpUntil = null;
     if (w.finishedStack === 0) w.utePresent = false;
+    if (w.tour && !w.tour.cutStarted && w.bed === 'running') { w.tour.cutStarted = true; this.save(); } // the day proper starts now
+  }
+
+  /** First-day tour: each stop ticks off when you get there. */
+  private updateTour() {
+    const w = this.w;
+    if (!tourActive(w) || this.paused) return;
+    for (const t of TOUR) {
+      if (w.tour!.visited.includes(t.id) || !this.inRange(t.id)) continue;
+      w.tour!.visited.push(t.id);
+      w.done.unshift(t.text);
+      w.done = w.done.slice(0, 6);
+      this.save();
+    }
   }
 
   private canSpray() { return this.w.carrying === 'extinguisher' && !!this.g.fire && this.inRange('exhaust') && !this.paused && this.g.phase === 'day'; }
@@ -332,8 +366,9 @@ export class World3D {
     this.pos.x = r.x; this.pos.z = r.z;
 
     if (!frozen && this.pending && this.inRange(this.pending.id)) {
-      const { id, act } = this.pending;
+      const { id, act, highlight } = this.pending;
       this.stopWalking();
+      if (highlight) this.flash = { id, t: 0 };
       if (act) {
         const runnable = actionsFor(id, g, w).filter(a => a.run && a.auto !== false);
         if (runnable.length === 1) this.doAction(runnable[0]);
@@ -381,16 +416,33 @@ export class World3D {
   private replan() { const p = this.pending; if (!this.planTo(this.goal)) this.stopWalking(); this.pending = p; }
 
   /** Walk to an object and, if there's exactly one obvious thing to do there, do it. */
-  goTo(id: ObjectId, act: boolean) {
+  goTo(id: ObjectId, act: boolean, highlight = false) {
     if (this.paused || this.g.phase !== 'day') return;
     if (id === 'duct') id = 'exhaust'; // the fire is at the exhaust unit end of the duct
-    this.pending = { id, act };
+    this.pending = { id, act, highlight };
     if (this.inRange(id)) return; // move() picks it up this frame
     const r = objectById(id).rect, ring: P[] = [];
     for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
       if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) ring.push({ x, y });
     }
     if (!this.planTo(ring)) this.pending = null;
+  }
+
+  /** A notepad line: walk to the nearest of its objects (by walking distance), act, and flash it on arrival. */
+  goToNearest(targets: ObjectId[]) {
+    if (!targets.length) return;
+    let best = targets[0], bestLen = Infinity;
+    if (targets.length > 1) for (const id of targets) {
+      if (this.inRange(id)) { best = id; break; }
+      const r = objectById(id).rect, ring: P[] = [];
+      for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) {
+        if (x < r.x || x >= r.x + r.w || y < r.y || y >= r.y + r.h) ring.push({ x, y });
+      }
+      const p = findPath(COLS, ROWS, this.walkable, this.cell(), ring);
+      const len = p ? p.length : Infinity;
+      if (len < bestLen) { bestLen = len; best = id; }
+    }
+    this.goTo(best, true, true);
   }
 
   private walkToPoint(wx: number, wz: number) {
@@ -423,6 +475,7 @@ export class World3D {
     const before = todoItems(this.g, this.w);
     a.run();
     this.player.hop();
+    this.hints.mark('interact');
     const after = new Set(todoItems(this.g, this.w).map(i => i.key));
     for (const i of before) if (!after.has(i.key)) this.w.done.unshift(i.text);
     this.w.done = this.w.done.slice(0, 6);
@@ -582,6 +635,8 @@ export class World3D {
     const nozzle = g.spraying ? new THREE.Vector3(this.pos.x + w.fx * 0.3, 0.7, this.pos.z + w.fy * 0.3) : null;
     this.effects.update(dt, smoke, flames, nozzle);
 
+    this.updateFlash(dt);
+
     // player
     this.player.setCarry(w.carrying);
     this.player.setVisible(w.toiletUntil === null);
@@ -614,6 +669,80 @@ export class World3D {
       }
     });
   }
+
+  // ---------- wayfinding ----------
+
+  /** A yellow frame on the floor around whatever you just walked to from the notepad. */
+  private buildFlashRing() {
+    this.flashRing = new THREE.Group();
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd34d, transparent: true, opacity: 0, depthWrite: false });
+    for (let i = 0; i < 4; i++) this.flashRing.add(new THREE.Mesh(new THREE.BoxGeometry(1, 0.04, 1), mat));
+    this.flashRing.visible = false;
+    this.scene.add(this.flashRing);
+  }
+
+  private updateFlash(dt: number) {
+    const f = this.flash;
+    if (!f) return;
+    f.t += dt;
+    const v = this.built.objects.get(f.id)!;
+    const k = f.t / 1.2;
+    if (k >= 1) { this.flash = null; this.flashRing.visible = false; v.group.scale.set(1, 1, 1); return; }
+    const m = 0.18 + k * 0.25, b = v.box, w = b.maxX - b.minX + m * 2, d = b.maxZ - b.minZ + m * 2, t = 0.1;
+    const [n, s, e, wst] = this.flashRing.children as THREE.Mesh[];
+    n.scale.set(w, 1, t); n.position.set(0, 0, -d / 2);
+    s.scale.set(w, 1, t); s.position.set(0, 0, d / 2);
+    e.scale.set(t, 1, d); e.position.set(w / 2, 0, 0);
+    wst.scale.set(t, 1, d); wst.position.set(-w / 2, 0, 0);
+    this.flashRing.position.set((b.minX + b.maxX) / 2, 0.03, (b.minZ + b.maxZ) / 2);
+    this.flashRing.visible = true;
+    (n.material as THREE.MeshBasicMaterial).opacity = 1 - k;
+    const bounce = Math.sin(Math.min(1, f.t / 0.35) * Math.PI) * 0.1;
+    v.group.scale.set(1 + bounce * 0.4, 1 + bounce, 1 + bounce * 0.4);
+  }
+
+  /** Small icons on the screen edge pointing at problems you can't see. */
+  private updatePointers() {
+    const g = this.g, w = this.w;
+    const list: { key: string; icon: string; x: number; y: number; angle: number; ring: boolean }[] = [];
+    if (g.phase === 'day' && !this.paused && !this.hud.summaryShowing) {
+      const at = (id: ObjectId) => { const v = this.built.objects.get(id)!; return new THREE.Vector3(v.centre.x, v.def.height, v.centre.z); };
+      const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
+      if (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank')) problems.push({ key: 'phone', icon: '📞', pos: at('phone'), ring: true });
+      if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
+      if (g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
+      else if (w.utePresent) problems.push({ key: 'ute', icon: '🛻', pos: this.built.vehicles.ute.position.clone().setY(1.2) });
+      if (g.distractions.some(d => d.kind === 'friend')) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });
+      const cx = VW / 2, cy = VH / 2, minX = 26, maxX = VW - 26, minY = 112, maxY = VH - 64;
+      for (const pb of problems) {
+        const p = pb.pos.clone().project(this.camera);
+        let sx = (p.x + 1) / 2 * VW, sy = (1 - p.y) / 2 * VH;
+        const behind = p.z > 1;
+        if (!behind && sx > 16 && sx < VW - 16 && sy > 70 && sy < VH - 16) continue; // on screen: no pointer
+        let dx = sx - cx, dy = sy - cy;
+        if (behind) { dx = -dx; dy = -dy; }
+        if (!dx && !dy) dy = 1;
+        // slide out from the centre along that direction until we hit the inset edge
+        const k = Math.min(dx > 0 ? (maxX - cx) / dx : dx < 0 ? (minX - cx) / dx : Infinity, dy > 0 ? (maxY - cy) / dy : dy < 0 ? (minY - cy) / dy : Infinity);
+        sx = cx + dx * k; sy = cy + dy * k;
+        list.push({ key: pb.key, icon: pb.icon, x: sx, y: sy, angle: Math.atan2(dy, dx), ring: !!pb.ring && ringOn(this.time) });
+      }
+    }
+    this.hud.setPointers(list);
+  }
+
+  /** The phone, heard from where you are: panned toward the office, quieter further away. */
+  private updateRing() {
+    const g = this.g;
+    const ringing = g.phase === 'day' && !this.paused && !this.hud.summaryShowing && g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
+    const ph = this.built.objects.get('phone')!.centre;
+    const dx = ph.x - this.pos.x, dz = ph.z - this.pos.z, dist = Math.hypot(dx, dz) || 1;
+    const right = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };
+    const pan = (dx * right.x + dz * right.z) / dist;
+    const volume = THREE.MathUtils.clamp(1 - dist / 32, 0.12, 1);
+    this.ring.update(ringing, this.time, pan, volume);
+  }
+  get sound() { return this.ring.state; }
 
   // ---------- pause and save ----------
 

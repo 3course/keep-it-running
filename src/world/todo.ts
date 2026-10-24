@@ -5,19 +5,39 @@ import type { ObjectId } from './layout.js';
 import type { WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
 
-export interface TodoItem { key: string; text: string; target?: ObjectId; urgent: boolean }
+/** A to-do line. `targets`: where tapping it walks you (the nearest, if there are several). */
+export interface TodoItem { key: string; text: string; targets: ObjectId[]; urgent: boolean }
+
+/** The first-day walk-round, in order. Each ticks off when you get there. */
+export const TOUR: { id: ObjectId; text: string }[] = [
+  { id: 'phone', text: 'Open up the office' },
+  { id: 'extractor', text: 'Switch the extractor on' },
+  { id: 'bitRack', text: 'Check the bit rack' },
+  { id: 'plyPallet', text: 'Grab a sheet' },
+];
+
+export const tourActive = (w: WorldState) => !!w.tour && !w.tour.cutStarted;
 
 export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (g.phase !== 'day') return [];
   const now: TodoItem[] = [], later: TodoItem[] = [];
-  const add = (urgent: boolean, key: string, text: string, target?: ObjectId) => (urgent ? now : later).push({ key, text, target, urgent });
+  const add = (urgent: boolean, key: string, text: string, targets: ObjectId | ObjectId[] = []) =>
+    (urgent ? now : later).push({ key, text, targets: Array.isArray(targets) ? targets : [targets], urgent });
 
-  // a ringing phone goes on top: it's the one thing that won't wait
+  // first day: the walk-round comes first, in order
+  if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);
+
+  // a ringing phone goes on top of the rest: it's the one thing that won't wait
   for (const d of g.distractions) {
     if (d.kind === 'phone') add(true, `phone-${d.id}`, d.order ? "Phone's ringing (new order)" : "Phone's ringing", 'phone');
     else if (d.kind === 'bank') add(true, `bank-${d.id}`, "Phone's ringing (the bank)", 'phone');
   }
-  if (g.fire) add(true, 'fire', 'Put out the exhaust fire', w.carrying === 'extinguisher' ? 'exhaust' : 'extinguisher');
+  if (g.fire) {
+    const ext: ObjectId[] = [];
+    if (w.hooks.wall) ext.push('extinguisher');
+    if (w.hooks.shed) ext.push('spareExtinguisher');
+    add(true, 'fire', 'Put out the exhaust fire', w.carrying === 'extinguisher' || !ext.length ? 'exhaust' : ext);
+  }
   if (g.machineDown) add(true, 'down', 'Machine is cooked for today', 'machine');
   if (g.fault) add(true, `fault-${g.fault.def.id}`, `Sort out the ${g.fault.def.name.toLowerCase()}`, 'machine');
   for (const d of g.distractions) {
@@ -34,7 +54,12 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     case 'scrap': add(true, 'carry-scrap', 'Bin the scrap', 'offcutBin'); break;
     case 'bag': add(true, 'carry-bag', 'Old bag to the skip', 'skip'); break;
     case 'offcuts': add(true, 'carry-offcuts', 'Offcuts to the skip', 'skip'); break;
-    case 'extinguisher': if (!g.fire) add(false, 'carry-ext', 'Hang the extinguisher back up', w.extinguisherFrom === 'shed' ? 'spareExtinguisher' : 'extinguisher'); break;
+    case 'extinguisher': if (!g.fire) {
+      const empty: ObjectId[] = [];
+      if (!w.hooks.wall) empty.push('extinguisher');
+      if (!w.hooks.shed) empty.push('spareExtinguisher');
+      add(false, 'carry-ext', 'Hang the extinguisher back up', empty);
+    } break;
   }
 
   const low = CONFIG.ui.swapHintBelow;
@@ -44,6 +69,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (w.oldBagWaiting) add(false, 'oldbag', 'Old bag out of the extractor', 'extractor');
   if (w.offcutBin >= WORLD.offcutsEmptyAt) add(false, 'offcuts', 'Empty the offcut bin', 'offcutBin');
   if (w.utePresent) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'rollerDoor');
-  if (w.bed === 'empty' && w.carrying === null && g.queued.length && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
+  const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
+  if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.queued.length && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
   return [...now, ...later];
 }

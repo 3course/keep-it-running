@@ -81,10 +81,25 @@ const CSS = `
 #kir-hud .summary .feedback { text-align: center; margin: 10px 0 6px; }
 #kir-hud .summary .copy { display: block; margin: 0 auto; background: #3d6f9e; }
 #kir-hud .summary .status { text-align: center; color: #a2937f; font-size: 11px; }
+#kir-hud .summary .reset { display: block; text-align: center; margin-top: 14px; color: #a2937f; font-size: 11px; text-decoration: underline; cursor: pointer; }
+#kir-hud .pointers { position: absolute; inset: 0; pointer-events: none; }
+#kir-hud .ptr { position: absolute; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; background: rgba(20,17,15,.78);
+  border: 2px solid #f2c76b; display: flex; align-items: center; justify-content: center; font-size: 18px; line-height: 1; transition: transform .08s; }
+#kir-hud .ptr .arrow { position: absolute; left: 50%; top: 50%; width: 0; height: 0; margin: -6px 0 0 -5px;
+  border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 9px solid #f2c76b; transform-origin: 5px 6px; }
+#kir-hud .ptr.ring { transform: scale(1.25); border-color: #f08a6b; }
+#kir-hud .ptr.ring .arrow { border-left-color: #f08a6b; }
+#kir-hud .hint { position: absolute; left: 50%; bottom: 120px; transform: translateX(-50%); width: 280px; padding: 12px 14px; display: none;
+  background: #f4ecd2; color: #2b2418; border-radius: 10px; box-shadow: 0 4px 14px rgba(0,0,0,.45); text-align: center; pointer-events: none;
+  font: 16px ${HAND}; }
+#kir-hud .mute { position: absolute; right: 10px; top: 62px; width: 32px; height: 28px; pointer-events: auto; cursor: pointer; border: 0; border-radius: 6px;
+  background: rgba(20,17,15,.6); color: #efe6d8; font-size: 15px; line-height: 28px; padding: 0; }
 `;
 
 export interface HudCallbacks {
-  goTo: (target: ObjectId) => void;
+  /** Walk to the nearest of these (a notepad line was tapped). */
+  goTo: (targets: ObjectId[]) => void;
+  toggleMute: () => boolean;
   togglePause: () => void;
   knockOff: () => void;
   overtime: () => void;
@@ -104,6 +119,10 @@ export class Hud {
   private knob: HTMLDivElement;
   private summary: HTMLDivElement;
   readonly labels: HTMLDivElement;
+  private pointers: HTMLDivElement;
+  private pointerEls = new Map<string, HTMLDivElement>();
+  private hint: HTMLDivElement;
+  private mute: HTMLButtonElement;
   private padSig = '';
   private onResize = () => this.layout();
   isOpen = false;
@@ -137,7 +156,11 @@ export class Hud {
     this.stick.appendChild(this.knob);
     this.summary = el('div', { className: 'summary' });
     const tag = el('div', { className: 'tag', textContent: BUILD_TAG });
-    this.stage.append(this.labels, this.stick, this.catcher, this.clock, this.tab, this.pad, this.eod, this.summary, this.pausedEl, tag);
+    this.pointers = el('div', { className: 'pointers' });
+    this.hint = el('div', { className: 'hint' });
+    this.mute = el('button', { className: 'mute' });
+    this.mute.addEventListener('click', e => { e.stopPropagation(); this.setMuted(this.cb.toggleMute()); });
+    this.stage.append(this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.eod, this.summary, this.pausedEl, tag);
     document.body.appendChild(this.root);
     window.addEventListener('resize', this.onResize);
     this.layout();
@@ -170,19 +193,49 @@ export class Hud {
     if (sig === this.padSig) return;
     this.padSig = sig;
     const now = items.filter(i => i.urgent), later = items.filter(i => !i.urgent);
-    const li = (i: TodoItem) => `<li class="${i.urgent ? 'urgent' : ''}" data-target="${i.target ?? ''}">${esc(i.text)}</li>`;
+    const li = (i: TodoItem) => `<li class="${i.urgent ? 'urgent' : ''}" data-targets="${i.targets.join(',')}">${esc(i.text)}</li>`;
     this.pad.innerHTML = `
       <h2>Day ${g.day} of ${CONFIG.week.days}</h2>
       <h3>Now</h3><ul>${now.map(li).join('') || '<li class="empty">Nothing on fire. Yet.</li>'}${done.map(d => `<li class="done">${esc(d)}</li>`).join('')}</ul>
       <h3>Can wait</h3><ul>${later.map(li).join('') || '<li class="empty">—</li>'}</ul>
-      <h3>Sheets (${open.length})</h3><ul>${open.map(j => `<li class="sheet ${g.isLate(j) ? 'late' : ''}">${j.status === 'cutting' ? '▶ ' : ''}${esc(j.name)}<br>&nbsp;&nbsp;${esc(j.material)} · due ${g.dueLabel(j)} · ${money(j.price)}</li>`).join('') || '<li class="empty">Board is clear.</li>'}</ul>`;
-    for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-target]'))) {
-      const t = node.dataset.target as ObjectId;
-      if (t) node.addEventListener('click', () => { this.close(); this.cb.goTo(t); });
+      <h3>Sheets (${open.length})</h3><ul>${open.map(j => `<li class="sheet ${g.isLate(j) ? 'late' : ''}" data-targets="${j.status === 'cutting' ? 'machine' : 'plyPallet'}">${j.status === 'cutting' ? '▶ ' : ''}${esc(j.name)}<br>&nbsp;&nbsp;${esc(j.material)} · due ${g.dueLabel(j)} · ${money(j.price)}</li>`).join('') || '<li class="empty">Board is clear.</li>'}</ul>`;
+    for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-targets]'))) {
+      const targets = (node.dataset.targets ?? '').split(',').filter(Boolean) as ObjectId[];
+      if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets); });
     }
   }
 
   setPaused(paused: boolean) { this.pausedEl.style.display = paused ? 'flex' : 'none'; }
+
+  setMuted(m: boolean) { this.mute.textContent = m ? '🔇' : '🔊'; this.mute.title = m ? 'Sound off' : 'Sound on'; }
+
+  /** One first-launch hint card at a time; null hides it. */
+  showHint(text: string | null) {
+    this.hint.style.display = text ? 'block' : 'none';
+    if (text && this.hint.textContent !== text) this.hint.textContent = text;
+  }
+
+  /** Edge pointers for off-screen problems. x, y in logical px; angle in radians (0 = pointing right). */
+  setPointers(list: { key: string; icon: string; x: number; y: number; angle: number; ring: boolean }[]) {
+    const seen = new Set<string>();
+    for (const p of list) {
+      seen.add(p.key);
+      let e = this.pointerEls.get(p.key);
+      if (!e) {
+        e = el('div', { className: 'ptr' });
+        e.innerHTML = `<span class="arrow"></span><span class="icon"></span>`;
+        this.pointers.appendChild(e);
+        this.pointerEls.set(p.key, e);
+      }
+      (e.querySelector('.icon') as HTMLSpanElement).textContent = p.icon;
+      e.style.left = `${p.x}px`; e.style.top = `${p.y}px`;
+      (e.querySelector('.arrow') as HTMLSpanElement).style.transform = `rotate(${p.angle}rad) translateX(22px)`;
+      e.classList.toggle('ring', p.ring);
+    }
+    for (const [k, e] of this.pointerEls) if (!seen.has(k)) { e.remove(); this.pointerEls.delete(k); }
+  }
+  /** For tests: what pointers are showing. */
+  get pointerKeys() { return [...this.pointerEls.keys()]; }
 
   showEndOfDay(g: Game) {
     const left = g.queued.length + (g.current ? 1 : 0);
@@ -217,7 +270,7 @@ export class Hud {
   showSummary(): HTMLDivElement { this.close(); this.summary.style.display = 'block'; this.summary.scrollTop = 0; return this.summary; }
   hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
   get summaryShowing() { return this.summary.style.display === 'block'; }
-  setHudVisible(v: boolean) { for (const e of [this.clock, this.tab, this.labels]) e.style.visibility = v ? 'visible' : 'hidden'; }
+  setHudVisible(v: boolean) { for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.mute]) e.style.visibility = v ? 'visible' : 'hidden'; }
 
   destroy() {
     window.removeEventListener('resize', this.onResize);

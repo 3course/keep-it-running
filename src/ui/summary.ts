@@ -31,7 +31,7 @@ function dayVerdict(d: DayStats): string {
 }
 
 /** Fill `el` with the end-of-day screen. onNext runs after Game.nextDay(); onChange after a purchase. */
-export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void) {
+export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void, onResetHints?: () => void) {
   const d = g.today;
   const last = d.day >= CONFIG.week.days;
   const floor: [string, string][] = [
@@ -52,10 +52,13 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     }).join('')}</section>
     <button class="next">${last ? 'Close out the week' : `Start day ${d.day + 1}`}</button>
     <p class="feedback">Thoughts? Copy the day log and send it to Courtney.</p>
-    <button class="copy">Copy day log</button><p class="status"></p>`;
+    <button class="copy">Copy day log</button><p class="status"></p>
+    ${onResetHints ? '<a class="reset">Reset hints</a>' : ''}`;
   el.querySelectorAll<HTMLButtonElement>('button[data-upg]').forEach(b => b.addEventListener('click', () => {
-    if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange); }
+    if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints); }
   }));
+  const reset = el.querySelector<HTMLAnchorElement>('.reset');
+  if (reset && onResetHints) reset.addEventListener('click', () => { onResetHints(); reset.textContent = 'Hints will show again.'; });
   el.querySelector('.next')!.addEventListener('click', () => { g.nextDay(); onNext(); });
   const status = el.querySelector('.status')!;
   el.querySelector('.copy')!.addEventListener('click', () => {
