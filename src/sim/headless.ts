@@ -3,6 +3,7 @@
 import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
 import type { DayStats } from './types.js';
+import type { JobTypeId } from '../config.js';
 
 type Policy = (g: Game) => void;
 
@@ -14,6 +15,53 @@ function overCommitted(g: Game): boolean {
   const dueToday = g.jobs.filter(j => (j.status === 'queued' || j.status === 'cutting') && j.dueDay <= g.dayIndex).length;
   const capacity = Math.max(0, CONFIG.clock.endHour * 60 - g.minute) / COMPETENT_MINUTES_PER_SHEET;
   return dueToday > capacity;
+}
+
+// Both scripts reorder a line when it drops to this many sheets.
+const REORDER_AT = 3;
+const orderSize = (t: JobTypeId) => (t === 'signage' ? 4 : 8);
+const onOrder = (g: Game, t: JobTypeId) => g.deliveries.some(d => d.lines.some(l => l.type === t));
+
+/** Sign for a truck on the apron and unload it, one bundle (trip) at a time. */
+function handleTruck(g: Game) {
+  const d = g.truckOnApron;
+  if (!d || !g.canAct) return;
+  if (d.stage === 'waiting') g.signDelivery(d.id);
+  else g.unloadBundle(d.id);
+}
+
+/**
+ * Competent: reorders at 3, sized to the work on the board plus a few spare (no stockpiling late in the
+ * week), and just before the 3pm cut-off tops up anything that'd run low by morning.
+ */
+function competentOrders(g: Game) {
+  const lateCall = g.minute >= 14.5 * 60 && g.minute < CONFIG.supply.cutoffHour * 60;
+  const spare = g.day >= CONFIG.week.days ? 0 : 4;
+  for (const t of CONFIG.jobs.types) {
+    const low = g.stock[t.id] <= (lateCall ? REORDER_AT + 2 : REORDER_AT);
+    // already coming today? fine. Only coming tomorrow (a missed truck) and run dry? order again for today
+    const comingToday = g.deliveries.some(d => d.day === g.dayIndex && d.lines.some(l => l.type === t.id));
+    if (!low || comingToday || (onOrder(g, t.id) && g.stock[t.id] > 0)) continue;
+    const need = g.queued.filter(j => j.type === t.id && j.id !== g.inHand).length - g.stock[t.id] + spare;
+    const size = CONFIG.supply.orderSizes.find(n => n >= Math.max(need, spare ? orderSize(t.id) : 0)) ?? CONFIG.supply.orderSizes[CONFIG.supply.orderSizes.length - 1];
+    if (need > 0) g.orderPly(t.id, size);
+  }
+}
+
+// sloppy's memory per line: whether they forgot to reorder this time it dropped to 3
+const sloppyForgot = new WeakMap<Game, Map<JobTypeId, boolean>>();
+/** Sloppy: reorders at 3 but forgets 30% of the time, then only orders once they've actually run out. Ignores the cut-off. */
+function sloppyOrders(g: Game) {
+  let mem = sloppyForgot.get(g);
+  if (!mem) sloppyForgot.set(g, mem = new Map());
+  for (const t of CONFIG.jobs.types) {
+    const n = g.stock[t.id];
+    if (n > REORDER_AT) { mem.delete(t.id); continue; }
+    if (onOrder(g, t.id)) continue;
+    if (!mem.has(t.id)) mem.set(t.id, g.rng.chance(0.3));
+    const forgot = mem.get(t.id)!;
+    if (!forgot || (n === 0 && g.starvedTypes.includes(t.id))) g.orderPly(t.id, orderSize(t.id));
+  }
 }
 
 const competent: Policy = (g) => {
@@ -38,6 +86,7 @@ const competent: Policy = (g) => {
     }
     return;
   }
+  if (g.truckOnApron?.stage === 'waiting') handleTruck(g); // sign before the driver gives up
   for (const d of g.distractions) {
     // chats when the machine's idle, sends them off when it's cutting
     if (d.kind === 'friend') g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat');
@@ -45,12 +94,14 @@ const competent: Policy = (g) => {
     else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
   }
   for (const c of g.callbacks) g.callBack(c.id, overCommitted(g) ? 'decline' : 'answer');
+  competentOrders(g);
   if (g.machine === 'idle' && g.queued.length) {
     // proactive maintenance between sheets
     if (g.wear.bit < 0.3) { g.replaceConsumable('bit'); return; }
     if (g.wear.filter < 0.25) { g.replaceConsumable('filter'); return; }
-    g.loadNextSheet();
+    if (g.loadNextSheet()) return;
   }
+  handleTruck(g); // between sheets, or while one cuts
 };
 
 // sloppy's call on each fire, made once when they notice it: true = leave it until it gets worse
@@ -85,6 +136,8 @@ const sloppy: Policy = (g) => {
     if (d.kind === 'friend') g.respond(d.id, 'chat');
   }
   for (const c of g.callbacks) g.callBack(c.id);
+  sloppyOrders(g);
+  if (g.rng.chance(0.5)) handleTruck(g); // gets round to it
   if (g.fridgeOpen && g.beersToday < 4 && g.rng.chance(0.02)) g.drinkBeer();
   if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet();
 };
@@ -130,10 +183,10 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   const p = (v: number, w = 3) => String(v).padStart(w);
   console.log(
     `${name.padEnd(9)} s${seed} day1: margin=${(d1Margin * 100).toFixed(0).padStart(4)}% idle=${p(idle[0].total)}m gap=${p(idle[0].longest)}m ` +
-    `demand=${p(d1.sheetsDemanded, 2)} cut=${p(d1.sheetsDone, 2)} missed=${p(missed(d1), 2)} late=${p(d1.sheetsLate, 2)} declined=${p(d1.sheetsDeclined, 2)} | ` +
+    `demand=${p(d1.sheetsDemanded, 2)} cut=${p(d1.sheetsDone, 2)} missed=${p(missed(d1), 2)} late=${p(d1.sheetsLate, 2)} declined=${p(d1.sheetsDeclined, 2)} noPly=${p(d1.stockOutMinutes)}m | ` +
     `week: margin=${(margin * 100).toFixed(0).padStart(4)}% idle=${avg(d => d.total).toFixed(0).padStart(3)}m gap=${avg(d => d.longest).toFixed(0).padStart(3)}m (worst ${p(worstGap)}m) ` +
-    `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} declined=${wk('sheetsDeclined')} | ` +
-    `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport}`,
+    `demand=${wk('sheetsDemanded')} cut=${wk('sheetsDone')} missed=${(g.week.reduce((s, d) => s + missed(d), 0) / n).toFixed(1).padStart(4)} late=${wk('sheetsLate')} declined=${wk('sheetsDeclined')} noPly=${wk('stockOutMinutes')}m/day | ` +
+    `cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport} stock=${CONFIG.jobs.types.map(t => g.stock[t.id]).join('/')}`,
   );
   const fires = (d: DayStats) => `${d.firesSpot}/${d.firesDuct}/${d.firesExtractor}`;
   console.log(`${''.padEnd(13)}fires spot/duct/extractor: day1 ${fires(d1)} | week per day ${wk('firesSpot').trim()}/${wk('firesDuct').trim()}/${wk('firesExtractor').trim()} | by day ${g.week.map(fires).join('  ')}`);

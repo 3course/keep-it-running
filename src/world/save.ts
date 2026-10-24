@@ -2,6 +2,7 @@
 // Game.ts isn't touched: its fields (including private ones, which are ordinary properties at runtime)
 // are copied out and back in, with the few non-JSON bits (RNG state, the upgrade Set, fault references,
 // the current-job reference) handled by hand.
+import { CONFIG } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
 import { Rng } from '../sim/rng.js';
@@ -41,6 +42,8 @@ function gameFromJson(data: Loose): Game {
     const def = FAULTS.find(d => d.id === f.def)!;
     g.fault = { ...(f as unknown as NonNullable<Game['fault']>), def, path: f.path ? def.paths.find(p => p.id === f.path) : undefined };
   } else g.fault = null;
+  // a save from before ply stock: keep the new game's truck at the door, and give the driver a fresh wait
+  if (!('stock' in data)) for (const d of g.deliveries) { d.day = g.dayIndex; if (d.stage === 'waiting') d.signBy = g.minute + CONFIG.supply.signWindowMinutes; }
   return g;
 }
 

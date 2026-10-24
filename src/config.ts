@@ -51,7 +51,7 @@ export const CONFIG = {
     lateDrop: { hour: 15, chance: 0.6, priceMult: 1.3 },
     // Job archetypes, picked by weight for every sheet. Types differ in cost and risk, barely in speed.
     // Price: a standard sheet (markup on priceBasisBoardCost + machine time) times the type's priceMult.
-    // boardCost is what the type's sheet costs to buy, and what a ruined one loses.
+    // boardCost is what the type's sheet costs to buy — paid when you order ply, not when you load it — and what a ruined one loses.
     // chipRisk (bit wear and chipping odds) is the old five-material average, 1.1, for all three.
     // fireChanceMult scales the spot-fire chance while this type is cutting.
     // dullBitRuinsSheet: a dull-bit (chipping) fault scraps the sheet outright — acrylic melts instead of fuzzing.
@@ -106,8 +106,26 @@ export const CONFIG = {
     friend:  { durationMin: 8, durationMax: 18, hoverMinutes: 3, disengageRapportCost: 5, chatRapportGain: 4, weight: 4 },
     // window: game minutes it rings (1 game min = 1 real s) — long enough to finish what you're doing and get to the office
     phone:   { window: 30, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
-    courier: { window: 3, busyMinutes: 1, ignoredMaterialPenalty: 0.25, signRapportGain: 1, weight: 2 },
+    // weight 0: board now arrives on real ply deliveries (supply, below), so the random courier is retired
+    courier: { window: 3, busyMinutes: 1, ignoredMaterialPenalty: 0.25, signRapportGain: 1, weight: 0 },
     bank:    { window: 2, busyMinutes: 4, ignoreRapportCost: 10, weight: 5 }, // only when cash < 0
+  },
+
+  // Ply on the pallet is real stock, one line per job type. You order it; a truck brings it.
+  supply: {
+    orderSizes: [4, 8, 12],         // sheets per order
+    deliveryFee: 60,                // per delivery, on top of the boards
+    cutoffHour: 15,                 // orders before this arrive today; after, tomorrow morning
+    leadMinutes: 30, leadJitter: 5, // truck turns up this long after a same-day order
+    morningMinute: 7.5 * 60,        // next-day orders (and redeliveries) arrive at 7:30am
+    maxDeliveriesPerDay: 2,
+    signWindowMinutes: 15,          // unsigned this long: the driver leaves, the fee's wasted, back tomorrow
+    bundles: 3,                     // trips from the truck to the pallet
+    unloadTripMinutes: 7,           // sim only: one bundle from the truck to the pallet and back (the world walks it)
+    signMinutes: 1,
+    lowStockBelow: 5,               // the notepad warns once a line drops below this
+    // day 1: a truck that was ordered (and paid for) last week is at the door when the tour starts
+    firstDelivery: { formwork: 6, joinery: 5, signage: 3 },
   },
 
   competence: {

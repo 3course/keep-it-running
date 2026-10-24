@@ -24,6 +24,14 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   const add = (urgent: boolean, key: string, text: string, targets: ObjectId | ObjectId[] = []) =>
     (urgent ? now : later).push({ key, text, targets: Array.isArray(targets) ? targets : [targets], urgent });
 
+  // the ply truck: it won't wait (and on the first day it's the first thing you do)
+  const truck = g.truckOnApron;
+  if (truck?.stage === 'waiting') add(true, 'ply-sign', `Sign for the ply truck (${Math.max(0, truck.signBy - g.minute)}m)`, 'rollerDoor');
+  if (truck?.stage === 'unloading') {
+    if (w.carrying === 'bundle') add(true, 'ply-stack', 'Stack the ply on the pallet', 'plyPallet');
+    else add(true, 'ply-unload', `Unload the ply (${truck.bundles.length} bundle${truck.bundles.length > 1 ? 's' : ''} left)`, 'rollerDoor');
+  }
+
   // first day: the walk-round comes first, in order
   if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);
 
@@ -70,7 +78,10 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (w.offcutBin >= WORLD.offcutsEmptyAt) add(false, 'offcuts', 'Empty the offcut bin', 'offcutBin');
   if (w.utePresent) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'rollerDoor');
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
-  if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.queued.length && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
+  if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.nextUp() && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
+  // work on the board with no ply for it, and none coming today
+  const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.day === g.dayIndex && d.lines.some(l => l.type === t)));
+  if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, ['phone', 'desk']);
 
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({

@@ -1,7 +1,7 @@
 // Goose-style HUD as plain DOM laid over the canvas: clock and cash top-right, a notepad tab on the
 // left edge, floating action labels on objects, the virtual stick, and the few modal moments
 // (5pm, paused, end of day/week). DOM keeps text crisp over the chunky low-res 3D render.
-import { CONFIG } from '../config.js';
+import { CONFIG, type JobTypeId } from '../config.js';
 import { BUILD_TAG } from './clipboard.js';
 import type { Game } from '../sim/Game.js';
 import type { ObjectId } from '../world/layout.js';
@@ -39,6 +39,20 @@ const CSS = `
 #kir-hud .pad li.done { text-decoration: line-through; color: #8a7d64; cursor: default; }
 #kir-hud .pad li.sheet { font-size: 13px; cursor: default; }
 #kir-hud .pad li.sheet.late { color: #9a1f12; }
+#kir-hud .pad li.news { color: #3d6f9e; font-size: 14px; cursor: default; }
+#kir-hud .pad li.news::before { content: '• '; }
+#kir-hud .bubble { position: absolute; transform: translate(-50%, -100%); background: #f4ecd2; color: #2b2418; font: 15px ${HAND};
+  padding: 5px 10px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,.4); white-space: nowrap; pointer-events: none; display: none; }
+#kir-hud .bubble::after { content: ''; position: absolute; left: 50%; bottom: -7px; margin-left: -6px; border: 7px solid transparent; border-bottom: 0; border-top-color: #f4ecd2; }
+#kir-hud .ply .card { width: 340px; text-align: left; padding: 14px; }
+#kir-hud .ply h1 { text-align: center; }
+#kir-hud .ply .row { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin: 8px 0; }
+#kir-hud .ply .row .name { font-size: 14px; line-height: 1.2; }
+#kir-hud .ply .row .name small { color: #a2937f; font-size: 11px; display: block; }
+#kir-hud .ply .row button { margin: 0; min-width: 0; width: 64px; padding: 8px 2px; font-size: 13px; background: #4e8a46; line-height: 1.15; }
+#kir-hud .ply .row button small { display: block; font-size: 10px; color: #d8ecd0; }
+#kir-hud .ply .row button:disabled { background: #4a4540; color: #a2937f; }
+#kir-hud .ply .close { display: block; margin: 12px auto 0; background: #4a4540; }
 #kir-hud .pad .empty { font-size: 13px; color: #8a7d64; }
 #kir-hud .modal { position: absolute; inset: 0; background: rgba(0,0,0,.65); pointer-events: auto; display: none; align-items: center; justify-content: center; }
 #kir-hud .modal .card { width: 320px; background: #241f1a; border: 2px solid #d48a3c; color: #efe6d8; padding: 18px; box-sizing: border-box; text-align: center; }
@@ -128,6 +142,9 @@ export class Hud {
   private hint: HTMLDivElement;
   private mute: HTMLButtonElement;
   private padSig = '';
+  private ply: HTMLDivElement;
+  readonly bubble: HTMLDivElement;
+  get plyShowing() { return this.ply.style.display === 'flex'; }
   private onResize = () => this.layout();
   isOpen = false;
 
@@ -163,8 +180,10 @@ export class Hud {
     this.pointers = el('div', { className: 'pointers' });
     this.hint = el('div', { className: 'hint' });
     this.mute = el('button', { className: 'mute' });
+    this.ply = el('div', { className: 'modal ply' });
+    this.bubble = el('div', { className: 'bubble' });
     this.mute.addEventListener('click', e => { e.stopPropagation(); this.setMuted(this.cb.toggleMute()); });
-    this.stage.append(this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.eod, this.summary, this.pausedEl, tag);
+    this.stage.append(this.labels, this.bubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.eod, this.ply, this.summary, this.pausedEl, tag);
     document.body.appendChild(this.root);
     window.addEventListener('resize', this.onResize);
     this.layout();
@@ -201,7 +220,7 @@ export class Hud {
     const li = (i: TodoItem) => `<li class="${i.urgent ? 'urgent' : ''}${isCallback(i) ? ' callback' : ''}" data-key="${esc(i.key)}" data-targets="${i.targets.join(',')}">${esc(i.text)}</li>`;
     this.pad.innerHTML = `
       <h2>Day ${g.day} of ${CONFIG.week.days}</h2>
-      <h3>Now</h3><ul>${now.map(li).join('') || '<li class="empty">Nothing on fire. Yet.</li>'}${done.map(d => `<li class="done">${esc(d)}</li>`).join('')}</ul>
+      <h3>Now</h3><ul>${now.map(li).join('') || '<li class="empty">Nothing on fire. Yet.</li>'}${done.map(d => d.startsWith('• ') ? `<li class="news">${esc(d.slice(2))}</li>` : `<li class="done">${esc(d)}</li>`).join('')}</ul>
       <h3>Can wait</h3><ul>${later.map(li).join('') || '<li class="empty">—</li>'}</ul>
       ${calls.length ? `<h3 class="vm">Voicemail</h3><ul>${calls.map(li).join('')}</ul>` : ''}
       <h3>Sheets (${open.length})</h3><ul>${open.map(j => `<li class="sheet ${g.isLate(j) ? 'late' : ''}" data-targets="${j.status === 'cutting' ? 'machine' : 'plyPallet'}">${j.status === 'cutting' ? '▶ ' : ''}${esc(j.name)}<br>&nbsp;&nbsp;${esc(j.material)} · due ${g.dueLabel(j)} · ${money(j.price)}</li>`).join('') || '<li class="empty">Board is clear.</li>'}</ul>`;
@@ -210,6 +229,34 @@ export class Hud {
       if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets, node.dataset.key); });
     }
   }
+
+  /** The supplier on the line: pick a material and how many. Board cost and the delivery fee are paid now. */
+  showPlyOrder(g: Game, order: (type: JobTypeId, qty: number) => void) {
+    // labels act on pointerdown, so the same tap's click lands on whatever opens under the finger: ignore it
+    const opened = performance.now();
+    const live = () => performance.now() - opened > 350;
+    const render = () => {
+      const s = CONFIG.supply;
+      const rows = CONFIG.jobs.types.map(t => {
+        const buttons = s.orderSizes.map(n => {
+          const q = g.plyQuote(t.id, n);
+          return 'error' in q ? `<button disabled>${n}</button>`
+            : `<button data-t="${t.id}" data-n="${n}">${n}<small>${money(q.boards + q.fee)}</small></button>`;
+        }).join('');
+        return `<div class="row"><div class="name">${esc(t.material)}<small>${g.stock[t.id]} on the pallet${g.deliveries.some(d => d.lines.some(l => l.type === t.id)) ? ' · more coming' : ''}</small></div>${buttons}</div>`;
+      }).join('');
+      const any = g.plyQuote(CONFIG.jobs.types[0].id, s.orderSizes[0]);
+      const when = 'error' in any ? any.error : any.day === g.dayIndex ? `Truck in about ${s.leadMinutes} minutes.` : `After ${s.cutoffHour > 12 ? s.cutoffHour - 12 : s.cutoffHour}pm it comes tomorrow, ${g.formatTime(any.minute)}.`;
+      this.ply.innerHTML = `<div class="card"><h1>Order ply</h1><p>${esc(when)} Price includes the ${money(s.deliveryFee)} delivery fee.</p>${rows}<button class="close">Never mind</button></div>`;
+      for (const b of Array.from(this.ply.querySelectorAll<HTMLButtonElement>('button[data-t]'))) {
+        b.addEventListener('click', () => { if (!live()) return; order(b.dataset.t as JobTypeId, Number(b.dataset.n)); this.hidePlyOrder(); });
+      }
+      this.ply.querySelector('.close')!.addEventListener('click', () => { if (live()) this.hidePlyOrder(); });
+    };
+    render();
+    this.ply.style.display = 'flex';
+  }
+  hidePlyOrder() { this.ply.style.display = 'none'; }
 
   setPaused(paused: boolean) { this.pausedEl.style.display = paused ? 'flex' : 'none'; }
 

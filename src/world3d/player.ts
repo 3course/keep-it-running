@@ -7,7 +7,7 @@ import { WORLD } from '../world/worldConfig.js';
 import { boxAt, toon } from './build.js';
 
 const CARRY_COLOUR: Record<Carry, number> = {
-  sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460,
+  sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460, bundle: 0xc9a46a,
 };
 
 export class PlayerView {
@@ -23,6 +23,7 @@ export class PlayerView {
   private hopY = 0;
   private hopV = 0;
   private lastYaw = 0;
+  private shrugT = 0;   // counts down through a shrug
   yaw = 0;
 
   constructor(scene: THREE.Scene) {
@@ -57,6 +58,9 @@ export class PlayerView {
     scene.add(this.shadow);
   }
 
+  /** Shoulders up, head tilted, a wobble side to side: "none left". */
+  shrug() { this.shrugT = 0.9; }
+
   hop() { if (this.hopY <= 0.001) this.hopV = WORLD.hopVelocity; }
 
   setCarry(c: Carry | null) {
@@ -64,6 +68,7 @@ export class PlayerView {
     if (!c) return;
     (this.carryMesh.material as THREE.MeshToonMaterial).color.setHex(CARRY_COLOUR[c]);
     if (c === 'extinguisher') { this.carryMesh.scale.set(0.45, 5, 0.6); this.carryMesh.position.set(0.22, 0.45, -0.12); }
+    else if (c === 'bundle') { this.carryMesh.scale.set(2.4, 4, 2.6); this.carryMesh.position.set(0, 1.27, 0); } // a strapped bundle overhead
     else if (c === 'bag' || c === 'offcuts') { this.carryMesh.scale.set(1, 5, 1.2); this.carryMesh.position.set(0, 0.5, -0.3); }
     else { this.carryMesh.scale.set(2.4, 1, 2.6); this.carryMesh.position.set(0, 1.18, 0); } // sheets go overhead
   }
@@ -102,9 +107,11 @@ export class PlayerView {
     this.root.position.set(x, this.hopY, z);
     this.root.rotation.y = this.yaw;
     this.bodyPivot.position.y = bob;
-    this.bodyPivot.rotation.z = -this.lean;
+    this.shrugT = Math.max(0, this.shrugT - dt);
+    const shrug = this.shrugT > 0 ? Math.sin((0.9 - this.shrugT) / 0.9 * Math.PI) : 0;
+    this.bodyPivot.rotation.z = -this.lean + shrug * Math.sin(this.shrugT * 22) * 0.12;
     this.bodyPivot.rotation.x = -0.12 * k;
-    this.bodyPivot.scale.set(1 + sq * 0.6, 1 - sq, 1 + sq * 0.6);
+    this.bodyPivot.scale.set(1 + sq * 0.6 + shrug * 0.08, 1 - sq - shrug * 0.06, 1 + sq * 0.6);
     this.feet.forEach((f, i) => {
       const s = Math.sin(this.phase + i * Math.PI);
       f.position.z = moving ? s * 0.11 * k : 0;

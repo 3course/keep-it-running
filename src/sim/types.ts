@@ -96,6 +96,21 @@ export interface Distraction {
   customer?: string;      // phone: who's calling with the order
 }
 
+/**
+ * A ply order on its way. 'due': not here yet. 'waiting': the truck's on the apron for a signature.
+ * 'unloading': signed; bundles still on the truck. Each bundle is a list of sheets (by job type).
+ */
+export interface Delivery {
+  id: number;
+  lines: { type: JobTypeId; qty: number }[];
+  day: number;            // Game.dayIndex it arrives
+  minute: number;         // minutes since midnight it arrives
+  stage: 'due' | 'waiting' | 'unloading';
+  signBy: number;         // minute the driver gives up (while waiting)
+  bundles: JobTypeId[][]; // still on the truck (while unloading)
+  feeOwed: boolean;       // a redelivery: the fee is charged again when it turns up
+}
+
 /** An order call that rang out: they left a voicemail and will wait this long for you to ring back. */
 export interface Callback {
   id: number;
@@ -123,6 +138,7 @@ export interface DayStats {
   sheetsMissed: number;    // order calls that rang out and weren't called back in time
   sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
   sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
+  stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
   beers: number;
   firesSpot: number;       // spot fires started
   firesDuct: number;       // spot fires that became duct fires

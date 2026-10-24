@@ -8,7 +8,7 @@ import type { Game } from '../sim/Game.js';
 import { Hints } from '../ui/hints.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
-import { actionsFor, statusFor, type Action } from '../world/interactables.js';
+import { actionsFor, statusFor, uiHooks, type Action } from '../world/interactables.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
@@ -81,6 +81,8 @@ export class World3D {
   private guideT = 0;
   private signEls: HTMLDivElement[] = [];
   private spillLevel = 0;
+  private shrugsSeen = 0;
+  private bubbleT = 0;
 
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'low-power' });
@@ -131,6 +133,7 @@ export class World3D {
     this.hud.setPaused(this.paused);
     this.hud.setMuted(this.ring.muted);
     this.buildFlashRing();
+    uiHooks.orderPly = () => this.hud.showPlyOrder(this.g, (t, n) => { if (this.g.orderPly(t, n)) { this.player.hop(); this.save(); } });
     this.trail = new Trail(this.scene);
     this.buildSigns();
 
@@ -274,6 +277,7 @@ export class World3D {
     this.updateLabels();
     this.updatePointers();
     this.updateSigns(dt);
+    this.updateBubble(dt);
     this.updateRing();
     if (!this.hud.summaryShowing) {
       this.hud.update(g, todoItems(g, w), w.done);
@@ -284,6 +288,7 @@ export class World3D {
 
   private showSummary() {
     this.save();
+    this.hud.hidePlyOrder();
     this.hud.setHudVisible(false);
     const g = this.g;
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
@@ -313,6 +318,15 @@ export class World3D {
     if (w.toiletUntil !== null && t >= w.toiletUntil) w.toiletUntil = null;
     if (w.rollerUpUntil !== null && t >= w.rollerUpUntil && !this.onRollerTiles()) w.rollerUpUntil = null;
     if (w.finishedStack === 0) w.utePresent = false;
+    // stock news from the economy goes on the notepad: "4 sheets of formply left", "Out of MDF."
+    const today = g.log.filter(l => l.dayIndex === g.dayIndex);
+    for (const l of today.slice(w.newsSeen ?? 0)) {
+      if (/^(\d+ sheets? of .+ left|Out of .+)\.$/.test(l.text)) { w.done.unshift(`• ${l.text.replace(/\.$/, '')}`); w.done = w.done.slice(0, 6); }
+    }
+    w.newsSeen = today.length;
+    // the roller door stays up while you're carrying ply in from the truck
+    if (g.truckOnApron?.stage === 'unloading') w.rollerUpUntil = Math.max(w.rollerUpUntil ?? 0, t + 2);
+    if ((w.shrugs ?? 0) !== this.shrugsSeen) { this.shrugsSeen = w.shrugs ?? 0; this.player.shrug(); this.bubbleT = 1.6; }
     if (w.tour && !w.tour.cutStarted && w.bed === 'running') { w.tour.cutStarted = true; this.save(); } // the day proper starts now
   }
 
@@ -505,7 +519,8 @@ export class World3D {
     this.player.hop();
     this.hints.mark('interact');
     const after = new Set(todoItems(this.g, this.w).map(i => i.key));
-    for (const i of before) if (!after.has(i.key)) this.w.done.unshift(i.text);
+    // a line that vanished because of this action is done — except "grab the next sheet", which just hides while your hands are full
+    for (const i of before) if (!after.has(i.key) && (i.key !== 'next' || this.w.carrying === 'sheet')) this.w.done.unshift(i.text);
     this.w.done = this.w.done.slice(0, 6);
     this.labelSig = '';
     this.save();
@@ -628,7 +643,11 @@ export class World3D {
     this.built.dust.forEach((d, i) => { d.visible = i < level * 10; });
 
     // pallets, bin
-    o('plyPallet').parts.stack.children.forEach((s, i) => { s.visible = i < g.queued.length; });
+    // ply stock: one stack per line, a sheet of height per sheet on the pallet
+    o('plyPallet').parts.stocks.children.forEach((stack, col) => {
+      const n = g.stock[CONFIG.jobs.types[col].id];
+      stack.children.forEach((s, i) => { s.visible = i < n; });
+    });
     o('finishedPallet').parts.stack.children.forEach((s, i) => { s.visible = i < w.finishedStack; });
     const binFill = o('offcutBin').parts.fill;
     binFill.scale.y = Math.max(0.001, w.offcutBin);
@@ -652,8 +671,12 @@ export class World3D {
     if (g.machine === 'cutting') o('exhaust').parts.fan.rotation.y += dt * 12;
 
     // vehicles and the mate
-    const courier = g.distractions.some(d => d.kind === 'courier');
+    const plyTruck = g.truckOnApron;
+    const courier = !!plyTruck || g.distractions.some(d => d.kind === 'courier');
     this.built.vehicles.truck.visible = courier;
+    const bundles = this.built.vehicles.truck.userData.bundles as THREE.Group;
+    const onTray = plyTruck ? (plyTruck.stage === 'waiting' ? 3 : plyTruck.bundles.length - (w.carrying === 'bundle' ? 1 : 0)) : 0;
+    bundles.children.forEach((b, i) => { b.visible = i < onTray; });
     this.built.vehicles.ute.visible = !courier && w.utePresent;
     const mate = g.distractions.find(d => d.kind === 'friend');
     this.built.mate.visible = !!mate;
@@ -765,6 +788,17 @@ export class World3D {
     this.trail.update(dt, this.pos.x, this.pos.z);
   }
 
+  /** "None left" over your head after reaching for ply that isn't there. */
+  private updateBubble(dt: number) {
+    this.bubbleT = Math.max(0, this.bubbleT - dt);
+    const b = this.hud.bubble;
+    if (this.bubbleT <= 0) { b.style.display = 'none'; return; }
+    const p = this.project(new THREE.Vector3(this.pos.x, 1.35, this.pos.z));
+    b.textContent = 'None left';
+    b.style.display = 'block';
+    b.style.left = `${p.x.toFixed(1)}px`; b.style.top = `${p.y.toFixed(1)}px`;
+  }
+
   /** Crisp lettering over each doorway's sign (the 3D sign is only a few pixels at this resolution). */
   private buildSigns() {
     for (const d of this.built.doorways) {
@@ -808,7 +842,7 @@ export class World3D {
       const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
       if (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank')) problems.push({ key: 'phone', icon: '📞', pos: at('phone'), ring: true });
       if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
-      if (g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
+      if (g.truckOnApron || g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
       else if (w.utePresent) problems.push({ key: 'ute', icon: '🛻', pos: this.built.vehicles.ute.position.clone().setY(1.2) });
       if (g.distractions.some(d => d.kind === 'friend')) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });
       const cx = VW / 2, cy = VH / 2, minX = 26, maxX = VW - 26, minY = 112, maxY = VH - 64;

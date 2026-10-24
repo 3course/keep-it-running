@@ -2,7 +2,7 @@ import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeI
 import { FAULTS } from '../data/faults.js';
 import { Rng } from './rng.js';
 import type {
-  ActiveFault, Callback, DayStats, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
+  ActiveFault, Callback, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
 } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
@@ -20,7 +20,7 @@ function emptyStats(day: number): DayStats {
   return {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
-    beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0,
+    beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0,
   };
 }
 
@@ -52,6 +52,12 @@ export class Game {
   orderCalls: { minute: number; sheets: number }[] = []; // today's order calls still to ring, soonest first
   lateDropToday = false;     // rolled at 7am so the demand floor can count it
   lostYesterday = 0;         // sheets lost at close yesterday; costs order calls today
+
+  // ply: sheets on the pallet per job type, orders on their way, and the sheet you've taken off the pallet
+  stock = Object.fromEntries(CONFIG.jobs.types.map(t => [t.id, 0])) as Record<JobTypeId, number>;
+  deliveries: Delivery[] = [];
+  nextDeliveryId = 1;
+  inHand: number | null = null;  // job id of the sheet taken off the pallet, not yet on the bed
 
   // consumables 0..1 (1 = fresh)
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
@@ -85,6 +91,13 @@ export class Game {
   constructor(seed?: number) {
     this.rng = new Rng(seed);
     this.startDay();
+    // the first morning's ply was ordered (and paid for) last week: the truck's at the door
+    const first = CONFIG.supply.firstDelivery;
+    this.deliveries.push({
+      id: this.nextDeliveryId++, lines: CONFIG.jobs.types.map(t => ({ type: t.id, qty: first[t.id] })),
+      day: this.dayIndex, minute: this.minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false,
+    });
+    this.arriveDeliveries();
   }
 
   // ---------- helpers ----------
@@ -213,8 +226,15 @@ export class Game {
     return calls.slice(0, keep);
   }
 
-  /** The queued sheet that's due soonest — what "Load sheet & run" will put on the bed. */
-  nextUp(): Job | undefined { return this.queued.sort((a, b) => this.dueAt(a) - this.dueAt(b))[0]; }
+  /** The sheet that'll go on the bed next: the one in your hands, else the soonest-due queued sheet that's in stock. */
+  nextUp(): Job | undefined {
+    const held = this.inHand !== null ? this.jobs.find(j => j.id === this.inHand && j.status === 'queued') : undefined;
+    return held ?? this.queued.filter(j => this.stock[j.type] > 0).sort((a, b) => this.dueAt(a) - this.dueAt(b))[0];
+  }
+  /** Queued work that can't be cut because its ply's run out (none on the pallet). */
+  get starvedTypes(): JobTypeId[] {
+    return [...new Set(this.queued.filter(j => this.stock[j.type] <= 0 && j.id !== this.inHand).map(j => j.type))];
+  }
 
   /** Absolute due time, comparable across days. */
   dueAt(j: Job): number { return j.dueDay * 24 * 60 + j.deadlineMinute; }
@@ -333,6 +353,10 @@ export class Game {
     while (this.orderCalls.length && this.minute >= this.orderCalls[0].minute) {
       this.spawnOrderCall(this.orderCalls.shift()!.sheets);
     }
+
+    // ply deliveries
+    this.tickDeliveries();
+    if (this.machine === 'idle' && !this.current && this.queued.length && !this.nextUp()) this.today.stockOutMinutes += 1;
 
     // afternoon drop-off
     if (this.lateDropToday && this.minute === CONFIG.jobs.lateDrop.hour * 60) this.addLateDrop();
@@ -699,20 +723,126 @@ export class Game {
 
   loadNextSheet(): boolean {
     if (this.phase !== 'day' || !this.canAct || this.machine !== 'idle' || this.fault) return false;
-    const next = this.nextUp();
+    const next = this.takeSheet();
     if (!next) return false;
+    this.inHand = null;
     next.status = 'cutting';
     this.current = next;
-    let cost = next.materialCost;
-    if (this.courierPenaltyPending) {
-      cost = Math.round(cost * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
-      this.courierPenaltyPending = false;
-    }
-    this.spend(cost, 'materials', `board for ${next.name}`);
-    this.typeLedger[next.type].boards += cost;
     this.machine = 'loading';
     this.loadingRemaining = Math.ceil(CONFIG.jobs.loadMinutes * this.stepDurationMult());
     this.say(`Loading ${next.material}...`);
+    return true;
+  }
+
+  /** Take the next sheet off the pallet (the board was paid for when it was ordered). Null: nothing in stock for the queue. */
+  takeSheet(): Job | null {
+    if (this.phase !== 'day') return null;
+    if (this.inHand !== null) {
+      const held = this.jobs.find(j => j.id === this.inHand);
+      if (held && held.status === 'queued') return held;
+      // that job's gone (pulled by the customer): the sheet goes back on the pallet
+      if (held) this.stock[held.type] += 1;
+      this.inHand = null;
+    }
+    const next = this.nextUp();
+    if (!next) return null;
+    this.stock[next.type] -= 1;
+    this.inHand = next.id;
+    const left = this.stock[next.type], word = this.stockWord(next.type);
+    if (left === 0) this.say(`Out of ${word}.`, 'bad');
+    else if (left < CONFIG.supply.lowStockBelow) this.say(`${left} sheet${left > 1 ? 's' : ''} of ${word} left.`);
+    return next;
+  }
+
+  /** "formply", "MDF", "acrylic". */
+  stockWord(t: JobTypeId): string { return CONFIG.jobs.types.find(x => x.id === t)!.material.split(' ').slice(1).join(' '); }
+
+  // ---------- ply supply ----------
+
+  private deliveriesOn(day: number) { return this.deliveries.filter(d => d.day === day && !d.feeOwed).length; }
+  get truckOnApron(): Delivery | undefined { return this.deliveries.find(d => d.stage === 'waiting' || d.stage === 'unloading'); }
+
+  /** What an order would cost and when it'd turn up, or why it can't be placed. */
+  plyQuote(type: JobTypeId, qty: number): { boards: number; fee: number; day: number; minute: number } | { error: string } {
+    const s = CONFIG.supply;
+    if (this.phase !== 'day') return { error: 'Supplier is closed.' };
+    if (!(s.orderSizes as readonly number[]).includes(qty)) return { error: 'They sell it in 4s.' };
+    const t = CONFIG.jobs.types.find(x => x.id === type)!;
+    let boards = Math.round(t.boardCost * this.materialMult()) * qty;
+    if (this.courierPenaltyPending) boards = Math.round(boards * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
+    const fee = s.deliveryFee;
+    if (this.minute < s.cutoffHour * 60 && this.deliveriesOn(this.dayIndex) < s.maxDeliveriesPerDay) {
+      return { boards, fee, day: this.dayIndex, minute: this.minute + s.leadMinutes };
+    }
+    const tomorrow = this.dayIndex + 1;
+    const booked = this.deliveriesOn(tomorrow);
+    if (booked >= s.maxDeliveriesPerDay) return { error: 'Two trucks booked already. Try tomorrow.' };
+    return { boards, fee, day: tomorrow, minute: s.morningMinute + booked * 40 };
+  }
+
+  /** Ring the supplier: boards and the delivery fee are paid now; the truck comes later. */
+  orderPly(type: JobTypeId, qty: number): Delivery | null {
+    const q = this.plyQuote(type, qty);
+    if ('error' in q) { this.say(q.error, 'bad'); return null; }
+    const s = CONFIG.supply;
+    // same-day trucks run a few minutes either side of the quote
+    const minute = q.day === this.dayIndex ? q.minute + this.rng.int(-s.leadJitter, s.leadJitter) : q.minute;
+    this.courierPenaltyPending = false;
+    this.spend(q.boards, 'materials', `${qty} × ${this.stockWord(type)}`);
+    this.typeLedger[type].boards += q.boards;
+    this.spend(q.fee, 'fees', 'delivery fee');
+    const d: Delivery = { id: this.nextDeliveryId++, lines: [{ type, qty }], day: q.day, minute, stage: 'due', signBy: 0, bundles: [], feeOwed: false };
+    this.deliveries.push(d);
+    this.say(`Ordered ${qty} × ${this.stockWord(type)}. Truck ${q.day === this.dayIndex ? `about ${this.formatTime(q.minute)}` : `tomorrow ${this.formatTime(q.minute)}`}.`, 'good');
+    return d;
+  }
+
+  /** Trucks turn up one at a time; anything due waits behind one already on the apron. */
+  private arriveDeliveries() {
+    if (this.truckOnApron) return;
+    const d = this.deliveries.find(x => x.stage === 'due' && (x.day < this.dayIndex || (x.day === this.dayIndex && this.minute >= x.minute)));
+    if (!d) return;
+    d.stage = 'waiting';
+    d.signBy = this.minute + CONFIG.supply.signWindowMinutes;
+    if (d.feeOwed) { this.spend(CONFIG.supply.deliveryFee, 'fees', 'redelivery fee'); d.feeOwed = false; }
+    this.say(`Ply truck's here: ${d.lines.map(l => `${l.qty} × ${this.stockWord(l.type)}`).join(', ')}. Needs a signature.`, 'info');
+  }
+
+  private tickDeliveries() {
+    const d = this.truckOnApron;
+    if (d?.stage === 'waiting' && this.minute >= d.signBy) this.driverLeaves(d);
+    this.arriveDeliveries();
+  }
+
+  private driverLeaves(d: Delivery) {
+    d.stage = 'due'; d.day = this.dayIndex + 1; d.minute = CONFIG.supply.morningMinute; d.feeOwed = true;
+    this.say(`Nobody signed. The driver's gone — $${CONFIG.supply.deliveryFee} delivery fee wasted. Back tomorrow morning.`, 'bad');
+  }
+
+  /** Sign for the truck on the apron. Then it's bundles, one trip each. `quick`: one tap in the world, no minute spent. */
+  signDelivery(id: number, quick = false): boolean {
+    const d = this.deliveries.find(x => x.id === id);
+    if (!d || d.stage !== 'waiting' || this.phase !== 'day' || !this.canAct) return false;
+    const sheets = d.lines.flatMap(l => Array.from({ length: l.qty }, () => l.type));
+    const n = CONFIG.supply.bundles;
+    d.bundles = Array.from({ length: n }, (_, i) => sheets.slice(Math.round(i * sheets.length / n), Math.round((i + 1) * sheets.length / n)));
+    d.stage = 'unloading';
+    if (!quick) this.busy = { label: 'signing for the ply', remaining: CONFIG.supply.signMinutes };
+    this.say('Signed for the ply.');
+    return true;
+  }
+
+  /** One bundle from the truck onto the pallet. `walked`: the world walked it; otherwise it takes a trip's time. */
+  unloadBundle(id: number, walked = false): boolean {
+    const d = this.deliveries.find(x => x.id === id);
+    if (!d || d.stage !== 'unloading' || !d.bundles.length || this.phase !== 'day' || !this.canAct) return false;
+    for (const t of d.bundles.shift()!) this.stock[t] += 1;
+    if (!walked) this.busy = { label: 'unloading ply', remaining: CONFIG.supply.unloadTripMinutes };
+    if (!d.bundles.length) {
+      this.deliveries = this.deliveries.filter(x => x.id !== id);
+      this.say(`Ply's on the pallet: ${CONFIG.jobs.types.map(t => `${this.stock[t.id]} ${this.stockWord(t.id)}`).join(', ')}.`, 'good');
+      this.arriveDeliveries();
+    }
     return true;
   }
 
@@ -884,6 +1014,14 @@ export class Game {
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     for (const c of [...this.callbacks]) this.loseCallback(c); // nobody rings back after knock-off
+    const truck = this.truckOnApron;
+    if (truck?.stage === 'waiting') this.driverLeaves(truck);
+    else if (truck?.stage === 'unloading') {
+      // the driver won't wait past knock-off: what's left goes on the pallet with the forklift
+      for (const t of truck.bundles.flat()) this.stock[t] += 1;
+      this.deliveries = this.deliveries.filter(x => x.id !== truck.id);
+      this.say('Driver forklifted the rest onto the pallet.');
+    }
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
     this.fire = null; this.fireResponse = null; this.spraying = false;
     this.phase = 'daySummary';

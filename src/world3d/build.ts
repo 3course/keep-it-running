@@ -343,7 +343,20 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
     light.position.set(w / 2 - 0.15, h * 0.8 + 0.15, -d / 2 + 0.15); light.visible = false; g.add(light);
     return { sheet, clamps, cut, gantry, light };
   },
-  plyPallet: (g, w, d, h, o) => pallet(g, w, d, h, o, 0xd9be8c),
+  plyPallet: (g, w, d, h, o) => {
+    // three stacks side by side, one per stock line; their height is how much is left
+    for (const sz of [-1, 0, 1]) g.add(boxAt(w - 0.1, h * 0.6, 0.12, o.colour, 0, 0, sz * (d / 2 - 0.12)));
+    g.add(boxAt(w - 0.1, h * 0.4, d - 0.1, o.colour, 0, h * 0.6));
+    const stocks = new THREE.Group(), cw = (w - 0.2) / 3;
+    PLY_COLOURS.forEach((c, col) => {
+      const stack = new THREE.Group();
+      for (let i = 0; i < 12; i++) { const s = boxAt(cw - 0.04, 0.032, d - 0.25, i % 2 ? c : shade(c, 0.9), 0, h + i * 0.036); s.visible = false; stack.add(s); }
+      stack.position.x = -w / 2 + 0.1 + cw * (col + 0.5);
+      stocks.add(stack);
+    });
+    g.add(stocks);
+    return { stocks };
+  },
   finishedPallet: (g, w, d, h, o) => pallet(g, w, d, h, o, 0xe9d6ac),
   offcutBin: (g, w, d, h, o) => {
     for (const [x, z, bw, bd] of [[0, -d / 2 + 0.04, w, 0.08], [0, d / 2 - 0.04, w, 0.08], [-w / 2 + 0.04, 0, 0.08, d], [w / 2 - 0.04, 0, 0.08, d]] as const) {
@@ -447,6 +460,9 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
 };
 
 function shade(c: number, f = 0.75) { return new THREE.Color(c).multiplyScalar(f).getHex(); }
+
+/** Formply (dark film face), MDF, acrylic — in CONFIG.jobs.types order. */
+export const PLY_COLOURS = [0x6b3a26, 0xb08a5a, 0xe4ecee];
 
 function pallet(g: THREE.Group, w: number, d: number, h: number, o: PlacedObject, sheet: number) {
   for (const sz of [-1, 0, 1]) g.add(boxAt(w - 0.1, h * 0.6, 0.12, o.colour, 0, 0, sz * (d / 2 - 0.12)));
@@ -598,9 +614,21 @@ function buildVehicles() {
   for (const [x, z] of [[-0.9, -1.3], [0.9, -1.3], [-0.9, 1.3], [0.9, 1.3]]) ute.add(wheel(x, z));
   ute.position.set(cx - 0.8, 0, cz); ute.visible = false;
   const truck = new THREE.Group();
-  truck.add(boxAt(2.2, 2.2, 3.4, 0xe6e6e2, 0, 0.6, 0.6));  // box body
+  truck.add(boxAt(2.2, 0.25, 3.6, 0x55575c, 0, 0.6, 0.7));  // flat tray
+  for (const sx of [-1, 1]) truck.add(boxAt(0.06, 0.3, 3.6, 0x3a3c40, sx * 1.07, 0.85, 0.7)); // low sides
   truck.add(boxAt(2.2, 1.6, 1.4, 0xc0281e, 0, 0.6, -1.8));  // cab
   for (const [x, z] of [[-1.1, -1.8], [1.1, -1.8], [-1.1, 1.6], [1.1, 1.6]]) truck.add(wheel(x, z));
+  // ply bundles strapped on the tray: one comes off each trip
+  const bundles = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const b = new THREE.Group();
+    b.add(boxAt(1.7, 0.36, 0.95, i % 2 ? 0xc9a46a : 0xb8935c));
+    for (const sz of [-0.25, 0.25]) b.add(boxAt(1.72, 0.37, 0.04, 0x2a2a2e, 0, 0, sz)); // straps
+    b.position.set(0, 0.85, 1.8 - i * 1.05);
+    bundles.add(b);
+  }
+  truck.add(bundles);
+  truck.userData.bundles = bundles;
   truck.position.set(cx, 0, cz); truck.visible = false;
   for (const v of [ute, truck]) v.traverse(c => { c.userData.objectId = 'rollerDoor'; });
   return { ute, truck };

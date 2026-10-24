@@ -19,6 +19,9 @@ export interface Action {
 
 const money = (n: number) => `$${Math.round(n)}`;
 
+/** UI the actions can open (set by the 3D view). */
+export const uiHooks = { orderPly: () => {} };
+
 function faultActions(g: Game): Action[] {
   const f = g.fault!;
   switch (f.phase) {
@@ -61,9 +64,15 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return a;
     }
     case 'plyPallet': {
+      const truck = g.truckOnApron;
+      if (w.carrying === 'bundle' && truck) {
+        return [{ label: 'Stack the ply', key: 'ply-stack', run: () => { if (g.unloadBundle(truck.id, true)) w.carrying = null; } }];
+      }
+      if (!empty || w.bed !== 'empty' || g.machineDown || !g.queued.length) return [];
       const next = g.nextUp();
-      if (!empty || !next || w.bed !== 'empty' || g.machineDown) return [];
-      return [{ label: `Grab sheet (${next.material})`, run: () => { w.carrying = 'sheet'; } }];
+      if (next) return [{ label: `Grab sheet (${next.material})`, run: () => { if (g.takeSheet()) w.carrying = 'sheet'; } }];
+      // the work's there but the ply isn't
+      return [{ label: 'Grab a sheet', run: () => { w.shrugs = (w.shrugs ?? 0) + 1; } }];
     }
     case 'finishedPallet':
       return w.carrying === 'cut' ? [{ label: 'Stack it', run: () => { w.carrying = null; w.finishedStack += 1; w.utePresent = true; } }] : [];
@@ -97,9 +106,18 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     }
     case 'rollerDoor': {
       const a: Action[] = [];
+      const truck = g.truckOnApron;
+      const doorUp = w.rollerUpUntil !== null;
+      if (truck?.stage === 'waiting' && g.canAct) {
+        if (!doorUp) a.push({ label: 'Open the roller door', key: 'ply-sign', run: () => { w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
+        else a.push({ label: 'Sign for the ply', key: 'ply-sign', run: () => { g.signDelivery(truck.id, true); } });
+      }
+      if (truck?.stage === 'unloading' && empty) {
+        a.push({ label: `Grab a bundle (${truck.bundles.length} left)`, key: 'ply-unload', run: () => { w.carrying = 'bundle'; } });
+      }
       const courier = g.distractions.find(d => d.kind === 'courier');
       if (courier && g.canAct) a.push({ label: 'Sign for delivery', run: () => { if (g.respond(courier.id, 'sign')) w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
-      if (w.utePresent && w.finishedStack > 0) a.push({ label: `Open for pickup (${w.finishedStack})`, run: () => {
+      if (w.utePresent && w.finishedStack > 0 && !truck) a.push({ label: `Open for pickup (${w.finishedStack})`, run: () => {
         w.finishedStack = 0; w.utePresent = false; w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes;
       } });
       return a;
@@ -122,12 +140,15 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, run: () => { g.respond(d.id, 'answer'); } });
         else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, run: () => { g.respond(d.id, 'answer'); } });
       }
+      a.push({ label: 'Order ply', key: 'orderply', auto: false, run: () => uiHooks.orderPly() });
       for (const c of g.callbacks) {
         a.push({ label: `Call ${c.customer} back (${c.sheets} sheets)`, key: `callback-${c.id}`, run: () => { g.callBack(c.id); } });
         a.push({ label: `Ring ${c.customer}, turn it down`, auto: false, run: () => { g.callBack(c.id, 'decline'); } });
       }
       return a;
     }
+    case 'desk':
+      return g.canAct ? [{ label: 'Order ply', key: 'orderply', auto: false, run: () => uiHooks.orderPly() }] : [];
     case 'fridge':
       return g.fridgeOpen && g.canAct ? [{ label: `Beer (${money(CONFIG.competence.beerCost)})`, auto: false, run: () => { g.drinkBeer(); } }] : [];
     case 'toilet':
@@ -158,7 +179,10 @@ export function statusFor(id: ObjectId, g: Game, w: WorldState): string | null {
     }
     case 'plyPallet': {
       const n = g.queued.length, next = g.nextUp();
-      return next ? `${n} to cut · next: ${next.name} (due ${g.dueLabel(next)})` : 'Nothing to cut.';
+      const stock = CONFIG.jobs.types.map(t => `${g.stock[t.id]} ${g.stockWord(t.id)}`).join(' · ');
+      const work = next ? `${n} to cut · next: ${next.name} (due ${g.dueLabel(next)})` : n ? `${n} to cut · no ply for any of it` : 'Nothing to cut.';
+      return `${stock}
+${work}`;
     }
     case 'finishedPallet': return w.finishedStack ? `${w.finishedStack} waiting for pickup` : null;
     case 'bitRack': return g.replacing?.key === 'bit' ? `Swapping bit… ${g.replacing.remaining}m` : null;
