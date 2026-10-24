@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(tsc *)",
+      "Bash(vite *)",
+      "Bash(git *)",
+      "Bash(gh *)",
+
+      "PowerShell(npm *)",
+      "PowerShell(npx *)",
+      "PowerShell(node *)",
+      "PowerShell(tsc *)",
+      "PowerShell(vite *)",
+      "PowerShell(git *)",
+      "PowerShell(gh *)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Test-Path *)"
+    ]
+  }
+}
