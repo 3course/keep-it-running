@@ -48,6 +48,7 @@ function gameFromJson(data: Loose): Game {
     for (const l of d.lines) l.unitCost ??= CONFIG.jobs.types.find(t => t.id === l.type)!.boardCost;
     d.fee ??= CONFIG.supply.deliveryFee; // from before big orders shipped free
   }
+  if (g.fire) g.fire.heat ??= g.fire.minutes; // from before fires spread at the day's breakdown rate
   // a save from before ply stock: keep the new game's truck at the door, and give the driver a fresh wait
   if (!('stock' in data)) for (const d of g.deliveries) { d.day = g.dayIndex; if (d.stage === 'waiting') d.signBy = g.minute + CONFIG.supply.signWindowMinutes; }
   return g;

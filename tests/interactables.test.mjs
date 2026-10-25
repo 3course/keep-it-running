@@ -19,7 +19,7 @@ const stockNext = game => game.eval((g, w, s, boardCost) => {
 }, Object.fromEntries(C.jobs.types.map(t => [t.id, t.boardCost])));
 
 /** A spot fire at the exhaust unit end of the duct. */
-const startFire = game => game.eval(g => { g.fire = { id: 99, stage: 'spot', minutes: 0, sprayed: 0 }; });
+const startFire = game => game.eval(g => { g.fire = { id: 99, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 }; });
 
 const CASES = {
   async machine(game) {
@@ -176,6 +176,21 @@ describe('interactables', () => {
     for (const id of withActions) assert.ok(OBJECTS.some(o => o.id === id), `${id} is in the shed`);
     assert.deepEqual(Object.keys(CASES).sort(), withActions.sort());
     assert.equal(withActions.length, 17);
+  });
+
+  // the exhaust unit's glow: a spot fire only smokes at first; day 2's lesson fire (CONFIG.fire.lesson) glows from the start
+  it('exhaust glow: smoke first, but the lesson fire glows at once', async () => {
+    const game = await freshGame(env);
+    try {
+      const glowing = async fire => {
+        await game.eval((g, w, s, f) => { g.fire = f; }, fire);
+        await frames(game);
+        return game.eval((g, w, s) => s.effects.fireGroup.visible);
+      };
+      assert.equal(await glowing({ id: 1, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 }), false, 'a new spot fire is just smoke');
+      assert.equal(await glowing({ id: 1, stage: 'spot', minutes: C.fire.smokeOnlyMinutes, sprayed: 0, heat: 0 }), true, 'then it glows');
+      assert.equal(await glowing({ id: 2, stage: 'spot', minutes: 0, sprayed: 0, heat: 0, lesson: true }), true, 'the lesson fire glows straight away');
+    } finally { await game.close(); }
   });
 
   for (const [id, run] of Object.entries(CASES)) {

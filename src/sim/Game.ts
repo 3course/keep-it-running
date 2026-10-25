@@ -74,6 +74,7 @@ export class Game {
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
   extinguisherUsesToday = 0;
+  lessonFireDone = false;      // the scripted spot fire (CONFIG.fire.lesson) has happened
   private nextFireId = 1;
 
   // people
@@ -103,8 +104,10 @@ export class Game {
   log: LogEntry[] = [];
   private nextJobId = 1;
 
-  constructor(seed?: number) {
+  /** `firstDay`: the dayIndex to start on (the balance sim starts later to play a week past the difficulty ramp). */
+  constructor(seed?: number, firstDay = 1) {
     this.rng = new Rng(seed);
+    this.dayIndex = firstDay;
     this.startDay();
     // the first morning's ply was ordered (and paid for) last week: the truck's at the door
     const first = CONFIG.supply.firstDelivery;
@@ -129,6 +132,11 @@ export class Game {
   get friendPresent(): boolean { return this.distractions.some(d => d.kind === 'friend' && d.engaged); }
   get canAct(): boolean { return this.busy === null && this.fireResponse === null; }
   get fridgeOpen(): boolean { return this.hour >= CONFIG.beer.fridgeUnlockHour; }
+  /** Today's fraction of the full breakdown rate (CONFIG.difficulty): none on the first days, ramping up. */
+  get breakdownMult(): number {
+    const ramp = CONFIG.difficulty.breakdownByDay;
+    return ramp[Math.min(this.dayIndex, ramp.length) - 1];
+  }
   get heldCan(): Can | undefined { return this.cans.find(c => c.held); }
   get needLoo(): boolean { return this.looSince !== null; }
   /** Task and walk speed lost to beer, 0…0.6. */
@@ -379,6 +387,7 @@ export class Game {
       this.wearConsumables();
       if (this.current.progress >= this.current.cutMinutes) this.finishJob();
       else this.maybeFault(false);
+      this.maybeLessonFire();
       this.maybeFire();
     }
 
@@ -444,6 +453,7 @@ export class Game {
       p *= 1 + (1 - worst) * CONFIG.faults.worstConsumableChanceBoost;
       if (this.friendPresent) p *= CONFIG.faults.attentionSplitChanceMult;
     }
+    p *= this.breakdownMult;
     if (!this.rng.chance(p)) return;
     const def = this.rng.weighted(FAULTS, d => this.faultWeight(d, atStart));
     if (!def) return;
@@ -524,7 +534,17 @@ export class Game {
     if (this.fire || this.machineDown || this.machine !== 'cutting') return;
     if (!this.rng.chance(this.fireChance())) return;
     // no alarm and no log line: the smoke at the duct and the to-do list are the only tells
-    this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0 };
+    this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 };
+    this.today.firesSpot += 1;
+  }
+
+  /** The scripted lesson fire (CONFIG.fire.lesson): once, on its day, the first minute a sheet's cutting from its hour. */
+  private maybeLessonFire() {
+    const l = CONFIG.fire.lesson;
+    if (this.lessonFireDone || this.dayIndex !== l.day || this.hour < l.fromHour) return;
+    if (this.fire || this.machineDown || this.machine !== 'cutting') return;
+    this.lessonFireDone = true;
+    this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0, heat: 0, lesson: true };
     this.today.firesSpot += 1;
   }
 
@@ -557,12 +577,14 @@ export class Game {
       f.sprayed += 1;
       if (f.sprayed >= c.sprayMinutes[f.stage]) { this.extinguish(); return; }
     }
-    if (f.stage === 'spot' && f.minutes >= c.ductFireAfterMinutes) {
+    // it spreads at today's breakdown rate: not at all on the first days
+    f.heat += this.breakdownMult * (f.lesson ? c.lesson.escalationMult : 1);
+    if (f.stage === 'spot' && f.heat >= c.ductFireAfterMinutes) {
       f.stage = 'duct';
       this.today.firesDuct += 1;
       if (!this.fault) this.machine = 'fire';
       this.say('Flames in the duct. The cut has stopped.', 'bad');
-    } else if (f.stage === 'duct' && f.minutes >= c.extractorFireAfterMinutes) {
+    } else if (f.stage === 'duct' && f.heat >= c.extractorFireAfterMinutes) {
       this.extractorFire();
     }
   }

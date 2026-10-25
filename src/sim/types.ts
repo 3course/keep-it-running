@@ -8,6 +8,8 @@ export interface Fire {
   stage: 'spot' | 'duct';
   minutes: number;        // since it started
   sprayed: number;        // minutes of spraying so far
+  heat: number;           // how far it's spread: full-rate minutes (grows at the day's breakdown rate)
+  lesson?: boolean;       // the scripted teaching fire (CONFIG.fire.lesson): glows from the start, spreads slower
 }
 
 /** You, dealing with a fire: walk to the extinguisher, grab it, walk to the duct, spray, walk it back. */

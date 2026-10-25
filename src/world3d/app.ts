@@ -872,7 +872,7 @@ export class World3D {
     // fire and smoke
     const fire = g.fire;
     const smoke: 0 | 1 | 2 = fire ? 1 : g.machineDown ? 2 : 0;
-    const flames: 0 | 1 | 2 = fire ? (fire.stage === 'duct' ? 2 : fire.minutes >= CONFIG.fire.smokeOnlyMinutes ? 1 : 0) : 0;
+    const flames: 0 | 1 | 2 = fire ? (fire.stage === 'duct' ? 2 : fire.lesson || fire.minutes >= CONFIG.fire.smokeOnlyMinutes ? 1 : 0) : 0;
     const nozzle = g.spraying ? new THREE.Vector3(this.pos.x + w.fx * 0.3, 0.7, this.pos.z + w.fy * 0.3) : null;
     this.effects.update(dt, smoke, flames, nozzle);
 

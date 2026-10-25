@@ -73,8 +73,8 @@ export const CONFIG = {
     dullBitBelow: 0.3,            // bit health below this counts as dull…
     dullBitMult: 1.5,             // …and multiplies the chance by this (job type's fireChanceMult stacks too)
     smokeOnlyMinutes: 20,         // smoke first; the orange glow shows after this
-    ductFireAfterMinutes: 90,     // ignored this long: duct fire — cut stops until it's out
-    extractorFireAfterMinutes: 180, // ignored this long: extractor fire — repair bill, machine down for the day
+    ductFireAfterMinutes: 90,     // ignored this long (at the full breakdown rate): duct fire — cut stops until it's out
+    extractorFireAfterMinutes: 180, // ignored this long (at the full breakdown rate): extractor fire — repair bill, machine down for the day
     extractorRepairCost: 800,
     walkToExtinguisherMinutes: 5, // extinguisher hangs by the roller door
     grabMinutes: 1,
@@ -83,6 +83,17 @@ export const CONFIG = {
     sprayMinutes: { spot: 3, duct: 6 }, // hold E at the duct this long
     refillEveryUses: 2,           // the extinguisher is good for this many fires…
     refillCost: 60,               // …then it's a refill
+    // Escalation (spot → duct → extractor) runs at the day's breakdown rate (difficulty, below): a spot fire on a grace day never spreads.
+    // The lesson: one scripted spot fire on `day`, the first minute a sheet's cutting from `fromHour`, to teach the extinguisher
+    // walk before fires matter. It glows straight away and escalates at escalationMult of the day's rate.
+    lesson: { day: 2, fromHour: 10, escalationMult: 0.5 },
+  },
+
+  // The difficulty curve. Breakdowns — machine faults (anything that stops the machine or ruins a sheet) and fires spreading past a
+  // spot fire — run at this fraction of their full rate on each day of the game: index 0 is day 1, later days use the last value.
+  // The first days are for learning the shed: chores, the phone, pickups, deliveries and spot fires still happen.
+  difficulty: {
+    breakdownByDay: [0, 0, 0, 0.3, 0.45, 0.6, 0.7, 0.8, 0.9, 1],
   },
 
   faults: {

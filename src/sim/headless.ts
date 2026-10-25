@@ -1,5 +1,10 @@
-// Headless balance check: plays a week with a simple "competent operator" policy
-// and a "sloppy operator" policy, prints the P&L for each. Run with `npm run sim`.
+// Headless balance check: plays a week with a "competent", an "average" and a "sloppy" operator policy and prints
+// the P&L for each. Run with `npm run sim`.
+//
+// Two weeks per script and seed: week 1 of a new game (breakdowns ramp in from zero, CONFIG.difficulty) and a
+// steady-state week (a new game started past the end of the ramp, so breakdowns run at the full rate all week).
+// The detailed lines are for the steady-state week; `npm run sim -- week1` prints them for week 1 instead.
+// Both end with a summary: margin and scrap rate (sheets ruined / sheets cut) per script.
 import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
 import type { DayStats } from './types.js';
@@ -151,8 +156,91 @@ const sloppy: Policy = (g) => {
   if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet();
 };
 
-function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) {
-  const g = new Game(seed);
+// average's reaction to each fire and fault, decided when it turns up: the absolute minute they get round to it
+const averageGetsTo = new WeakMap<Game, Map<string, number>>();
+// average's call on each worn consumable, decided when it's due: true = puts it off until it's nearly gone
+const averagePutsOff = new WeakMap<Game, Map<string, boolean>>();
+const now = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
+
+/** When average gets to this fire or fault: straight away, or (a third of the time) minLag–maxLag minutes later. */
+function averageReacts(g: Game, key: string, minLag: number, maxLag: number): boolean {
+  let m = averageGetsTo.get(g);
+  if (!m) averageGetsTo.set(g, m = new Map());
+  if (!m.has(key)) m.set(key, now(g) + (g.rng.chance(1 / 3) ? g.rng.int(minLag, maxLag) : 0));
+  return now(g) >= m.get(key)!;
+}
+
+/** Average swaps a worn part between sheets like competent, but puts a third of the swaps off until the part's nearly gone. */
+function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
+  let m = averagePutsOff.get(g);
+  if (!m) averagePutsOff.set(g, m = new Map());
+  const health = g.wear[key];
+  if (health >= at) { m.delete(key); return false; }
+  if (!m.has(key)) m.set(key, g.rng.chance(1 / 3));
+  return !m.get(key) || health < 0.08;
+}
+
+/**
+ * Average: knows the job but isn't on top of it. Misses or delays about a third of the fires and faults it should react to,
+ * usually makes the right call once it does, and sometimes lets chores slide (puts off swaps, gets to trucks and the next sheet late).
+ */
+const average: Policy = (g) => {
+  if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
+  if (g.fire && averageReacts(g, `fire-${g.fire.id}`, 20, 60) && g.fightFire()) return;
+  if (g.fault) {
+    const f = g.fault;
+    if (!averageReacts(g, `fault-${g.dayIndex}-${g.today.faults}`, 5, 20)) return; // hasn't noticed / gets to it after this
+    if (f.phase === 'diagnose') {
+      const right = f.def.diagnoses.find(d => d.correct)!;
+      const untried = f.def.diagnoses.filter(d => !f.triedDiagnoses.includes(d.id));
+      g.diagnose(g.rng.chance(0.75) ? right.id : g.rng.pick(untried).id);
+    } else if (f.phase === 'choosePath') {
+      const byCost = [...g.availablePaths()].sort((a, b) => a.steps.reduce((s, x) => s + x.cost, 0) - b.steps.reduce((s, x) => s + x.cost, 0));
+      g.choosePath(byCost[0].id);
+    } else if (f.phase === 'step') {
+      g.doStep();
+    }
+    return;
+  }
+  if (g.truckOnApron?.stage === 'waiting' && g.rng.chance(0.5)) handleTruck(g);
+  for (const d of g.distractions) {
+    if (d.kind === 'friend') g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat');
+    else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
+  }
+  for (const c of g.callbacks) g.callBack(c.id);
+  competentOrders(g);
+  if (g.machine === 'idle' && g.queued.length) {
+    if (averageWantsSwap(g, 'bit', 0.3)) { g.replaceConsumable('bit'); return; }
+    if (averageWantsSwap(g, 'filter', 0.25)) { g.replaceConsumable('filter'); return; }
+    // in overtime, only a sheet that'll be off the bed by lights-out (a half-cut one is scrap)
+    const next = g.nextUp();
+    const fits = !g.overtime || (!!next && g.minute + CONFIG.jobs.loadMinutes + next.cutMinutes < CONFIG.clock.overtimeEndHour * 60);
+    if (fits && g.rng.chance(0.8) && g.loadNextSheet()) return;
+  }
+  if (g.rng.chance(0.7)) handleTruck(g);
+};
+
+interface Script {
+  name: string;
+  policy: Policy;
+  /** At 5pm: work overtime (to 7pm at double rate) or knock off? A half-cut sheet on the bed is scrap if you knock off. */
+  overtime: (g: Game) => boolean;
+}
+
+const SCRIPTS: Script[] = [
+  // a half-cut sheet on the bed counts as work left: knocking off would scrap it
+  { name: 'competent', policy: competent, overtime: g => !g.machineDown && (!!g.current || g.queued.length > 0) },
+  { name: 'average', policy: average, overtime: g => !g.machineDown && !!g.current }, // only to save the sheet on the bed
+  { name: 'sloppy', policy: sloppy, overtime: () => false },
+];
+
+/** First day of a steady-state week: the ramp's last entry, which every later day uses too. */
+const STEADY_FROM = CONFIG.difficulty.breakdownByDay.length;
+
+interface WeekResult { g: Game; idle: { total: number; longest: number }[] }
+
+function playWeek(script: Script, seed: number, firstDay: number): WeekResult {
+  const g = new Game(seed, firstDay);
   let guard = 0;
   // Per day: minutes the bed sat empty (machine 'idle') while labour was on the clock, and the longest such run.
   // Fault downtime and consumable swaps aren't counted — this measures pacing, not breakdowns.
@@ -161,20 +249,31 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   while (g.phase !== 'weekSummary' && guard++ < 100000) {
     if (g.phase === 'day') {
       if (idleDay !== g.today) { idleDay = g.today; idle.push({ total: 0, longest: 0 }); run = 0; }
-      policy(g); g.tick();
+      script.policy(g); g.tick();
       const today = idle[idle.length - 1];
       const phaseAfter = g.phase as Phase; // tick() can end the day; don't count the 7pm lights-off minute
       if (phaseAfter !== 'daySummary' && g.machine === 'idle') {
         today.total += 1; run += 1; today.longest = Math.max(today.longest, run);
       } else run = 0;
     }
-    // a half-cut sheet on the bed counts as work left: knocking off would scrap it
-    else if (g.phase === 'endOfDayPrompt') { overtime && !g.machineDown && (g.current || g.queued.length) ? g.startOvertime() : g.knockOff(); }
+    else if (g.phase === 'endOfDayPrompt') { script.overtime(g) ? g.startOvertime() : g.knockOff(); }
     else if (g.phase === 'daySummary') {
-      if (name === 'competent' && !g.upgrades.has('extractor') && g.cash > 3500) g.buyUpgrade('extractor');
+      if (script.name === 'competent' && !g.upgrades.has('extractor') && g.cash > 3500) g.buyUpgrade('extractor');
       g.nextDay();
     }
   }
+  return { g, idle };
+}
+
+const margin = (days: DayStats[]) => {
+  const rev = days.reduce((s, d) => s + d.revenue, 0), cost = days.reduce((s, d) => s + d.costs, 0);
+  return rev > 0 ? (rev - cost) / rev : 0;
+};
+const sum = (days: DayStats[], k: keyof DayStats) => days.reduce((s, d) => s + d[k], 0);
+/** Sheets ruined / sheets cut. */
+const scrapRate = (days: DayStats[]) => sum(days, 'sheetsScrapped') / Math.max(1, sum(days, 'sheetsDone'));
+
+function report(name: string, seed: number, { g, idle }: WeekResult) {
   const rev = g.week.reduce((s, d) => s + d.revenue, 0);
   const cost = g.week.reduce((s, d) => s + d.costs, 0);
   const done = g.week.reduce((s, d) => s + d.sheetsDone, 0);
@@ -198,7 +297,7 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
     `trucks/wk=${g.week.reduce((s, d) => s + d.trucks, 0)} fees=$${g.week.reduce((s, d) => s + d.deliveryFees, 0)} ply on hand=$${g.plyOnHand.value.toFixed(0)} (${g.plyOnHand.sheets}) cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport} stock=${CONFIG.jobs.types.map(t => g.stock[t.id]).join('/')}`,
   );
   const fires = (d: DayStats) => `${d.firesSpot}/${d.firesDuct}/${d.firesExtractor}`;
-  if (name === 'sloppy') console.log(`${''.padEnd(13)}beer: ${wk('beers').trim()} cans/day, fumbles ${wk('fumbles').trim()}/day (week ${g.week.reduce((s, d) => s + d.fumbles, 0)}), loo trips ${wk('looTrips').trim()}/day (week ${g.week.reduce((s, d) => s + d.looTrips, 0)})`);
+  if (g.week.some(d => d.beers > 0)) console.log(`${''.padEnd(13)}beer: ${wk('beers').trim()} cans/day, fumbles ${wk('fumbles').trim()}/day (week ${g.week.reduce((s, d) => s + d.fumbles, 0)}), loo trips ${wk('looTrips').trim()}/day (week ${g.week.reduce((s, d) => s + d.looTrips, 0)})`);
   console.log(`${''.padEnd(13)}fires spot/duct/extractor: day1 ${fires(d1)} | week per day ${wk('firesSpot').trim()}/${wk('firesDuct').trim()}/${wk('firesExtractor').trim()} | by day ${g.week.map(fires).join('  ')}`);
   // Per job type, whole week: contribution = revenue - boards (incl. ruined) - fault fixes while it was on the bed.
   // Labour, consumables and overheads are shared and not split, so these margins sit above the week margin.
@@ -212,6 +311,32 @@ function runWeek(name: string, policy: Policy, seed: number, overtime: boolean) 
   console.log(`${''.padEnd(13)}by type: ${byType.join(' | ')}`);
 }
 
-console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash})`);
-for (const seed of [1, 2, 3, 4, 5]) runWeek('competent', competent, seed, true);
-for (const seed of [1, 2, 3, 4, 5]) runWeek('sloppy', sloppy, seed, false);
+const SEEDS = [1, 2, 3, 4, 5];
+const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
+const detail = args[2] === 'week1' ? 'week1' : 'steady';
+const runs = SCRIPTS.map(script => ({
+  script,
+  week1: SEEDS.map(seed => playWeek(script, seed, 1)),
+  steady: SEEDS.map(seed => playWeek(script, seed, STEADY_FROM)),
+}));
+
+console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash}), ` +
+  (detail === 'week1' ? 'week 1 of a new game' : `steady state (days ${STEADY_FROM}–${STEADY_FROM + CONFIG.week.days - 1}, full breakdown rate)`));
+for (const r of runs) r[detail].forEach((w, i) => report(r.script.name, SEEDS[i], w));
+
+const pct = (v: number) => `${(v * 100).toFixed(0)}%`.padStart(5);
+const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+const grace = CONFIG.difficulty.breakdownByDay.findIndex(m => m > 0); // days at the start with no breakdowns
+console.log(`\nWeek 1 (breakdowns by day: ${CONFIG.difficulty.breakdownByDay.slice(0, CONFIG.week.days).join(', ')}) vs steady state. Scrap = sheets ruined / sheets cut.`);
+console.log(`${'script'.padEnd(10)} ${'seed'.padEnd(4)} | week 1: margin scrap  days 1-${grace} ruined/cut | steady: margin scrap`);
+for (const r of runs) {
+  const rows = SEEDS.map((seed, i) => {
+    const w1 = r.week1[i].g.week, st = r.steady[i].g.week, early = w1.slice(0, grace);
+    return { seed, m1: margin(w1), s1: scrapRate(w1), ruined: sum(early, 'sheetsScrapped'), cut: sum(early, 'sheetsDone'), ms: margin(st), ss: scrapRate(st) };
+  });
+  for (const x of rows) {
+    console.log(`${r.script.name.padEnd(10)} s${String(x.seed).padEnd(3)} |        ${pct(x.m1)} ${pct(x.s1)}  ${`${x.ruined}/${x.cut}`.padStart(13)}        |         ${pct(x.ms)} ${pct(x.ss)}`);
+  }
+  const ruined = rows.reduce((s, x) => s + x.ruined, 0), cut = rows.reduce((s, x) => s + x.cut, 0);
+  console.log(`${r.script.name.padEnd(10)} mean |        ${pct(mean(rows.map(x => x.m1)))} ${pct(mean(rows.map(x => x.s1)))}  ${`${ruined}/${cut}`.padStart(13)}        |         ${pct(mean(rows.map(x => x.ms)))} ${pct(mean(rows.map(x => x.ss)))}`);
+}
