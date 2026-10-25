@@ -7,7 +7,9 @@ import { newWorld } from './world/state.js';
 
 // Closing the app is a pause: pick up exactly where the last session left off, clock stopped.
 const saved = readSave();
-const game = saved?.game ?? new Game();
+// ?seed=N starts a new game on that seed (reproducible: the browser tests use it); otherwise a random one
+const seed = Number(new URLSearchParams(location.search).get('seed')) || undefined;
+const game = saved?.game ?? new Game(seed);
 const world = saved?.world ?? newWorld(game);
 
 // what the GPU can do decides the render tier (?safe=1 forces the plain one)

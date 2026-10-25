@@ -8,17 +8,18 @@ import type { Game } from '../sim/Game.js';
 import { Hints } from '../ui/hints.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
-import { actionsFor, statusFor, uiHooks, type Action } from '../world/interactables.js';
+import { actionsFor, statusFor, uiHooks, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
 import { absMinute, logEvent, startNewDay, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
-import { TOO_EARLY, mateById } from '../data/mates.js';
+import { mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
 import { buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
+import { VisitorWalker } from './visitor.js';
 import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
@@ -105,7 +106,8 @@ export class World3D {
   private canMeshes = new Map<number, THREE.Group>();
   private pendingCan: number | null = null;
   private sipsSeen = 0;
-  private mateSeen: { id: number; at: number } | null = null; // the mate at the door, and when they turned up
+  /** The visiting mate's walking (where they go is Game's call). Public for tests. */
+  readonly visitor: VisitorWalker;
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
@@ -126,6 +128,7 @@ export class World3D {
 
     this.camera = new THREE.PerspectiveCamera(WORLD.fov, this.vw / this.vh, 0.1, 120);
     this.solid = solidCells(); // solid objects and the big clutter
+    this.visitor = new VisitorWalker(this.walkable);
     this.buildScene();
 
     this.pos = { x: w.px, z: w.py };
@@ -344,6 +347,7 @@ export class World3D {
     }
     this.syncWorld();
     this.move(dt);
+    this.updateVisitor(dt);
     this.updateTour();
     this.updateTrail(dt);
     this.updateViewOffset();
@@ -717,6 +721,11 @@ export class World3D {
       const status = c.fill > 0 ? `Beer · ${Math.round(c.fill * 100)}% left${c.warm ? ' · warm' : ''}` : 'Empty can';
       entries.push({ id: `can-${c.id}`, anchor: new THREE.Vector3(spot.x, 0.55, spot.z), acts: this.canActions(c.id), status });
     }
+    // the visiting mate, when they're beside you
+    const mate = live ? g.distractions.find(d => d.kind === 'friend') : undefined;
+    if (mate && Math.hypot(this.visitor.x - this.pos.x, this.visitor.z - this.pos.z) <= WORLD.visitorTalkRange) {
+      entries.push({ id: `visitor-${mate.id}`, anchor: new THREE.Vector3(this.visitor.x, 1.75, this.visitor.z), acts: visitorActions(g, mate), status: visitorStatus(g, mate) });
+    }
     const shown = entries.filter(e => e.acts.length || e.status);
     const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => a.label), e.status, g.spraying]));
     if (sig !== this.labelSig && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
@@ -862,7 +871,11 @@ export class World3D {
     const mate = g.distractions.find(d => d.kind === 'friend');
     this.built.mate.visible = !!mate;
     if (mate) {
-      this.built.mate.rotation.y = Math.sin(this.time * 2) * 0.3 + Math.PI * 0.1;
+      const v = this.visitor;
+      this.built.mate.position.set(v.x, 0, v.z);
+      // facing where they're going; when they've stopped to talk to you, facing you
+      const talking = (!!mate.ask || mate.engaged) && !v.walking;
+      this.built.mate.rotation.y = talking ? Math.atan2(-(this.pos.x - v.x), -(this.pos.z - v.z)) + Math.sin(this.time * 2) * 0.15 : v.facing;
       // each mate always wears the same shirt
       const shirt = mateById(mate.mate)?.shirt;
       const body = this.built.mate.children[0] as THREE.Mesh;
@@ -1042,22 +1055,11 @@ export class World3D {
     b.style.left = `${p.x.toFixed(1)}px`; b.style.top = `${p.y.toFixed(1)}px`;
   }
 
-  /**
-   * The mate's line over their head when they turn up (and again when you're close and haven't answered).
-   * Before the fridge opens it gets a follow-up after a beat: too early for a beer, but got a sec?
-   */
+  /** What the visiting mate's come up to say, over their head until you answer (or they give up and start yarning). */
   private updateMateBubble() {
     const g = this.g, b = this.hud.mateBubble;
     const mate = g.phase === 'day' ? g.distractions.find(d => d.kind === 'friend') : undefined;
-    if (!mate) { this.mateSeen = null; b.style.display = 'none'; return; }
-    if (this.mateSeen?.id !== mate.id) this.mateSeen = { id: mate.id, at: this.time };
-    const t = this.time - this.mateSeen.at;
-    const close = Math.hypot(this.built.mate.position.x - this.pos.x, this.built.mate.position.z - this.pos.z) < 2.5;
-    const early = !g.fridgeOpen;
-    let text: string | null = null;
-    if (t < 4) text = mate.line;
-    else if (early && t < 8) text = TOO_EARLY;
-    else if (close && !mate.engaged) text = early ? TOO_EARLY : mate.line;
+    const text = mate?.ask?.text;
     if (!text || this.paused) { b.style.display = 'none'; return; }
     const p = this.project(this.built.mate.position.clone().setY(1.4));
     if (b.textContent !== text) b.textContent = text;
@@ -1066,6 +1068,15 @@ export class World3D {
     const half = b.offsetWidth / 2 + 6;
     const x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x)), y = Math.max(b.offsetHeight + 80, Math.min(this.vh - 20, p.y));
     b.style.left = `${x.toFixed(1)}px`; b.style.top = `${y.toFixed(1)}px`;
+  }
+
+  /** Walk the visiting mate: Game says where they want to be; they keep out of your way. */
+  private updateVisitor(dt: number) {
+    const mate = this.g.phase === 'day' ? this.g.distractions.find(d => d.kind === 'friend') : undefined;
+    let route: { x: number; z: number }[] = [];
+    if (this.path) route = this.path.slice(this.pathIdx).map(t => ({ x: (t.x + 0.5) * C, z: (t.y + 0.5) * C }));
+    else if (Math.hypot(this.vel.x, this.vel.z) > 0.3) route = [{ x: this.pos.x + this.vel.x * 0.6, z: this.pos.z + this.vel.z * 0.6 }]; // on the stick: just ahead
+    this.visitor.update(this.paused ? 0 : dt, this.time, mate, { x: this.pos.x, z: this.pos.z, route });
   }
 
   /** Crisp lettering over each doorway's sign (the 3D sign is only a few pixels at this resolution). */
@@ -1113,7 +1124,7 @@ export class World3D {
       if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
       if (g.truckOnApron || g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
       else if (w.utePresent) problems.push({ key: 'ute', icon: '🛻', pos: this.built.vehicles.ute.position.clone().setY(1.2) });
-      if (g.distractions.some(d => d.kind === 'friend')) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });
+      if (g.distractions.some(d => d.kind === 'friend' && d.ask)) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });
       const left = Math.max(0, this.coverLeft), u = this.hud.unit;
       const cx = (left + this.vw) / 2, cy = this.vh / 2, minX = left + 26 * u, maxX = this.vw - 26 * u, minY = 130 * u, maxY = this.vh - 70 * u;
       for (const pb of problems) {

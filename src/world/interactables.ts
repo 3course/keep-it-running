@@ -6,6 +6,7 @@
 // says what happened — `done` is the line it leaves in the notepad's recent events.
 import { CONFIG, type ConsumableKey } from '../config.js';
 import type { Game } from '../sim/Game.js';
+import type { Distraction } from '../sim/types.js';
 import type { ObjectId } from './layout.js';
 import { absMinute, type WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
@@ -153,18 +154,6 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       } });
       return a;
     }
-    case 'smoko': {
-      const mate = g.distractions.find(d => d.kind === 'friend');
-      if (!mate) return [];
-      const who = g.mateName(mate);
-      const a: Action[] = [];
-      const beer = g.fridgeOpen && !mate.grabbedBeer; // after 2pm, yes means a beer for them
-      if (!mate.engaged) a.push(beer
-        ? { label: `Grab ${who} a beer (${money(CONFIG.beer.cost)})`, auto: false, done: `Having a beer with ${who}`, run: () => { g.respond(mate.id, 'chat'); } }
-        : { label: 'Have a yarn', done: `Yarning with ${who}`, run: () => { g.respond(mate.id, 'chat'); } });
-      a.push({ label: '"Flat out, sorry"', auto: false, done: `Sent ${who} off`, run: () => { g.respond(mate.id, 'disengage'); } });
-      return a;
-    }
     case 'phone': {
       if (!g.canAct) return [];
       const a: Action[] = [];
@@ -228,10 +217,28 @@ ${work}`;
     case 'extractor': return g.replacing?.key === 'filter' ? `Changing bag… ${g.replacing.remaining}m` : null;
     case 'phone': return g.busy ? `${g.busy.label}… ${g.busy.remaining}m` : null;
     case 'toilet': return w.toiletUntil ? `Occupied… ${Math.max(0, w.toiletUntil - absMinute(g))}m` : null;
-    case 'smoko': {
-      const mate = g.distractions.find(d => d.kind === 'friend');
-      return mate ? `${g.mateName(mate)}: ${mate.engaged ? `chatting, ${mate.remaining}m to go` : `"${mate.line}"`}` : null;
-    }
     default: return null;
   }
+}
+
+/**
+ * A visiting mate, when you're next to them: they've come up with something to say (a yes, and "flat out"), or
+ * they're yarning with you ("flat out" ends it). Nothing while they're off wandering. A yes to a beer they asked
+ * for is a beer for them, within the day's caps; anything else is a yarn.
+ */
+export function visitorActions(g: Game, d: Distraction): Action[] {
+  if (g.phase !== 'day') return [];
+  const who = g.mateName(d);
+  const flatOut: Action = { label: '"Flat out, sorry"', auto: false, done: `Sent ${who} off for a bit`, run: () => { g.respond(d.id, 'disengage'); } };
+  if (d.engaged) return [flatOut];
+  if (!d.ask) return [];
+  const yes: Action = d.ask.kind === 'beer' && g.visitorMayHaveBeer(d)
+    ? { label: `Grab ${who} a beer (${money(CONFIG.beer.cost)})`, auto: false, done: `Having a beer with ${who}`, run: () => { g.respond(d.id, 'chat'); } }
+    : { label: 'Have a yarn', done: `Yarning with ${who}`, run: () => { g.respond(d.id, 'chat'); } };
+  return [yes, flatOut];
+}
+
+/** What a visiting mate's up to, shown over them when you're close (what they've come to say is in their speech bubble). */
+export function visitorStatus(g: Game, d: Distraction): string | null {
+  return d.engaged ? `${g.mateName(d)}: yarning, ${d.chat}m to go` : null;
 }

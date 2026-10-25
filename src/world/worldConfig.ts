@@ -34,6 +34,8 @@ export const WORLD = {
   camYawLerp: 1.5,
   wallFadeDistance: 4.5,               // walls this close between camera and player go see-through
 
+  visitorSpeed: 1.6,                   // m/s: a visiting mate ambles
+  visitorTalkRange: 2.0,               // m: close enough to answer a mate who's come up to you
   interactRange: 0.7,                  // m from the player's centre to an object's footprint
   offerSwapBelow: 0.6,                 // swap labels (bit, bag, spoilboard) only show once the part is this worn
   rollerOpenMinutes: 4,                // game minutes the roller door stays up after a pickup or delivery

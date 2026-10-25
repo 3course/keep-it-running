@@ -1,4 +1,4 @@
-import type { ConsumableKey, JobTypeId, UpgradeId } from '../config.js';
+import type { CONFIG, ConsumableKey, JobTypeId, UpgradeId } from '../config.js';
 
 export type MachineState = 'idle' | 'loading' | 'cutting' | 'paused' | 'fault' | 'estop' | 'fire' | 'down';
 
@@ -91,15 +91,28 @@ export interface Distraction {
   kind: DistractionKind;
   title: string;
   line: string;
-  remaining: number;      // friend: minutes they'll stay. others: response window.
-  engaged: boolean;       // friend: you're chatting (attention split)
-  hover: number;          // friend: minutes they hang back before starting to talk
+  remaining: number;      // friend: minutes left of the visit. others: response window.
+  engaged: boolean;       // friend: you're having a yarn (attention split)
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
   orderType?: JobTypeId;  // phone: what kind of job the order is
   customer?: string;      // phone: who's calling with the order
-  grabbedBeer?: boolean;  // friend: already had a beer from your fridge
-  mate?: string;          // friend: which mate (src/data/mates.ts)
+  // friend: a mate visiting (CONFIG.visitors)
+  mate?: string;          // which mate (src/data/mates.ts)
+  ask?: VisitorAsk | null; // what they've come up to you to say; null while they wander
+  chat?: number;          // minutes left of the yarn they're having with you
+  cooldown?: number;      // minutes until they come up to you again
+  beers?: number;         // beers from your fridge this visit
+  lastLine?: string;      // the last thing they said (never twice running)
+  told?: number[];        // stories told this visit
+  approaches?: number;    // times they've come up to you this visit
+  /** Where they're mooching about: an area, a 0..1 pick of a spot in it (the view turns it into a place), minutes left there. */
+  wander?: { area: VisitorArea; spot: number; left: number };
 }
+
+export type VisitorArea = (typeof CONFIG.visitors.areas)[number];
+
+/** A mate at your elbow: an ask (a beer, or a cuppa/yarn), shop talk or a story. `left`: minutes they'll wait for an answer. */
+export interface VisitorAsk { kind: 'beer' | 'cuppa' | 'shop' | 'story'; text: string; left: number }
 
 /**
  * A ply order on its way. 'due': not here yet. 'waiting': the truck's on the apron for a signature.

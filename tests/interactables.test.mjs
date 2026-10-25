@@ -1,10 +1,10 @@
-// Every interactable in the shed (each object src/world/interactables.ts has actions for): set up the moment
-// its action makes sense, walk there, tap the label with a finger, and check the game did what the label
-// said. One new game per object.
+// Every interactable in the shed (each object src/world/interactables.ts has actions for, and a visiting mate): set up
+// the moment its action makes sense, walk there, tap the label with a finger, and check the game did what the label
+// said. One new game per interactable. Then how a visiting mate moves about: out of doorways and out of your way.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, describe, it } from 'node:test';
-import { frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -128,10 +128,11 @@ const CASES = {
     assert.equal(await game.eval((g, w) => w.carrying), 'bundle');
   },
 
-  async smoko(game) {
+  // not an object: a visiting mate, who walks up to you with something to say (their labels come up over them)
+  async visitor(game) {
     await setTime(game, 10);
     const mate = await freshMate(game);
-    await walkTo(game, 'smoko');
+    await waitForLabel(game, 'Have a yarn', 20_000);
     assert.equal((await tapLabel(game, 'Have a yarn')).said, `Yarning with ${mate.name}`);
     assert.equal((await mateNow(game)).engaged, true);
   },
@@ -167,15 +168,15 @@ const CASES = {
 };
 
 describe('interactables', () => {
-  it('has a case for every object with actions', async () => {
-    // the objects actionsFor() has a `case` for; the rest (duct, racks, bags) are scenery
+  it('has a case for every object with actions, and the visitor', async () => {
+    // the objects actionsFor() has a `case` for; the rest (duct, racks, bags, the smoko chairs) are scenery
     const src = readFileSync(new URL('../src/world/interactables.ts', import.meta.url), 'utf8');
     const body = src.slice(src.indexOf('export function actionsFor'), src.indexOf('export function statusFor'));
     const withActions = [...body.matchAll(/case '(\w+)':/g)].map(m => m[1]);
     const { OBJECTS } = await env.load('/src/world/layout.ts');
     for (const id of withActions) assert.ok(OBJECTS.some(o => o.id === id), `${id} is in the shed`);
-    assert.deepEqual(Object.keys(CASES).sort(), withActions.sort());
-    assert.equal(withActions.length, 17);
+    assert.deepEqual(Object.keys(CASES).sort(), [...withActions, 'visitor'].sort());
+    assert.equal(Object.keys(CASES).length, 17);
   });
 
   // the exhaust unit's glow: a spot fire only smokes at first; day 2's lesson fire (CONFIG.fire.lesson) glows from the start
@@ -202,4 +203,76 @@ describe('interactables', () => {
       } finally { await game.close(); }
     });
   }
+});
+
+describe('a visiting mate in the shed', () => {
+  /** A new game with a mate in who's off wandering and won't come over (so where they stand is up to them). */
+  async function wanderingMate() {
+    const game = await freshGame(env);
+    await setTime(game, 10);
+    await freshMate(game);
+    await game.eval(g => { const d = g.distractions.find(x => x.kind === 'friend'); d.ask = null; d.cooldown = 999; });
+    return game;
+  }
+  const settled = game => game.page.waitForFunction(() => !window.kirScene.visitor.walking, null, { timeout: 20_000 });
+  const where = game => game.eval((g, w, s) => {
+    const v = s.visitor, c = v.cell;
+    return { x: v.x, z: v.z, cell: c, keepClear: v.onKeepClear, door: s.built.grid[c.y][c.x] === 8 /* T.DOOR */ };
+  });
+
+  it('steps out of a doorway, and off the machine, phone and pickup', async () => {
+    const game = await wanderingMate();
+    try {
+      // the office, storage and yard doorways; in front of the machine; by the phone; the pickup by the roller door
+      for (const cell of [{ x: 7, y: 38 }, { x: 25, y: 21 }, { x: 5, y: 16 }, { x: 13, y: 28 }, { x: 9, y: 40 }, { x: 27, y: 31 }]) {
+        await settled(game);
+        await game.eval((g, w, s, c) => s.visitor.placeAt(c.x, c.y), cell);
+        assert.ok((await where(game)).keepClear, `${cell.x},${cell.y} is somewhere to keep clear`);
+        await game.page.waitForFunction(() => !window.kirScene.visitor.onKeepClear, null, { timeout: 5_000 })
+          .catch(() => assert.fail(`still standing at ${cell.x},${cell.y}`));
+        await settled(game);
+        const now = await where(game);
+        assert.ok(!now.keepClear && !now.door, `stepped off ${cell.x},${cell.y} to ${now.cell.x},${now.cell.y}`);
+      }
+    } finally { await game.close(); }
+  });
+
+  it("steps aside when they're in your way", async () => {
+    const game = await wanderingMate();
+    try {
+      await settled(game);
+      // stood on the dock between you (by the roller door) and the finished pallet
+      await game.eval((g, w, s) => s.visitor.placeAt(24, 30));
+      const before = await where(game);
+      const walk = await game.page.evaluate(() => new Promise(res => {
+        const s = window.kirScene, t0 = performance.now();
+        s.goTo('finishedPallet', false);
+        let min = Infinity;
+        const f = () => {
+          min = Math.min(min, Math.hypot(s.visitor.x - s.playerPos.x, s.visitor.z - s.playerPos.z));
+          if (s.walking && performance.now() - t0 < 15_000) requestAnimationFrame(f); else res({ min, arrived: s.inRange('finishedPallet') });
+        };
+        requestAnimationFrame(f);
+      }));
+      const after = await where(game);
+      assert.ok(walk.arrived, 'you got where you were going');
+      assert.ok(Math.hypot(after.x - before.x, after.z - before.z) > 0.4, 'they moved');
+      assert.ok(walk.min > 0.45, `they never got under your feet (closest ${walk.min.toFixed(2)} m)`);
+    } finally { await game.close(); }
+  });
+
+  it('only ever stops where it\'s clear, wherever they wander', async () => {
+    const game = await wanderingMate();
+    try {
+      const areas = new Set();
+      for (let i = 0; i < 8; i++) {
+        await advance(game, C.visitors.wanderMax); // at least one new spot
+        await settled(game);
+        const now = await where(game);
+        areas.add(await game.eval(g => g.distractions.find(x => x.kind === 'friend')?.wander.area));
+        assert.ok(!now.keepClear && !now.door, `stopped at ${now.cell.x},${now.cell.y}`);
+      }
+      assert.ok(areas.size >= 2, `wandered between areas: ${[...areas]}`);
+    } finally { await game.close(); }
+  });
 });

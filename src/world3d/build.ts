@@ -74,7 +74,7 @@ export interface BuiltWorld {
   vehicles: { ute: THREE.Group; truck: THREE.Group };
   mate: THREE.Group;
   dust: THREE.Mesh[];
-  pickables: THREE.Object3D[]; // things a tap can hit: object groups, vehicles, mate
+  pickables: THREE.Object3D[]; // things a tap can hit: object groups, vehicles
   floor: THREE.Mesh;
   doorways: DoorwayView[];
 }
@@ -652,11 +652,10 @@ export function buildCharacter(body: number) {
   return g;
 }
 
-function buildMate(at: Box) {
+/** A visiting mate: placed and walked about by the view (src/world3d/visitor.ts). */
+function buildMate() {
   const g = buildCharacter(0x5a8fc0);
-  g.position.set((at.minX + at.maxX) / 2, 0, at.minZ - 0.45);
   g.visible = false;
-  g.traverse(c => { c.userData.objectId = 'smoko'; });
   return g;
 }
 
@@ -718,10 +717,10 @@ export function buildWorld(scene: THREE.Scene, pointLights = true): BuiltWorld {
   const rollerBox: Box = { minX: Math.min(...xs) * C, minZ: Math.min(...ys) * C, maxX: (Math.max(...xs) + 1) * C, maxZ: (Math.max(...ys) + 1) * C };
   const vehicles = buildVehicles();
   scene.add(vehicles.ute, vehicles.truck);
-  const mate = buildMate(objects.get('smoko')!.box);
+  const mate = buildMate();
   scene.add(mate);
   const dust = buildDust();
   for (const m of dust) scene.add(m);
-  pickables.push(vehicles.ute, vehicles.truck, mate);
+  pickables.push(vehicles.ute, vehicles.truck);
   return { grid, collisionBoxes, rollerBox, objects, fadeables, vehicles, mate, dust, pickables, floor, doorways };
 }

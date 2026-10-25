@@ -100,8 +100,8 @@ const competent: Policy = (g) => {
   }
   if (g.truckOnApron?.stage === 'waiting') handleTruck(g); // sign before the driver gives up
   for (const d of g.distractions) {
-    // chats when the machine's idle, sends them off when it's cutting
-    if (d.kind === 'friend') g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat');
+    // a mate who comes up (or is yarning): chats when the machine's idle, sends them off when it's cutting
+    if (d.kind === 'friend') { if (d.ask || d.engaged) g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat'); }
     else if (d.order) g.respond(d.id, overCommitted(g) ? 'decline' : 'answer');
     else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
   }
@@ -145,7 +145,7 @@ const sloppy: Policy = (g) => {
   // chats to everyone, ignores the courier, drinks from 2pm
   for (const d of g.distractions) {
     if (d.kind === 'phone' || d.kind === 'bank') g.respond(d.id, 'answer');
-    if (d.kind === 'friend') g.respond(d.id, 'chat');
+    if (d.kind === 'friend' && d.ask) g.respond(d.id, 'chat'); // yes to everything, a beer whenever they ask
   }
   for (const c of g.callbacks) g.callBack(c.id);
   sloppyOrders(g);
@@ -169,6 +169,16 @@ function averageReacts(g: Game, key: string, minLag: number, maxLag: number): bo
   if (!m) averageGetsTo.set(g, m = new Map());
   if (!m.has(key)) m.set(key, now(g) + (g.rng.chance(1 / 3) ? g.rng.int(minLag, maxLag) : 0));
   return now(g) >= m.get(key)!;
+}
+
+// average's call on each time a mate comes up while the machine's cutting: true = lets them talk
+const averageTalks = new WeakMap<Game, Map<string, boolean>>();
+function averageLetsTalk(g: Game, d: { id: number; approaches?: number }): boolean {
+  let m = averageTalks.get(g);
+  if (!m) averageTalks.set(g, m = new Map());
+  const key = `${d.id}-${d.approaches}`;
+  if (!m.has(key)) m.set(key, g.rng.chance(1 / 3));
+  return m.get(key)!;
 }
 
 /** Average swaps a worn part between sheets like competent, but puts a third of the swaps off until the part's nearly gone. */
@@ -205,8 +215,13 @@ const average: Policy = (g) => {
   }
   if (g.truckOnApron?.stage === 'waiting' && g.rng.chance(0.5)) handleTruck(g);
   for (const d of g.distractions) {
-    if (d.kind === 'friend') g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat');
-    else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
+    // a mate who comes up: a yarn (or the beer they asked for) when the machine's idle; while it's cutting, sends
+    // them off two times in three and lets them talk (they start a yarn anyway) the third
+    if (d.kind === 'friend') {
+      if (!d.ask) continue;
+      if (g.machine !== 'cutting') g.respond(d.id, 'chat');
+      else if (!averageLetsTalk(g, d)) g.respond(d.id, 'disengage');
+    } else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
   }
   for (const c of g.callbacks) g.callBack(c.id);
   competentOrders(g);
@@ -308,7 +323,8 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
     `trucks/wk=${g.week.reduce((s, d) => s + d.trucks, 0)} fees=$${g.week.reduce((s, d) => s + d.deliveryFees, 0)} ply on hand=$${g.plyOnHand.value.toFixed(0)} (${g.plyOnHand.sheets}) cash=$${g.cash.toFixed(0).padStart(6)} scrap=${scrap} faults=${faults} rapport=${g.rapport} stock=${CONFIG.jobs.types.map(t => g.stock[t.id]).join('/')}`,
   );
   const fires = (d: DayStats) => `${d.firesSpot}/${d.firesDuct}/${d.firesExtractor}`;
-  if (g.week.some(d => d.beers > 0)) console.log(`${''.padEnd(13)}beer: ${wk('beers').trim()} cans/day, fumbles ${wk('fumbles').trim()}/day (week ${g.week.reduce((s, d) => s + d.fumbles, 0)}), loo trips ${wk('looTrips').trim()}/day (week ${g.week.reduce((s, d) => s + d.looTrips, 0)})`);
+  const mateBeers = g.week.reduce((s, d) => s + d.mateBeer, 0) / CONFIG.beer.cost;
+  console.log(`${''.padEnd(13)}beer: yours ${wk('beers').trim()} cans/day, fumbles ${wk('fumbles').trim()}/day (week ${g.week.reduce((s, d) => s + d.fumbles, 0)}), loo trips ${wk('looTrips').trim()}/day (week ${g.week.reduce((s, d) => s + d.looTrips, 0)}) | for mates ${(mateBeers / n).toFixed(1)}/day (week ${mateBeers}, $${mateBeers * CONFIG.beer.cost})`);
   console.log(`${''.padEnd(13)}fires spot/duct/extractor: day1 ${fires(d1)} | week per day ${wk('firesSpot').trim()}/${wk('firesDuct').trim()}/${wk('firesExtractor').trim()} | by day ${g.week.map(fires).join('  ')}`);
   // Per job type, whole week: contribution = revenue - boards (incl. ruined) - fault fixes while it was on the bed.
   // Labour, consumables and overheads are shared and not split, so these margins sit above the week margin.
@@ -357,4 +373,14 @@ for (const r of runs) {
   const avg = (k: 'm1' | 's1' | 'm2' | 's2' | 'ms' | 'ss') => mean(rows.map(x => x[k]));
   line('mean', { m1: avg('m1'), s1: avg('s1'), m2: avg('m2'), s2: avg('s2'), ms: avg('ms'), ss: avg('ss') },
     `${rows.reduce((s, x) => s + x.ruined, 0)}/${rows.reduce((s, x) => s + x.cut, 0)}`);
+}
+
+// beers per day: the cans you drank, and the ones you gave visiting mates (CONFIG.visitors caps those)
+const perDay = (ws: WeekResult[], f: (d: DayStats) => number) => mean(ws.map(w => w.g.week.reduce((s, d) => s + f(d), 0) / w.g.week.length));
+const mates = (d: DayStats) => d.mateBeer / CONFIG.beer.cost;
+console.log(`\nBeers per day, mean of seeds (yours / for mates; caps ${CONFIG.visitors.beersPerVisitor} per mate, ${CONFIG.visitors.beersPerDay} a day):`);
+console.log(`${'script'.padEnd(10)} |  week 1     |  week 2     |  steady`);
+for (const r of runs) {
+  const cell = (ws: WeekResult[]) => `${perDay(ws, d => d.beers).toFixed(1)} / ${perDay(ws, mates).toFixed(1)}`.padEnd(11);
+  console.log(`${r.script.name.padEnd(10)} |  ${cell(r.week1)}|  ${cell(r.week2)}|  ${cell(r.steady)}`);
 }

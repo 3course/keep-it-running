@@ -115,14 +115,38 @@ export const CONFIG = {
   distractions: {
     chancePerMinute: 0.012,
     maxActive: 2,
-    // friend: hovers for `hoverMinutes` then starts chatting unless you send them off
-    friend:  { durationMin: 8, durationMax: 18, hoverMinutes: 3, disengageRapportCost: 5, chatRapportGain: 4, weight: 4,
+    // friend: a mate drops in (how long they stay and how often they come up to you: `visitors`, below)
+    friend:  { disengageRapportCost: 5, chatRapportGain: 4, weight: 4,
                beerChatMinutes: 20 }, // from when the fridge opens, yes to a mate means a beer for them and a chat this long
     // window: game minutes it rings (1 game min = 1 real s) — long enough to finish what you're doing and get to the office
     phone:   { window: 30, busyMinutes: 3, ignoreRapportCost: 5, answerRapportGain: 2, weight: 3 },
     // weight 0: board now arrives on real ply deliveries (supply, below), so the random courier is retired
     courier: { window: 3, busyMinutes: 1, ignoredMaterialPenalty: 0.25, signRapportGain: 1, weight: 0 },
     bank:    { window: 2, busyMinutes: 4, ignoreRapportCost: 10, weight: 5 }, // only when cash < 0
+  },
+
+  // Mates who drop in (src/data/mates.ts). They stay a while, wander the floor, office and smoko, and every so often
+  // come up to you with something to say: an ask (a beer from 2pm, else a cuppa or a yarn), shop talk, or a night out.
+  // You answer with a yarn (or a beer, if that's what they asked for) or "flat out, sorry".
+  visitors: {
+    visitMinutes: 30,          // how long a visit lasts, whatever you say to them
+    askMinutes: 3,             // they wait at your elbow this long for an answer; unanswered, they start a yarn anyway
+    yarnMinutes: 6,            // a yarn: they chat, you're distracted (a beer means distractions.friend.beerChatMinutes)
+    cooldownMin: 3,            // game minutes before they come up again after a yarn or a beer…
+    cooldownMax: 8,
+    waveOffCooldown: 12,       // …and after "flat out, sorry"
+    beersPerVisitor: 2,        // beers a mate asks for in a day; past it, and past beersPerDay, they ask for a yarn instead
+    beersPerDay: 4,            // all mates together
+    wanderMin: 4,              // minutes at one spot before moving on to another
+    wanderMax: 8,
+    areas: ['floor', 'office', 'smoko'] as const,
+    // Bars for the night-out stories ({bar}, {suburb}). Placeholders: names and suburbs unverified, swap freely.
+    bars: [
+      { name: 'Dr Morse', suburb: 'Abbotsford' },
+      { name: 'The Builders Arms', suburb: 'Fitzroy' },
+      { name: 'Labour in Vain', suburb: 'Fitzroy' },
+      { name: 'Naked for Satan', suburb: 'Fitzroy' },
+    ],
   },
 
   // Ply on the pallet is real stock, one line per job type. You order it; a truck brings it.

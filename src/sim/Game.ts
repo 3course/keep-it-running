@@ -1,9 +1,10 @@
 import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
-import { MATES, mateById } from '../data/mates.js';
+import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
+  VisitorAsk,
 } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
@@ -27,7 +28,10 @@ function emptyStats(day: number): DayStats {
 }
 
 export class Game {
+  readonly seed: number;
   rng: Rng;
+  /** Everything a visiting mate decides (when they come up, what they say, where they wander): its own stream, reseeded each day. */
+  visitorRng = new Rng(0);
   phase: Phase = 'day';
 
   // clock
@@ -82,6 +86,7 @@ export class Game {
   busy: { label: string; remaining: number } | null = null; // on the phone etc.
   nextDistractionId = 1;
   lastMate: string | null = null; // never the same mate twice running
+  visitorBeers: Record<string, number> = {}; // today's beers from your fridge, per mate (CONFIG.visitors caps them)
   callbacks: Callback[] = [];  // voicemails from order calls that rang out, oldest first
 
   // competence
@@ -106,7 +111,8 @@ export class Game {
 
   /** `firstDay`: the dayIndex to start on (the balance sim starts later to play a week past the difficulty ramp). */
   constructor(seed?: number, firstDay = 1) {
-    this.rng = new Rng(seed);
+    this.seed = seed ?? (Date.now() >>> 0);
+    this.rng = new Rng(this.seed);
     this.dayIndex = firstDay;
     this.startDay();
     // the first morning's ply was ordered (and paid for) last week: the truck's at the door
@@ -226,6 +232,8 @@ export class Game {
     this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
     this.distractions = [];
+    this.visitorRng = new Rng((Math.imul(this.seed, 31) + Math.imul(this.dayIndex, 0x9e3779b1)) >>> 0);
+    this.visitorBeers = {};
     this.callbacks = [];
     this.busy = null;
     this.fault = null;
@@ -669,20 +677,24 @@ export class Game {
       case 'friend': {
         const mate = this.rng.pick(MATES.filter(m => m.id !== this.lastMate));
         this.lastMate = mate.id;
-        let dur = this.rng.int(d.friend.durationMin, d.friend.durationMax);
-        if (this.beersToday > 0) dur = Math.round(dur * CONFIG.beer.friendDurationMult);
-        dist = { id, kind, title: `${mate.name}'s at the door`, line: mate.line, remaining: dur, engaged: false, hover: d.friend.hoverMinutes, mate: mate.id };
+        const v = CONFIG.visitors;
+        const dur = Math.round(v.visitMinutes * (this.beersToday > 0 ? CONFIG.beer.friendDurationMult : 1));
+        dist = {
+          id, kind, title: `${mate.name}'s dropped in`, line: '', remaining: dur, engaged: false, mate: mate.id,
+          ask: null, chat: 0, cooldown: 0, beers: 0, told: [], approaches: 0, wander: this.newWander(),
+        };
+        this.approach(dist, 'ask'); // they come straight over to say g'day
         break;
       }
       case 'phone':
-        dist = { id, kind, title: 'Phone ringing', line: 'A customer. Could be a quote.', remaining: d.phone.window, engaged: false, hover: 0 };
+        dist = { id, kind, title: 'Phone ringing', line: 'A customer. Could be a quote.', remaining: d.phone.window, engaged: false };
         break;
       case 'courier':
-        dist = { id, kind, title: 'Courier at the door', line: 'Board delivery. Needs a signature.', remaining: d.courier.window, engaged: false, hover: 0 };
+        dist = { id, kind, title: 'Courier at the door', line: 'Board delivery. Needs a signature.', remaining: d.courier.window, engaged: false };
         break;
       case 'bank':
       default:
-        dist = { id, kind, title: 'The bank is calling', line: "Overdrawn. They'd like a word.", remaining: d.bank.window, engaged: false, hover: 0 };
+        dist = { id, kind, title: 'The bank is calling', line: "Overdrawn. They'd like a word.", remaining: d.bank.window, engaged: false };
         break;
     }
     this.distractions.push(dist);
@@ -696,7 +708,7 @@ export class Game {
     this.distractions.push({
       id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — new order',
       line: `${t.name}: ${sheets} sheet${sheets > 1 ? 's' : ''} of ${t.material}.`,
-      remaining: CONFIG.distractions.phone.window, engaged: false, hover: 0, order: sheets, orderType: t.id,
+      remaining: CONFIG.distractions.phone.window, engaged: false, order: sheets, orderType: t.id,
       customer: this.rng.pick(CUSTOMERS),
     });
     this.say(`Phone ringing — ${t.name.toLowerCase()} order, ${sheets} × ${t.material}`, 'info');
@@ -722,11 +734,7 @@ export class Game {
   private tickDistractions() {
     const d = CONFIG.distractions;
     for (const dist of [...this.distractions]) {
-      if (dist.kind === 'friend' && !dist.engaged) {
-        // hovering by the bench; after a bit they start talking regardless
-        dist.hover -= 1;
-        if (dist.hover <= 0) { dist.engaged = true; this.say('"...so anyway, did I tell you about the boat?"'); }
-      }
+      if (dist.kind === 'friend') this.tickVisitor(dist);
       dist.remaining -= 1;
       if (dist.remaining > 0) continue;
       this.removeDistraction(dist.id);
@@ -1020,17 +1028,22 @@ export class Game {
     switch (dist.kind) {
       case 'friend':
         if (action === 'disengage') {
+          // they don't go: they wander off and come back later
+          if (!dist.ask && !dist.engaged) return false;
           this.addRapport(-d.friend.disengageRapportCost);
-          this.removeDistraction(id);
+          dist.ask = null; dist.chat = 0; dist.engaged = false;
+          dist.cooldown = CONFIG.visitors.waveOffCooldown;
           this.say(`"Sorry mate, flat out." (-${d.friend.disengageRapportCost} rapport)`);
-        } else if (!dist.engaged) {
-          dist.engaged = true;
-          if (this.fridgeOpen && !dist.grabbedBeer) {
-            // after 2pm a yes means a beer for them out of your fridge, and a proper chat
+        } else if (dist.ask) {
+          if (dist.ask.kind === 'beer' && this.visitorMayHaveBeer(dist)) {
+            // they asked for a beer: a yes means one out of your fridge, and a proper chat
             this.mateBeer(dist);
-            dist.remaining = d.friend.beerChatMinutes;
+            this.startYarn(dist, d.friend.beerChatMinutes);
             this.say(`"Go on then." A beer for ${this.mateName(dist)}.`);
-          } else this.say('"Yeah go on, what\'s up?"');
+          } else {
+            this.startYarn(dist, CONFIG.visitors.yarnMinutes);
+            this.say('"Yeah go on, what\'s up?"');
+          }
         }
         return true;
       case 'phone':
@@ -1162,29 +1175,90 @@ export class Game {
       if (!can.held && !can.warm && can.fill > 0 && can.downSince !== null && this.minute - can.downSince >= b.warmAfterMinutes) can.warm = true;
     }
     if (this.looSince === null && this.beersToday - this.beersAtLoo >= b.looAfterBeers) { this.looSince = this.minute; this.say('Need the loo.'); }
-    // a mate who's in, and empties all over the place: they take that as an invitation
-    const mate = this.distractions.find(d => d.kind === 'friend' && !d.grabbedBeer);
+    // a mate who's in, and empties all over the place: they take that as an invitation (once a visit, within the caps)
+    const mate = this.distractions.find(d => d.kind === 'friend' && !d.beers && this.visitorMayHaveBeer(d));
     if (mate && this.emptiesAbout >= b.mateGrabsBeerAt) {
       this.mateBeer(mate);
       this.say(`${this.mateName(mate)} grabbed a beer from the fridge.`, 'bad');
     }
-    // the mate who joins you if you're having one: you are, so they don't ask
-    const joiner = this.distractions.find(d => d.kind === 'friend' && !d.engaged && !d.grabbedBeer && mateById(d.mate)?.grabsIfYoureDrinking);
+    // the mate who joins you if you're having one: you are, so they don't ask — they help themselves and wander on
+    const joiner = this.distractions.find(d => d.kind === 'friend' && !d.engaged && !d.beers && this.visitorMayHaveBeer(d) && mateById(d.mate)?.grabsIfYoureDrinking);
     const can = this.heldCan;
-    if (joiner && can && can.fill > 0 && this.fridgeOpen) {
+    if (joiner && can && can.fill > 0) {
       this.mateBeer(joiner);
       this.addRapport(CONFIG.distractions.friend.chatRapportGain);
-      this.removeDistraction(joiner.id);
-      this.say(`${this.mateName(joiner)} grabbed a beer from the fridge and headed off happy.`, 'good');
+      this.say(`${this.mateName(joiner)} grabbed a beer from the fridge. Cheers.`, 'good');
     }
   }
 
-  mateName(d: Distraction): string { return mateById(d.mate)?.name ?? d.title.replace(/'s at the door$/, ''); }
+  mateName(d: Distraction): string { return mateById(d.mate)?.name ?? d.title.replace(/'s dropped in$/, ''); }
 
   /** One of your beers, for a mate. */
   private mateBeer(d: Distraction) {
-    d.grabbedBeer = true;
+    d.beers = (d.beers ?? 0) + 1;
+    if (d.mate) this.visitorBeers[d.mate] = (this.visitorBeers[d.mate] ?? 0) + 1;
     this.spend(CONFIG.beer.cost, 'mateBeer', `beer for ${this.mateName(d)}`);
+  }
+
+  // ---------- visitors ----------
+
+  /** Today's beers from your fridge for all the mates who've dropped in. */
+  get visitorBeersToday(): number { return Object.values(this.visitorBeers).reduce((s, n) => s + n, 0); }
+
+  /** Can this mate have a beer from your fridge right now? Not before it opens, and not past either cap (CONFIG.visitors). */
+  visitorMayHaveBeer(d: Distraction): boolean {
+    const v = CONFIG.visitors;
+    return this.fridgeOpen && (this.visitorBeers[d.mate ?? ''] ?? 0) < v.beersPerVisitor && this.visitorBeersToday < v.beersPerDay;
+  }
+
+  /** A minute of a visit: they wander, come up to you when their cooldown's up, wait for an answer, or yarn. */
+  private tickVisitor(d: Distraction) {
+    const v = CONFIG.visitors;
+    d.cooldown ??= 0; d.chat ??= 0; d.told ??= []; d.approaches ??= 0;
+    if (!d.wander || --d.wander.left <= 0) d.wander = this.newWander();
+    if (d.ask) {
+      // unanswered: they start a yarn anyway (no beer unless you say so)
+      if (--d.ask.left <= 0) { this.startYarn(d, v.yarnMinutes); this.say('"...so anyway, did I tell you about the boat?"'); }
+    } else if (d.engaged) {
+      if (--d.chat <= 0) { d.engaged = false; d.cooldown = this.visitorRng.int(v.cooldownMin, v.cooldownMax); }
+    } else if (--d.cooldown <= 0) {
+      this.approach(d);
+    }
+  }
+
+  private newWander(): NonNullable<Distraction['wander']> {
+    const v = CONFIG.visitors;
+    return { area: this.visitorRng.pick(v.areas), spot: this.visitorRng.next(), left: this.visitorRng.int(v.wanderMin, v.wanderMax) };
+  }
+
+  private startYarn(d: Distraction, minutes: number) {
+    d.ask = null; d.engaged = true; d.chat = minutes;
+  }
+
+  /**
+   * They come up to you with something to say, from one of three pools: an ask (a beer once the fridge is open and the
+   * caps allow, else a cuppa or a yarn), shop talk, or a story they haven't told yet. Never the same line twice running.
+   */
+  private approach(d: Distraction, pool?: 'ask' | 'shop' | 'story') {
+    const mate = mateById(d.mate);
+    if (!mate) return;
+    const r = this.visitorRng, told = d.told ?? (d.told = []);
+    const storiesLeft = mate.stories.map((_, i) => i).filter(i => !told.includes(i));
+    pool ??= r.weighted(['ask', 'shop', 'story'] as const, p => (p === 'story' && !storiesLeft.length ? 0 : 1))!;
+    const fresh = (lines: readonly string[]) => { const f = lines.filter(l => l !== d.lastLine); return f.length ? f : lines; };
+    let ask: VisitorAsk;
+    if (pool === 'story') {
+      const i = r.pick(storiesLeft);
+      told.push(i);
+      const bar = r.pick(CONFIG.visitors.bars);
+      ask = { kind: 'story', text: mate.stories[i].replace(/{bar}/g, bar.name).replace(/{suburb}/g, bar.suburb), left: 0 };
+    } else if (pool === 'shop') ask = { kind: 'shop', text: r.pick(fresh(SHOP_TALK)), left: 0 };
+    else if (this.visitorMayHaveBeer(d)) ask = { kind: 'beer', text: r.pick(fresh(mate.beer)), left: 0 };
+    else ask = { kind: 'cuppa', text: r.pick(fresh(mate.cuppa)), left: 0 };
+    ask.left = CONFIG.visitors.askMinutes;
+    d.ask = ask; d.lastLine = ask.text; d.line = ask.text;
+    d.approaches = (d.approaches ?? 0) + 1;
+    this.say(`${mate.name}: "${ask.text}"`);
   }
 
   knockOff() {

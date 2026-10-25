@@ -30,18 +30,20 @@ export async function startBrowser() {
 }
 
 /**
- * A brand-new game on a phone: empty save, day 1, 7:00. The game clock is stopped (Game.tick is a no-op)
- * so nothing spawns, wears or wanders off while a test walks around; tests set the time they need.
+ * A brand-new game on a phone: empty save, day 1, 7:00, a fixed seed (so it plays the same every run). The game clock
+ * is stopped (Game.tick is a no-op; advance() runs it) so nothing spawns, wears or wanders off while a test walks
+ * around; tests set the time they need.
  */
-export async function freshGame(env) {
+export async function freshGame(env, seed = 1) {
   const context = await env.browser.newContext(PHONE);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(env.url);
+  await page.goto(`${env.url}?seed=${seed}`);
   await page.waitForFunction(() => window.kirScene?.started, null, { timeout: 30_000 });
-  await page.evaluate(() => { window.kir.tick = () => {}; });
+  // the clock's stopped (advance() runs it), and nobody turns up unless a test sends them
+  await page.evaluate(() => { window.kir.tick = () => {}; window.kir.maybeDistraction = () => {}; });
   const game = {
     page, context, errors,
     /** Run fn(g, w, scene) in the page: g is the Game, w the WorldState. Return value must be JSON. */
@@ -113,8 +115,8 @@ export async function holdLabel(game, text) {
 }
 
 /**
- * A mate turns up at the door the way Game does it (Game.spawnDistraction): not talking yet, hovering.
- * Any mate already in leaves first. `mateId` (src/data/mates.ts): keep sending them until that one turns up.
+ * A mate drops in the way Game does it (Game.spawnDistraction): they come straight over with something to say, not
+ * yarning yet. Any mate already in leaves first. `mateId` (src/data/mates.ts): keep sending them until that one turns up.
  */
 export async function freshMate(game, mateId) {
   const mate = await game.eval((g, w, s, want) => {
@@ -123,7 +125,7 @@ export async function freshMate(game, mateId) {
       g.lastMate = null;
       g.spawnDistraction('friend');
       const d = g.distractions.find(x => x.kind === 'friend');
-      if (!want || d.mate === want) return { id: d.id, mate: d.mate, name: g.mateName(d), engaged: d.engaged, hover: d.hover, grabbedBeer: !!d.grabbedBeer };
+      if (!want || d.mate === want) return { id: d.id, mate: d.mate, name: g.mateName(d), engaged: d.engaged, ask: d.ask, beers: d.beers, remaining: d.remaining };
     }
     return null;
   }, mateId ?? null);
@@ -131,11 +133,17 @@ export async function freshMate(game, mateId) {
   return mate;
 }
 
-/** The mate at the door now (null if they've gone). */
+/** The visiting mate now (null if they've gone). */
 export const mateNow = game => game.eval(g => {
   const d = g.distractions.find(x => x.kind === 'friend');
-  return d ? { id: d.id, mate: d.mate, engaged: d.engaged, hover: d.hover, remaining: d.remaining, grabbedBeer: !!d.grabbedBeer } : null;
+  return d ? { id: d.id, mate: d.mate, engaged: d.engaged, ask: d.ask, beers: d.beers, chat: d.chat, cooldown: d.cooldown, remaining: d.remaining } : null;
 });
+
+/** Run the game clock for `minutes` (freshGame stops it; this runs the real Game.tick), then let the view catch up. */
+export async function advance(game, minutes) {
+  await game.eval((g, w, s, n) => { const tick = Object.getPrototypeOf(g).tick; for (let i = 0; i < n; i++) tick.call(g); }, minutes);
+  await frames(game);
+}
 
 /** Set the clock (minutes since midnight). */
 export const setTime = (game, hour, min = 0) => game.eval((g, w, s, m) => { g.minute = m; return g.formatTime(); }, hour * 60 + min);

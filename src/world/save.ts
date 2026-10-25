@@ -20,6 +20,7 @@ function gameToJson(g: Game): Loose {
   const out: Loose = {};
   for (const [k, v] of Object.entries(g as unknown as Loose)) out[k] = v;
   out.rng = { s: (g.rng as unknown as { s: number }).s };
+  out.visitorRng = { s: (g.visitorRng as unknown as { s: number }).s };
   out.upgrades = [...g.upgrades];
   out.current = g.current ? g.current.id : null;
   out.fault = g.fault ? { ...g.fault, def: g.fault.def.id, path: g.fault.path?.id ?? null } : null;
@@ -33,6 +34,12 @@ function gameFromJson(data: Loose): Game {
   const rng = new Rng();
   (rng as unknown as { s: number }).s = (data.rng as { s: number }).s;
   g.rng = rng;
+  // a save from before visitors had their own stream: the new game's (reseeded tomorrow) does
+  if (data.visitorRng) {
+    const vr = new Rng();
+    (vr as unknown as { s: number }).s = (data.visitorRng as { s: number }).s;
+    g.visitorRng = vr;
+  } else g.visitorRng = new Rng(g.seed);
   g.upgrades = new Set(data.upgrades as Game['upgrades'] extends Set<infer U> ? U[] : never);
   const jobs = data.jobs as Job[];
   g.jobs = jobs;

@@ -5,6 +5,7 @@
 // The factory floor is 8 x 12 m. Walk times come from where the rooms sit, not from open floor:
 // the office is off the near (south) end, the extractor and exhaust unit are at the far (north) end
 // through the side door and round the back, and the dock runs down the long east side.
+import type { VisitorArea } from '../sim/types.js';
 
 export const COLS = 42;
 export const ROWS = 48;
@@ -133,6 +134,32 @@ export const DOORWAYS: Doorway[] = [
   { sign: 'STORAGE', cell: { x: 25, y: 21 }, along: 'x', swing: { x: 0, y: -1 } },
   { sign: 'YARD', cell: { x: 5, y: 16 }, along: 'y', swing: { x: -1, y: 0 } },
 ];
+
+/** Where a visiting mate mooches about (CONFIG.visitors.areas): the factory floor, the office, round the smoko chairs. */
+export const VISITOR_AREAS: Record<VisitorArea, Rect> = {
+  floor: { x: 6, y: 14, w: 16, h: 24 },
+  office: { x: 6, y: 39, w: 12, h: 7 },
+  smoko: { x: 23, y: 39, w: 6, h: 7 },
+};
+/** Where a visiting mate walks in: the dock, by the smoko chairs. */
+export const VISITOR_ARRIVAL = { x: 26, y: 37 };
+
+/**
+ * Cells a visitor never stops on: doorways and the cells either side, the roller door and the customer pickup in front
+ * of it, the finished pallet, and round the machine and the phone. They can walk through; they don't stand there.
+ */
+export function keepClearCells(cols = COLS): Set<number> {
+  const s = new Set<number>();
+  const add = (r: Rect, pad: number) => {
+    for (let y = r.y - pad; y < r.y + r.h + pad; y++) for (let x = r.x - pad; x < r.x + r.w + pad; x++) s.add(y * cols + x);
+  };
+  const grid = buildGrid();
+  grid.forEach((row, y) => row.forEach((t, x) => { if (t === T.DOOR) add({ x, y, w: 1, h: 1 }, 1); }));
+  add({ x: ROLLER_TILES[0].x - 3, y: ROLLER_TILES[0].y - 1, w: 4, h: ROLLER_TILES.length + 2 }, 0); // roller door and the pickup in front of it
+  for (const id of ['machine', 'phone', 'finishedPallet'] as const) add(objectById(id).rect, 1);
+  add({ ...MACHINE_SPOT, w: 1, h: 1 }, 1);
+  return s;
+}
 
 /** Where the ute and truck park on the apron (cells). Vehicles face north. */
 export const VEHICLE_BAY: Rect = { x: 31, y: 26, w: 6, h: 10 };
