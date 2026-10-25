@@ -156,6 +156,14 @@ export class Game {
   /** Walking speed as a fraction of sober, comfortable speed. */
   walkMult(): number { return (1 - this.beerSlow) * (1 - this.looSlow); }
   private walkMinutes(m: number) { return Math.ceil(m / this.walkMult()); }
+  /** Minutes to swap a consumable (the bag rack makes the bag quicker). */
+  private replaceMinutes(key: ConsumableKey) {
+    return key === 'filter' && this.upgrades.has('bagRack') ? this.upgradeEffect('bagRack') : CONFIG.consumables[key].replaceMinutes;
+  }
+  /** A walk to or from the fire: shorter with an extinguisher hanging by the exhaust. */
+  private fireWalk(m: number) {
+    return this.walkMinutes(this.upgrades.has('exhaustExtinguisher') ? Math.max(1, m * this.upgradeEffect('exhaustExtinguisher')) : m);
+  }
   get queued(): Job[] { return this.jobs.filter(j => j.status === 'queued'); }
 
   formatTime(m = this.minute): string {
@@ -335,7 +343,7 @@ export class Game {
   private materialMult(): number {
     return this.upgrades.has('nesting') ? this.upgradeEffect('nesting') : 1;
   }
-  private upgradeEffect(id: UpgradeId): number {
+  upgradeEffect(id: UpgradeId): number {
     return CONFIG.upgrades.find(u => u.id === id)!.effect;
   }
   private priceFor(boardCost: number, cutMinutes: number): number {
@@ -370,7 +378,7 @@ export class Game {
     if (this.replacing) {
       this.replacing.remaining -= 1;
       if (this.replacing.remaining <= 0 && this.fumbled(`fitting the ${this.replacing.key}`)) {
-        this.replacing.remaining = Math.ceil(CONFIG.consumables[this.replacing.key].replaceMinutes * this.stepDurationMult());
+        this.replacing.remaining = Math.ceil(this.replaceMinutes(this.replacing.key) * this.stepDurationMult());
       } else if (this.replacing.remaining <= 0) {
         this.wear[this.replacing.key] = 1;
         this.say(`New ${this.replacing.key} fitted.`, 'good');
@@ -431,7 +439,8 @@ export class Game {
 
   private wearConsumables() {
     const c = CONFIG.consumables;
-    this.wear.bit = Math.max(0, this.wear.bit - c.bit.wearPerMinute * (this.current?.chipRisk ?? 1));
+    const bitMult = this.upgrades.has('premiumBits') ? this.upgradeEffect('premiumBits') : 1;
+    this.wear.bit = Math.max(0, this.wear.bit - c.bit.wearPerMinute * bitMult * (this.current?.chipRisk ?? 1));
     this.wear.spoilboard = Math.max(0, this.wear.spoilboard - c.spoilboard.wearPerMinute);
     let filterMult = this.upgrades.has('extractor') ? this.upgradeEffect('extractor') : 1;
     if (this.current) filterMult *= this.jobType(this.current).bagFillMult;
@@ -472,6 +481,7 @@ export class Game {
     this.machine = def.id === 'partLifted' ? 'estop' : 'fault';
     this.today.faults += 1;
     this.say(`FAULT: ${def.name}`, 'bad');
+    if (this.sensorPaused(def)) this.say('Fault sensor paused the cut. The sheet will keep.');
     // a dull bit fuzzes most boards, but melts acrylic: the sheet's gone before you can do anything
     if (def.id === 'chipping' && this.current && this.jobType(this.current).dullBitRuinsSheet) {
       this.fault.sheetScrapped = true;
@@ -479,11 +489,17 @@ export class Game {
     }
   }
 
+  /** The fault sensor (upgrade) caught this fault and paused the cut: the sheet waits, however long you take. */
+  private sensorPaused(def: FaultDef) {
+    return this.upgrades.has('faultSensor') && CONFIG.faults.sensorCatches.includes(def.id);
+  }
+
   private tickFault() {
     const f = this.fault!;
     // Neglect clock: runs whenever you're not actively working the fix — including while you're off at a fire.
+    // The fault sensor paused the cut the moment it started: the sheet waits, however long you take.
     const away = this.fireResponse !== null;
-    if (f.phase !== 'working' || away) f.minutesOpen += 1;
+    if ((f.phase !== 'working' || away) && !this.sensorPaused(f.def)) f.minutesOpen += 1;
     if (!away && (f.phase === 'wrongCall' || f.phase === 'working')) {
       f.busyRemaining -= 1;
       if (f.busyRemaining <= 0) {
@@ -559,7 +575,7 @@ export class Game {
   /** Go and deal with the fire: walk to the extinguisher, grab it and carry it to the duct. */
   fightFire(): boolean {
     if (this.phase !== 'day' || !this.fire || !this.canAct) return false;
-    this.fireResponse = { step: 'toExtinguisher', remaining: this.walkMinutes(CONFIG.fire.walkToExtinguisherMinutes) };
+    this.fireResponse = { step: 'toExtinguisher', remaining: this.fireWalk(CONFIG.fire.walkToExtinguisherMinutes) };
     return true;
   }
 
@@ -573,7 +589,7 @@ export class Game {
       r.remaining -= 1;
       if (r.remaining <= 0) {
         if (r.step === 'toExtinguisher') { r.step = 'grab'; r.remaining = c.grabMinutes; }
-        else if (r.step === 'grab') { r.step = 'toDuct'; r.remaining = this.walkMinutes(c.walkToDuctMinutes); }
+        else if (r.step === 'grab') { r.step = 'toDuct'; r.remaining = this.fireWalk(c.walkToDuctMinutes); }
         else if (r.step === 'toDuct') { r.step = 'atDuct'; r.remaining = 0; }
         else { this.fireResponse = null; this.say('Extinguisher back on the wall.'); }
       }
@@ -604,7 +620,7 @@ export class Game {
     this.extinguisherUsesToday += 1;
     this.say('Fire out.', 'good');
     if (this.extinguisherUsesToday % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
-    this.fireResponse = { step: 'returning', remaining: this.walkMinutes(c.walkBackMinutes) };
+    this.fireResponse = { step: 'returning', remaining: this.fireWalk(c.walkBackMinutes) };
     this.settleMachine();
   }
 
@@ -622,7 +638,7 @@ export class Game {
     this.machine = 'down';
     // if you were already carrying the extinguisher, carry it back
     if (this.fireResponse) {
-      this.fireResponse = this.fireResponse.step === 'toExtinguisher' ? null : { step: 'returning', remaining: c.walkBackMinutes };
+      this.fireResponse = this.fireResponse.step === 'toExtinguisher' ? null : { step: 'returning', remaining: this.upgrades.has('exhaustExtinguisher') ? this.fireWalk(c.walkBackMinutes) : c.walkBackMinutes };
     }
   }
 
@@ -1015,7 +1031,7 @@ export class Game {
     if (this.machine === 'loading' || this.machine === 'down') return false;
     const c = CONFIG.consumables[key];
     this.spend(c.replaceCost, 'consumables', `new ${key}`);
-    this.replacing = { key, remaining: Math.ceil(c.replaceMinutes * this.stepDurationMult()) };
+    this.replacing = { key, remaining: Math.ceil(this.replaceMinutes(key) * this.stepDurationMult()) };
     if (this.machine === 'cutting') this.machine = 'paused';
     this.say(`Swapping ${key} (${this.replacing.remaining} min)`);
     return true;

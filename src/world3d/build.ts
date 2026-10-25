@@ -400,6 +400,10 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
   },
   extinguisher: (g, w, d, h, o) => extinguisher(g, h, o),
   spareExtinguisher: (g, w, d, h, o) => extinguisher(g, h, o),
+  exhaustExtinguisher: (g, w, d, h, o) => {
+    g.add(boxAt(0.08, 1.0, 0.08, 0x777777, 0, 0, -0.18)); // a post to hang it on, out in the yard
+    return extinguisher(g, h, o);
+  },
   rollerDoor: (g, w, d, h, o) => {
     // slats run along the opening, whichever way the wall runs
     const span = Math.max(w, d), door = new THREE.Group();

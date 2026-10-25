@@ -5,11 +5,13 @@
 // the same game (days 6–10, the middle of the ramp) and a steady-state week (a new game started past the end of the
 // ramp, so breakdowns run at the full rate all week). The detailed lines are for the steady-state week;
 // `npm run sim -- week1` or `-- week2` prints them for that week instead. All end with a summary: margin and scrap
-// rate (sheets ruined / sheets cut) per script.
+// rate (sheets ruined / sheets cut) per script. These runs buy no upgrades.
+// `npm run sim -- upgrades [seeds]` (default 20) measures the upgrades instead: each one alone, and each script's
+// buying policy over four weeks, compared seed for seed (see upgradeStudy).
 import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
 import type { DayStats } from './types.js';
-import type { JobTypeId } from '../config.js';
+import type { JobTypeId, UpgradeId } from '../config.js';
 
 type Policy = (g: Game) => void;
 
@@ -241,13 +243,39 @@ interface Script {
   policy: Policy;
   /** At 5pm: work overtime (to 7pm at double rate) or knock off? A half-cut sheet on the bed is scrap if you knock off. */
   overtime: (g: Game) => boolean;
+  /** At the day summary, when it's buying upgrades (the `upgrades` mode). */
+  buy: (g: Game) => void;
+}
+
+// ---------- upgrade buying (claude/office-manager-and-upgrades.md, sim plan) ----------
+
+/** Cash kept back for ply: both careful scripts dip to ~$200 mid-week paying for boards up front. */
+const BUY_BUFFER = 1500;
+const price = (id: UpgradeId) => CONFIG.upgrades.find(u => u.id === id)!.cost;
+const cheapestFirst = [...CONFIG.upgrades].sort((a, b) => a.cost - b.cost).map(u => u.id);
+/** Competent's order: best payback first. The `upgrades` mode measures it (competent's own gain per dollar) before playing. */
+let competentOrder: UpgradeId[] = cheapestFirst;
+
+/** Competent: the best payback it can afford above the buffer, any day. */
+function competentBuys(g: Game) {
+  for (const id of competentOrder) if (!g.upgrades.has(id) && g.cash - price(id) >= BUY_BUFFER) { g.buyUpgrade(id); return; }
+}
+/** Average: one a week, at the end of it — the cheapest it hasn't got, if it's above the buffer. */
+function averageBuys(g: Game) {
+  if (g.day < CONFIG.week.days) return;
+  const id = cheapestFirst.find(x => !g.upgrades.has(x));
+  if (id && g.cash - price(id) >= BUY_BUFFER) g.buyUpgrade(id);
+}
+/** Sloppy: whatever it can afford, whenever, cheapest first. No buffer. */
+function sloppyBuys(g: Game) {
+  for (const id of cheapestFirst) if (!g.upgrades.has(id) && g.cash >= price(id)) g.buyUpgrade(id);
 }
 
 const SCRIPTS: Script[] = [
   // a half-cut sheet on the bed counts as work left: knocking off would scrap it
-  { name: 'competent', policy: competent, overtime: g => !g.machineDown && (!!g.current || g.queued.length > 0) },
-  { name: 'average', policy: average, overtime: g => !g.machineDown && !!g.current }, // only to save the sheet on the bed
-  { name: 'sloppy', policy: sloppy, overtime: () => false },
+  { name: 'competent', policy: competent, overtime: g => !g.machineDown && (!!g.current || g.queued.length > 0), buy: competentBuys },
+  { name: 'average', policy: average, overtime: g => !g.machineDown && !!g.current, buy: averageBuys }, // only to save the sheet on the bed
+  { name: 'sloppy', policy: sloppy, overtime: () => false, buy: sloppyBuys },
 ];
 
 /** First day of a steady-state week: the ramp's last entry, which every later day uses too. */
@@ -256,19 +284,26 @@ const STEADY_FROM = CONFIG.difficulty.breakdownByDay.length;
 interface WeekResult { g: Game; idle: { total: number; longest: number }[] }
 
 /** Play `weeks` weeks of a new game starting on `firstDay`; the result is the last of them. */
-function playWeek(script: Script, seed: number, firstDay: number, weeks = 1): WeekResult {
+/** How a run treats upgrades: none (the default), the script's buying policy, or some owned from the start (free: just the effect). */
+interface Upgrading { buying?: boolean; owned?: readonly UpgradeId[] }
+
+/** Play `weeks` weeks of a new game starting on `firstDay`; the result is the last of them (`weeks`: every week's days). */
+function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up: Upgrading = {}): WeekResult & { weeks: DayStats[][] } {
   const g = new Game(seed, firstDay);
+  for (const id of up.owned ?? []) g.upgrades.add(id);
   let idle: { total: number; longest: number }[] = [];
+  const all: DayStats[][] = [];
   for (let w = 0; w < weeks; w++) {
     if (w > 0) g.nextWeek();
-    idle = playOn(script, g);
+    idle = playOn(script, g, !!up.buying);
+    all.push([...g.week]);
   }
-  return { g, idle };
+  return { g, idle, weeks: all };
 }
 
 /** Play the rest of the week. Returns per day: minutes the bed sat empty (machine 'idle') while labour was on the
  * clock, and the longest such run. Fault downtime and consumable swaps aren't counted — this measures pacing, not breakdowns. */
-function playOn(script: Script, g: Game) {
+function playOn(script: Script, g: Game, buying = false) {
   let guard = 0;
   const idle: { total: number; longest: number }[] = [];
   let idleDay: DayStats | null = null, run = 0;
@@ -284,7 +319,7 @@ function playOn(script: Script, g: Game) {
     }
     else if (g.phase === 'endOfDayPrompt') { script.overtime(g) ? g.startOvertime() : g.knockOff(); }
     else if (g.phase === 'daySummary') {
-      if (script.name === 'competent' && !g.upgrades.has('extractor') && g.cash > 3500) g.buyUpgrade('extractor');
+      if (buying) script.buy(g);
       g.nextDay();
     }
   }
@@ -338,49 +373,135 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
   console.log(`${''.padEnd(13)}by type: ${byType.join(' | ')}`);
 }
 
-const SEEDS = [1, 2, 3, 4, 5];
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
-const detail = args[2] === 'week1' || args[2] === 'week2' ? args[2] : 'steady';
-const runs = SCRIPTS.map(script => ({
-  script,
-  week1: SEEDS.map(seed => playWeek(script, seed, 1)),
-  week2: SEEDS.map(seed => playWeek(script, seed, 1, 2)),
-  steady: SEEDS.map(seed => playWeek(script, seed, STEADY_FROM)),
-}));
+if (args[2] === 'upgrades') upgradeStudy();
+else defaultReport();
 
-const days = CONFIG.week.days;
-console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash}), ` +
-  (detail === 'week1' ? 'week 1 of a new game' : detail === 'week2' ? `week 2 of the same game (days ${days + 1}–${2 * days})`
-    : `steady state (days ${STEADY_FROM}–${STEADY_FROM + days - 1}, full breakdown rate)`));
-for (const r of runs) r[detail].forEach((w, i) => report(r.script.name, SEEDS[i], w));
+/** The usual run: no upgrades, 5 seeds, week 1, week 2 and steady state. */
+function defaultReport() {
+  const SEEDS = [1, 2, 3, 4, 5];
+  const detail = args[2] === 'week1' || args[2] === 'week2' ? args[2] : 'steady';
+  const runs = SCRIPTS.map(script => ({
+    script,
+    week1: SEEDS.map(seed => playWeek(script, seed, 1)),
+    week2: SEEDS.map(seed => playWeek(script, seed, 1, 2)),
+    steady: SEEDS.map(seed => playWeek(script, seed, STEADY_FROM)),
+  }));
 
-const pct = (v: number) => `${(v * 100).toFixed(0)}%`.padStart(5);
-const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
-const grace = CONFIG.difficulty.breakdownByDay.findIndex(m => m > 0); // days at the start with no breakdowns
-const ramp = CONFIG.difficulty.breakdownByDay;
-const rampFor = (from: number) => Array.from({ length: days }, (_, i) => ramp[Math.min(from + i, ramp.length) - 1]).join(', ');
-console.log(`\nWeek 1 (breakdowns by day: ${rampFor(1)}), week 2 (${rampFor(days + 1)}) and steady state. Scrap = sheets ruined / sheets cut.`);
-console.log(`${'script'.padEnd(10)} ${'seed'.padEnd(4)} | week 1: margin scrap  days 1-${grace} ruined/cut | week 2: margin scrap | steady: margin scrap`);
-for (const r of runs) {
-  const rows = SEEDS.map((seed, i) => {
-    const w1 = r.week1[i].g.week, w2 = r.week2[i].g.week, st = r.steady[i].g.week, early = w1.slice(0, grace);
-    return { seed, m1: margin(w1), s1: scrapRate(w1), ruined: sum(early, 'sheetsScrapped'), cut: sum(early, 'sheetsDone'),
-      m2: margin(w2), s2: scrapRate(w2), ms: margin(st), ss: scrapRate(st) };
-  });
-  const line = (label: string, x: { m1: number; s1: number; m2: number; s2: number; ms: number; ss: number }, ruinedCut: string) =>
-    console.log(`${r.script.name.padEnd(10)} ${label} |        ${pct(x.m1)} ${pct(x.s1)}  ${ruinedCut.padStart(13)}        |        ${pct(x.m2)} ${pct(x.s2)} |         ${pct(x.ms)} ${pct(x.ss)}`);
-  for (const x of rows) line(`s${String(x.seed).padEnd(3)}`, x, `${x.ruined}/${x.cut}`);
-  const avg = (k: 'm1' | 's1' | 'm2' | 's2' | 'ms' | 'ss') => mean(rows.map(x => x[k]));
-  line('mean', { m1: avg('m1'), s1: avg('s1'), m2: avg('m2'), s2: avg('s2'), ms: avg('ms'), ss: avg('ss') },
-    `${rows.reduce((s, x) => s + x.ruined, 0)}/${rows.reduce((s, x) => s + x.cut, 0)}`);
+  const days = CONFIG.week.days;
+  console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash}), ` +
+    (detail === 'week1' ? 'week 1 of a new game' : detail === 'week2' ? `week 2 of the same game (days ${days + 1}–${2 * days})`
+      : `steady state (days ${STEADY_FROM}–${STEADY_FROM + days - 1}, full breakdown rate)`));
+  for (const r of runs) r[detail].forEach((w, i) => report(r.script.name, SEEDS[i], w));
+
+  const pct = (v: number) => `${(v * 100).toFixed(0)}%`.padStart(5);
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const grace = CONFIG.difficulty.breakdownByDay.findIndex(m => m > 0); // days at the start with no breakdowns
+  const ramp = CONFIG.difficulty.breakdownByDay;
+  const rampFor = (from: number) => Array.from({ length: days }, (_, i) => ramp[Math.min(from + i, ramp.length) - 1]).join(', ');
+  console.log(`\nWeek 1 (breakdowns by day: ${rampFor(1)}), week 2 (${rampFor(days + 1)}) and steady state. Scrap = sheets ruined / sheets cut.`);
+  console.log(`${'script'.padEnd(10)} ${'seed'.padEnd(4)} | week 1: margin scrap  days 1-${grace} ruined/cut | week 2: margin scrap | steady: margin scrap`);
+  for (const r of runs) {
+    const rows = SEEDS.map((seed, i) => {
+      const w1 = r.week1[i].g.week, w2 = r.week2[i].g.week, st = r.steady[i].g.week, early = w1.slice(0, grace);
+      return { seed, m1: margin(w1), s1: scrapRate(w1), ruined: sum(early, 'sheetsScrapped'), cut: sum(early, 'sheetsDone'),
+        m2: margin(w2), s2: scrapRate(w2), ms: margin(st), ss: scrapRate(st) };
+    });
+    const line = (label: string, x: { m1: number; s1: number; m2: number; s2: number; ms: number; ss: number }, ruinedCut: string) =>
+      console.log(`${r.script.name.padEnd(10)} ${label} |        ${pct(x.m1)} ${pct(x.s1)}  ${ruinedCut.padStart(13)}        |        ${pct(x.m2)} ${pct(x.s2)} |         ${pct(x.ms)} ${pct(x.ss)}`);
+    for (const x of rows) line(`s${String(x.seed).padEnd(3)}`, x, `${x.ruined}/${x.cut}`);
+    const avg = (k: 'm1' | 's1' | 'm2' | 's2' | 'ms' | 'ss') => mean(rows.map(x => x[k]));
+    line('mean', { m1: avg('m1'), s1: avg('s1'), m2: avg('m2'), s2: avg('s2'), ms: avg('ms'), ss: avg('ss') },
+      `${rows.reduce((s, x) => s + x.ruined, 0)}/${rows.reduce((s, x) => s + x.cut, 0)}`);
+  }
+
+  // beers per day: the cans you drank, and the ones you gave visiting mates (CONFIG.visitors caps those)
+  const perDay = (ws: WeekResult[], f: (d: DayStats) => number) => mean(ws.map(w => w.g.week.reduce((s, d) => s + f(d), 0) / w.g.week.length));
+  const mates = (d: DayStats) => d.mateBeer / CONFIG.beer.cost;
+  console.log(`\nBeers per day, mean of seeds (yours / for mates; caps ${CONFIG.visitors.beersPerVisitor} per mate, ${CONFIG.visitors.beersPerDay} a day):`);
+  console.log(`${'script'.padEnd(10)} |  week 1     |  week 2     |  steady`);
+  for (const r of runs) {
+    const cell = (ws: WeekResult[]) => `${perDay(ws, d => d.beers).toFixed(1)} / ${perDay(ws, mates).toFixed(1)}`.padEnd(11);
+    console.log(`${r.script.name.padEnd(10)} |  ${cell(r.week1)}|  ${cell(r.week2)}|  ${cell(r.steady)}`);
+  }
 }
 
-// beers per day: the cans you drank, and the ones you gave visiting mates (CONFIG.visitors caps those)
-const perDay = (ws: WeekResult[], f: (d: DayStats) => number) => mean(ws.map(w => w.g.week.reduce((s, d) => s + f(d), 0) / w.g.week.length));
-const mates = (d: DayStats) => d.mateBeer / CONFIG.beer.cost;
-console.log(`\nBeers per day, mean of seeds (yours / for mates; caps ${CONFIG.visitors.beersPerVisitor} per mate, ${CONFIG.visitors.beersPerDay} a day):`);
-console.log(`${'script'.padEnd(10)} |  week 1     |  week 2     |  steady`);
-for (const r of runs) {
-  const cell = (ws: WeekResult[]) => `${perDay(ws, d => d.beers).toFixed(1)} / ${perDay(ws, mates).toFixed(1)}`.padEnd(11);
-  console.log(`${r.script.name.padEnd(10)} |  ${cell(r.week1)}|  ${cell(r.week2)}|  ${cell(r.steady)}`);
+/**
+ * `npm run sim -- upgrades`: what the upgrades are worth, on 20 seeds compared seed for seed.
+ * 1. Each upgrade owned (free) from the start of a steady-state week, one at a time and all together, against none: the
+ *    margin and scrap it changes, and its payback (price over the weekly operating profit it adds). Competent's gains set
+ *    its buying order (best payback first).
+ * 2. Each script's buying policy against buying nothing, over a continuous four-week game: week 1, week 2, and weeks 3–4
+ *    (past the breakdown ramp: the steady state, with whatever it bought).
+ * Margin is operating margin: upgrades are capex and stay out of it, as in the game.
+ */
+function upgradeStudy() {
+  const seeds = Array.from({ length: Number(args[3]) || 20 }, (_, i) => i + 1); // `-- upgrades 100` for more
+  const pct = (v: number, w = 5) => `${(v * 100).toFixed(1)}%`.padStart(w);
+  const pts = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}`.padStart(6);
+  const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const profit = (days: DayStats[]) => days.reduce((s, d) => s + d.revenue - d.costs, 0);
+  const byName = (n: string) => SCRIPTS.find(s => s.name === n)!;
+  const ids = CONFIG.upgrades.map(u => u.id);
+
+  /** Steady-state weeks (fresh, full breakdown rate) for a script with these owned. */
+  const steady = (script: Script, owned: readonly UpgradeId[]) => seeds.map(seed => playWeek(script, seed, STEADY_FROM, 1, { owned }).g.week);
+
+  console.log(`Keep It Running — upgrades, ${seeds.length} seeds, paired (start cash $${CONFIG.economy.startingCash}, buffer $${BUY_BUFFER})`);
+  const isolation: Record<string, Record<string, { dm: number; ds: number; dp: number; payback: number }>> = {};
+  for (const name of ['competent', 'average']) {
+    const script = byName(name);
+    const base = steady(script, []);
+    const bm = mean(base.map(margin)), bs = mean(base.map(scrapRate)), bp = mean(base.map(profit));
+    console.log(`\n${name}: steady-state week, each upgrade owned from the start (baseline margin ${pct(bm)}, scrap ${pct(bs)})`);
+    console.log(`${'upgrade'.padEnd(21)} price  | margin  Δpts (±SE) | scrap   Δpts (±SE) | Δprofit/wk | payback`);
+    const rows: Record<string, { dm: number; ds: number; dp: number; payback: number }> = {};
+    for (const id of [...ids, 'all']) {
+      const owned = id === 'all' ? ids : [id as UpgradeId];
+      const ws = steady(script, owned);
+      const m = mean(ws.map(margin)), sc = mean(ws.map(scrapRate)), p = mean(ws.map(profit));
+      // standard error of the paired, seed-by-seed difference: how much of Δ is just which seeds came up
+      const se = (f: (d: DayStats[]) => number) => {
+        const d = ws.map((w, i) => f(w) - f(base[i])), mu = mean(d);
+        return Math.sqrt(d.reduce((s, x) => s + (x - mu) ** 2, 0) / (d.length - 1) / d.length);
+      };
+      const cost = owned.reduce((s, x) => s + price(x), 0);
+      const dp = p - bp, payback = dp > 0 ? cost / dp : Infinity;
+      rows[id] = { dm: m - bm, ds: sc - bs, dp, payback };
+      console.log(`${(id === 'all' ? 'all of them' : id).padEnd(21)} $${String(cost).padEnd(5)} | ${pct(m)} ${pts(m - bm)} (±${(se(margin) * 100).toFixed(1)}) | ${pct(sc)} ${pts(sc - bs)} (±${(se(scrapRate) * 100).toFixed(1)}) | ${`$${dp.toFixed(0)}`.padStart(10)} | ${Number.isFinite(payback) ? `${payback.toFixed(1)} wk` : 'never'}`);
+    }
+    isolation[name] = rows;
+  }
+  // competent buys the best payback first: most weekly profit per dollar
+  // competent buys the best payback first, and nothing that didn't pay at all
+  competentOrder = ids.filter(id => isolation.competent[id].dp > 0)
+    .sort((a, b) => isolation.competent[b].dp / price(b) - isolation.competent[a].dp / price(a));
+  console.log(`\ncompetent's buying order (best payback first; skips what didn't pay): ${competentOrder.join(', ')}`);
+
+  console.log(`\nBuying policy vs buying nothing, continuous 4-week game (weeks 3–4: steady state with what it bought)`);
+  console.log(`${'script'.padEnd(10)} | week 1 margin / scrap      | week 2 margin / scrap      | weeks 3–4 margin / scrap   | bought (mean) | cash end wk 4`);
+  const policy: Record<string, { none: number[]; buy: number[]; scrapNone: number[]; scrapBuy: number[] }> = {};
+  for (const script of SCRIPTS) {
+    const none = seeds.map(seed => playWeek(script, seed, 1, 4));
+    const buy = seeds.map(seed => playWeek(script, seed, 1, 4, { buying: true }));
+    const cell = (wk: (r: typeof none[number]) => DayStats[]) =>
+      `${pct(mean(none.map(r => margin(wk(r)))))} → ${pct(mean(buy.map(r => margin(wk(r)))))} / ${pct(mean(none.map(r => scrapRate(wk(r)))), 4)} → ${pct(mean(buy.map(r => scrapRate(wk(r)))), 4)}`;
+    const late = (r: typeof none[number]) => [...r.weeks[2], ...r.weeks[3]];
+    console.log(`${script.name.padEnd(10)} | ${cell(r => r.weeks[0])} | ${cell(r => r.weeks[1])} | ${cell(late)} | ${mean(buy.map(r => r.g.upgrades.size)).toFixed(1).padStart(13)} | $${mean(none.map(r => r.g.cash)).toFixed(0)} → $${mean(buy.map(r => r.g.cash)).toFixed(0)}`);
+    const counts = Object.fromEntries(ids.map(id => [id, buy.filter(r => r.g.upgrades.has(id)).length]));
+    console.log(`${''.padEnd(10)}   bought by end of week 4 (seeds of ${seeds.length}): ${ids.map(id => `${id} ${counts[id]}`).join(', ')}`);
+    policy[script.name] = { none: none.map(r => margin(late(r))), buy: buy.map(r => margin(late(r))), scrapNone: none.map(r => scrapRate(late(r))), scrapBuy: buy.map(r => scrapRate(late(r))) };
+  }
+
+  // pass/fail (claude/office-manager-and-upgrades.md)
+  const avg = isolation.average, comp = isolation.competent;
+  const single = Math.max(...ids.map(id => avg[id].dm));
+  const allComp = mean(steady(byName('competent'), ids).map(margin));
+  const compPolicyLate = mean(policy.competent.buy);
+  const sensor = avg.faultSensor.ds;
+  console.log('\nPass/fail');
+  console.log(`  no single upgrade lifts average more than 5 points: biggest ${pts(single)} (${ids.find(id => avg[id].dm === single)}) — ${single <= 0.05 ? 'PASS' : 'FAIL'}`);
+  console.log(`  everything owned keeps competent at or under 20%: steady ${pct(allComp)}, weeks 3–4 with its buying ${pct(compPolicyLate)} — ${allComp <= 0.2 && compPolicyLate <= 0.2 ? 'PASS' : 'FAIL'}`);
+  console.log(`  average with the fault sensor has clearly lower steady-state scrap: ${pts(sensor)} points (${pct(mean(steady(byName('average'), []).map(scrapRate)))} → ${pct(mean(steady(byName('average'), ['faultSensor']).map(scrapRate)))}) — ${sensor <= -0.05 ? 'PASS' : 'FAIL'}`);
+  void comp;
 }

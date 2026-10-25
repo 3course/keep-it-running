@@ -2,7 +2,7 @@
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import type { ObjectId } from './layout.js';
-import type { WorldState } from './state.js';
+import { HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
 
 /** A to-do line. `targets`: where tapping it walks you (the nearest, if there are several). */
@@ -44,9 +44,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     else if (d.kind === 'bank') add(true, `bank-${d.id}`, "Phone's ringing (the bank)", 'phone');
   }
   if (g.fire) {
-    const ext: ObjectId[] = [];
-    if (w.hooks.wall) ext.push('extinguisher');
-    if (w.hooks.shed) ext.push('spareExtinguisher');
+    const ext = HOOKS.filter(h => onHook(g, w, h.hook)).map(h => h.id);
     add(true, 'fire', 'Put out the exhaust fire', w.carrying === 'extinguisher' || !ext.length ? 'exhaust' : ext);
   }
   if (g.machineDown) add(true, 'down', 'Machine is cooked for today', 'machine');
@@ -66,9 +64,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     case 'bag': add(true, 'carry-bag', 'Old bag to the skip', 'skip'); break;
     case 'offcuts': add(true, 'carry-offcuts', 'Offcuts to the skip', 'skip'); break;
     case 'extinguisher': if (!g.fire) {
-      const empty: ObjectId[] = [];
-      if (!w.hooks.wall) empty.push('extinguisher');
-      if (!w.hooks.shed) empty.push('spareExtinguisher');
+      const empty: ObjectId[] = HOOKS.filter(h => hookThere(g, h.hook) && !onHook(g, w, h.hook)).map(h => h.id);
       add(false, 'carry-ext', 'Hang the extinguisher back up', empty);
     } break;
   }
@@ -78,7 +74,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (g.wear.filter < low) add(false, 'bag', 'Change the extractor bag', 'extractor');
   if (g.wear.spoilboard < low) add(false, 'spoilboard', 'New spoilboard', 'machine');
   if (w.oldBagWaiting) add(false, 'oldbag', 'Old bag out of the extractor', 'extractor');
-  if (w.offcutBin >= WORLD.offcutsEmptyAt) add(false, 'offcuts', 'Empty the offcut bin', 'offcutBin');
+  if (w.offcutBin >= offcutsBagAt(g)) add(false, 'offcuts', 'Empty the offcut bin', 'offcutBin');
   if (w.utePresent) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'rollerDoor');
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
   if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.nextUp() && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');

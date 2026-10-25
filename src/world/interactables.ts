@@ -8,7 +8,7 @@ import { CONFIG, type ConsumableKey } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import type { Distraction } from '../sim/types.js';
 import type { ObjectId } from './layout.js';
-import { absMinute, type WorldState } from './state.js';
+import { absMinute, HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
 
 export interface Action {
@@ -103,7 +103,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'offcutBin': {
       const a: Action[] = [];
       if (w.carrying === 'scrap') a.push({ label: 'Bin the scrap', done: 'Scrap binned', run: () => { w.carrying = null; w.offcutBin = Math.min(1, w.offcutBin + 2 * WORLD.offcutsPerSheet); } });
-      if (empty && w.offcutBin >= WORLD.offcutsEmptyAt) a.push({ label: 'Bag the offcuts', twoHands: true, done: 'Offcuts bagged', run: () => { w.carrying = 'offcuts'; w.offcutBin = 0; } });
+      if (empty && w.offcutBin >= offcutsBagAt(g)) a.push({ label: 'Bag the offcuts', twoHands: true, done: 'Offcuts bagged', run: () => { w.carrying = 'offcuts'; w.offcutBin = 0; } });
       return [...a, ...canBin(g)];
     }
     case 'skip':
@@ -129,11 +129,13 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'exhaust':
       return w.carrying === 'extinguisher' && g.fire ? [{ label: 'Hold to spray', hold: true }] : [];
     case 'extinguisher':
-    case 'spareExtinguisher': {
-      const hook = id === 'extinguisher' ? 'wall' : 'shed';
+    case 'spareExtinguisher':
+    case 'exhaustExtinguisher': {
+      const hook = HOOKS.find(h => h.id === id)!.hook;
+      if (!hookThere(g, hook)) return [];
       // only worth taking down when there's a fire to put out
-      if (empty && w.hooks[hook] && g.fire) return [{ label: 'Grab extinguisher', twoHands: true, done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
-      if (w.carrying === 'extinguisher' && !w.hooks[hook]) return [{ label: 'Hang it up', done: 'Extinguisher back on its hook', run: () => { w.hooks[hook] = true; w.carrying = null; w.extinguisherFrom = null; } }];
+      if (empty && onHook(g, w, hook) && g.fire) return [{ label: 'Grab extinguisher', twoHands: true, done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
+      if (w.carrying === 'extinguisher' && !onHook(g, w, hook)) return [{ label: 'Hang it up', done: 'Extinguisher back on its hook', run: () => { w.hooks[hook] = true; w.carrying = null; w.extinguisherFrom = null; } }];
       return [];
     }
     case 'rollerDoor': {

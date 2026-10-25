@@ -12,7 +12,7 @@ import { actionsFor, statusFor, uiHooks, visitorActions, visitorStatus, type Act
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
-import { absMinute, logEvent, startNewDay, type WorldState } from '../world/state.js';
+import { absMinute, HOOKS, hookThere, logEvent, onHook, startNewDay, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
@@ -842,8 +842,10 @@ export class World3D {
     const binFill = o('offcutBin').parts.fill;
     binFill.scale.y = Math.max(0.001, w.offcutBin);
     // extinguishers on their hooks
-    o('extinguisher').parts.can.visible = w.hooks.wall;
-    o('spareExtinguisher').parts.can.visible = w.hooks.shed;
+    for (const h of HOOKS) {
+      o(h.id).group.visible = hookThere(g, h.hook);
+      o(h.id).parts.can.visible = onHook(g, w, h.hook);
+    }
     // phone jiggles while it rings
     const ringing = g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
     const hs = o('phone').parts.handset;

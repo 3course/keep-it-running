@@ -103,6 +103,9 @@ export const CONFIG = {
     wrongDiagnosisMinutes: 3,         // time wasted on a wrong call
     attentionSplitChanceMult: 1.25,   // fault chance while a friend is hanging around
     attentionSplitDurationMult: 1.5,  // fix steps take longer while distracted
+    // the fault sensor upgrade pauses the cut on the faults a machine can measure (temperature, airflow, spindle load);
+    // it can't see a chipped edge or the wrong board on the bed
+    sensorCatches: ['spindle', 'extraction', 'collet'] as string[],
   },
 
   consumables: {
@@ -205,6 +208,13 @@ export const CONFIG = {
     { id: 'spareSpindle', name: 'Spare spindle on the shelf', cost: 2400, desc: 'Unlocks a fast, free spindle swap',       effect: 1 },
     { id: 'vacuumZone',   name: 'Second vacuum zone',         cost: 1500, desc: 'Parts lift 60% less often',               effect: 0.4 },
     { id: 'nesting',      name: 'Nesting software',           cost: 1200, desc: '10% less material per sheet',             effect: 0.9 },
+    // small: cheap, quick to pay back
+    { id: 'premiumBits',  name: 'Premium compression bits',  cost: 350,  desc: 'Bits wear 15% slower',                    effect: 0.85 }, // bit wear multiplier
+    { id: 'bagRack',      name: 'Wall-mounted bag rack',     cost: 250,  desc: 'Changing the extractor bag takes 5 min, not 8', effect: 5 }, // filter replaceMinutes
+    { id: 'bigBin',       name: 'Bigger offcut bin',         cost: 300,  desc: 'Bag the offcuts at 80% full, not 50%: fewer trips', effect: 0.8 }, // bag-it level (the bin is the 3D view's)
+    { id: 'exhaustExtinguisher', name: 'Extinguisher by the exhaust', cost: 400, desc: 'One hanging right by the duct: fire walks 40% shorter', effect: 0.6 }, // fire walk multiplier
+    // mid
+    { id: 'faultSensor',  name: 'Fault sensor',              cost: 1500, desc: 'Pauses the cut the moment a fault starts: the sheet waits for you', effect: 1 },
   ],
 
   week: { days: 5 },

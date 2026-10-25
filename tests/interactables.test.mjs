@@ -115,6 +115,21 @@ const CASES = {
     assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.shed]), [null, true]);
   },
 
+  // the "Extinguisher by the exhaust" upgrade: not there until it's bought, then a third hook out in the yard
+  async exhaustExtinguisher(game) {
+    await frames(game);
+    assert.equal(await game.eval((g, w, s) => s.built.objects.get('exhaustExtinguisher').group.visible), false, 'not bought: not there');
+    await game.eval(g => { g.phase = 'daySummary'; g.cash = 5000; g.buyUpgrade('exhaustExtinguisher'); g.phase = 'day'; });
+    await startFire(game);
+    await frames(game);
+    assert.equal(await game.eval((g, w, s) => s.built.objects.get('exhaustExtinguisher').group.visible), true, 'bought: on its post');
+    await walkTo(game, 'exhaustExtinguisher');
+    assert.equal((await tapLabel(game, 'Grab extinguisher')).said, 'Grabbed the extinguisher');
+    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.exhaust, w.extinguisherFrom]), ['extinguisher', false, 'exhaust']);
+    assert.equal((await tapLabel(game, 'Hang it up')).said, 'Extinguisher back on its hook');
+    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.exhaust]), [null, true]);
+  },
+
   async rollerDoor(game) {
     // day 1: last week's ply order is on the apron, waiting for a signature
     assert.equal(await game.eval(g => g.truckOnApron?.stage), 'waiting');
@@ -176,7 +191,7 @@ describe('interactables', () => {
     const { OBJECTS } = await env.load('/src/world/layout.ts');
     for (const id of withActions) assert.ok(OBJECTS.some(o => o.id === id), `${id} is in the shed`);
     assert.deepEqual(Object.keys(CASES).sort(), [...withActions, 'visitor'].sort());
-    assert.equal(Object.keys(CASES).length, 17);
+    assert.equal(Object.keys(CASES).length, 18);
   });
 
   // the exhaust unit's glow: a spot fire only smokes at first; day 2's lesson fire (CONFIG.fire.lesson) glows from the start

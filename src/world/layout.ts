@@ -36,7 +36,7 @@ export interface Zone { name: string; rect: Rect; yawDeg: number; outside?: bool
 export type ObjectId =
   | 'machine' | 'plyPallet' | 'finishedPallet' | 'offcutBin' | 'bitRack' | 'extractor' | 'compressor'
   | 'exhaust' | 'duct' | 'extinguisher' | 'rollerDoor' | 'smoko' | 'desk' | 'phone' | 'fridge'
-  | 'toilet' | 'racks' | 'spareExtinguisher' | 'bags' | 'skip';
+  | 'toilet' | 'racks' | 'spareExtinguisher' | 'exhaustExtinguisher' | 'bags' | 'skip';
 
 export interface PlacedObject {
   id: ObjectId;
@@ -74,6 +74,8 @@ export const OBJECTS: PlacedObject[] = [
   // the duct goes straight up from the extractor and out through the back wall to the exhaust unit
   { id: 'duct', name: 'Duct', rect: { x: 15, y: 13, w: 1, h: 1 }, height: 2.3, colour: 0x8a8f94, solid: false },
   { id: 'exhaust', name: 'Exhaust unit', rect: { x: 14, y: 10, w: 3, h: 3 }, height: 1.6, colour: 0x6b6f72, solid: true },
+  // only once it's bought (the "Extinguisher by the exhaust" upgrade): on a post beside the unit
+  { id: 'exhaustExtinguisher', name: 'Extinguisher (exhaust)', rect: { x: 18, y: 11, w: 1, h: 1 }, height: 0.6, colour: 0xc0281e, solid: false },
   // dock (x 23..28, y 22..45), roller door in the east wall; extinguisher at its south end, in full view
   { id: 'extinguisher', name: 'Extinguisher', rect: { x: 28, y: 34, w: 1, h: 1 }, height: 0.6, colour: 0xc0281e, solid: true },
   { id: 'rollerDoor', name: 'Roller door', rect: { x: 29, y: 28, w: 1, h: 6 }, height: 2.4, colour: 0x9ea4aa, solid: false },
