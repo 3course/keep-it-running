@@ -16,7 +16,7 @@ export const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, is
  * gets any other module), so tests check against the real numbers and names.
  */
 export async function startBrowser() {
-  const server = await createServer({ logLevel: 'error', server: { port: 0, host: '127.0.0.1' } });
+  const server = await createServer({ logLevel: 'error', server: { port: 0, host: '127.0.0.1', hmr: false } });
   await server.listen();
   const url = server.resolvedUrls.local[0];
   const load = path => server.ssrLoadModule(path);

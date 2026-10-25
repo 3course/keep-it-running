@@ -136,3 +136,35 @@ Each was applied on its own, in the sim only:
 - **Competent's buying buffer** (separate issue): raise it to cover a week's overheads plus a ply order (~$2,500).
 
 **Caveat:** "declines when overcommitted" is the sim script's behaviour, standing in for a player who heeds a warning. Whether real players do is a playtest question. If they don't, plateau 0.8 + overdraft $2,000 is the fallback that keeps average afloat on 79/100 seeds, while it still loses money.
+
+## 4. After the over-commitment warning (commit 1)
+
+**What's in the game now:**
+- **Notepad warning:** a "Board's full: 9 due today, time for about 7" line when the sheets due today (overdue included) exceed what's left of the day at ~40 min a sheet (`jobs.warnMinutesPerSheet`, the old competent rule of thumb). It shows only before 5pm.
+- **Highlighted refusal:** while it's on, "Turn it down" glows on order calls and voicemail callbacks.
+- **Day summary:** "Late jobs cost you $…" and "Pulled jobs cost you $…" lines, shown only when non-zero.
+- **No balance numbers changed.**
+
+**In the sim:**
+- **Average** heeds the warning on two order calls or voicemails in three (decided once per call from the game's seeded RNG). Before, it never declined.
+- **Competent** is unchanged: it already declined on the same rule, which now lives in `Game.overCommitted`. Its default-run output is identical.
+- **Sloppy** ignores the warning.
+- **Competent's upgrade-buying buffer** is now $2,500 (was $1,500).
+
+`npm run sim -- upgrades 100`, continuous weeks 1–4, nothing bought → with its buying policy. "Solvent" means never refused ply for want of money, and cash ≥ 0 at the end of week 4.
+
+| Script | Solvent (of 100) | Week 1 margin / scrap | Week 2 margin / scrap | Weeks 3–4 margin / scrap | Cash end of week 4 |
+|---|---|---|---|---|---|
+| Competent | 100 → 100 | 23.4 → 23.8% / 3.2 → 3.0% | 13.2 → 19.7% / 7.8 → 6.5% | 10.8 → 19.0% / 9.3 → 7.9% | $7,302 → $5,564 |
+| Average | **96 → 90** | 24.2 → 24.2% / 2.9 → 2.9% | 6.9 → 8.1% / 17.8 → 18.2% | **1.4 → 2.4%** / 21.9 → 21.4% | $3,060 → $2,259 |
+| Sloppy | 0 → 0 | 21.4 → 24.8% / 9.5 → 8.8% | −31.7 → −28.3% / 24.3 → 17.2% | −117 → −426% / 25.8 → 10.9% | −$5,890 → −$8,640 |
+
+**Against section 1:**
+- **Average** is solvent on 96/100 seeds instead of 25. Its weeks 3–4 margin goes −12.9% → +1.4%, and week 2 0.9% → 6.9%.
+- **Average's scrap is unchanged** (~22% in weeks 3–4): the warning fixes the backlog, not the faults it leaves.
+- **Competent** with its buying policy is now solvent on all 100 seeds, against 75 with the $1,500 buffer, at 19.0% in weeks 3–4.
+- **Sloppy:** unchanged.
+
+**Fresh steady-state week:**
+- Average 3.3% (was 0.4%); competent 11.0% (unchanged).
+- The upgrade pass/fail still holds: largest single gain for average +4.9 (nesting); everything owned keeps competent at 17.7% / 19.0%; the sensor cuts average's scrap 21.1% → 15.1%.

@@ -15,15 +15,8 @@ import type { JobTypeId, UpgradeId } from '../config.js';
 
 type Policy = (g: Game) => void;
 
-// The competent operator's rule of thumb for one sheet, start to finish, faults included. Not a game rule.
-const COMPETENT_MINUTES_PER_SHEET = 40;
-
-/** Open sheets due today (or overdue) already exceed what can be cut before 5pm. */
-function overCommitted(g: Game): boolean {
-  const dueToday = g.jobs.filter(j => (j.status === 'queued' || j.status === 'cutting') && j.dueDay <= g.dayIndex).length;
-  const capacity = Math.max(0, CONFIG.clock.endHour * 60 - g.minute) / COMPETENT_MINUTES_PER_SHEET;
-  return dueToday > capacity;
-}
+/** Open sheets due today (or overdue) already exceed what can be cut before 5pm: the game's "board's full" warning. */
+const overCommitted = (g: Game) => g.overCommitted;
 
 // Both scripts reorder a line when it drops to this many sheets.
 const REORDER_AT = 3;
@@ -173,6 +166,16 @@ function averageReacts(g: Game, key: string, minLag: number, maxLag: number): bo
   return now(g) >= m.get(key)!;
 }
 
+// average's call on each order it's offered while the board's full: true = heeds the warning and turns it down
+const averageHeedsCalls = new WeakMap<Game, Map<string, boolean>>();
+/** Average heeds the "board's full" warning two times in three, decided once per call or voicemail (seeded). */
+function averageHeeds(g: Game, key: string): boolean {
+  let m = averageHeedsCalls.get(g);
+  if (!m) averageHeedsCalls.set(g, m = new Map());
+  if (!m.has(key)) m.set(key, g.rng.chance(2 / 3));
+  return m.get(key)!;
+}
+
 // average's call on each time a mate comes up while the machine's cutting: true = lets them talk
 const averageTalks = new WeakMap<Game, Map<string, boolean>>();
 function averageLetsTalk(g: Game, d: { id: number; approaches?: number }): boolean {
@@ -223,9 +226,10 @@ const average: Policy = (g) => {
       if (!d.ask) continue;
       if (g.machine !== 'cutting') g.respond(d.id, 'chat');
       else if (!averageLetsTalk(g, d)) g.respond(d.id, 'disengage');
-    } else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
+    } else if (d.order) g.respond(d.id, overCommitted(g) && averageHeeds(g, `call-${d.id}`) ? 'decline' : 'answer');
+    else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
   }
-  for (const c of g.callbacks) g.callBack(c.id);
+  for (const c of g.callbacks) g.callBack(c.id, overCommitted(g) && averageHeeds(g, `voicemail-${c.id}`) ? 'decline' : 'answer');
   competentOrders(g);
   if (g.machine === 'idle' && g.queued.length) {
     if (averageWantsSwap(g, 'bit', 0.3)) { g.replaceConsumable('bit'); return; }
@@ -249,16 +253,18 @@ interface Script {
 
 // ---------- upgrade buying (claude/office-manager-and-upgrades.md, sim plan) ----------
 
-/** Cash kept back for ply: both careful scripts dip to ~$200 mid-week paying for boards up front. */
+/** Cash kept back for ply: both careful scripts dip to ~$200 mid-week paying for boards up front. Competent keeps more
+ * back: enough for a week's overheads and a ply order on top (claude/sim-solvency.md). */
 const BUY_BUFFER = 1500;
+const COMPETENT_BUY_BUFFER = 2500;
 const price = (id: UpgradeId) => CONFIG.upgrades.find(u => u.id === id)!.cost;
 const cheapestFirst = [...CONFIG.upgrades].sort((a, b) => a.cost - b.cost).map(u => u.id);
 /** Competent's order: best payback first. The `upgrades` mode measures it (competent's own gain per dollar) before playing. */
 let competentOrder: UpgradeId[] = cheapestFirst;
 
-/** Competent: the best payback it can afford above the buffer, any day. */
+/** Competent: the best payback it can afford above its buffer, any day. */
 function competentBuys(g: Game) {
-  for (const id of competentOrder) if (!g.upgrades.has(id) && g.cash - price(id) >= BUY_BUFFER) { g.buyUpgrade(id); return; }
+  for (const id of competentOrder) if (!g.upgrades.has(id) && g.cash - price(id) >= COMPETENT_BUY_BUFFER) { g.buyUpgrade(id); return; }
 }
 /** Average: one a week, at the end of it — the cheapest it hasn't got, if it's above the buffer. */
 function averageBuys(g: Game) {
@@ -288,8 +294,12 @@ interface WeekResult { g: Game; idle: { total: number; longest: number }[] }
 interface Upgrading { buying?: boolean; owned?: readonly UpgradeId[] }
 
 /** Play `weeks` weeks of a new game starting on `firstDay`; the result is the last of them (`weeks`: every week's days). */
-function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up: Upgrading = {}): WeekResult & { weeks: DayStats[][] } {
+function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up: Upgrading = {}): WeekResult & { weeks: DayStats[][]; refused: number } {
   const g = new Game(seed, firstDay);
+  // count the ply orders the supplier refused for want of money (an insolvent business can't restock)
+  let refused = 0;
+  const quote = g.plyQuote.bind(g);
+  g.plyQuote = (t, q) => { const r = quote(t, q); if ('error' in r && r.broke) refused++; return r; };
   for (const id of up.owned ?? []) g.upgrades.add(id);
   let idle: { total: number; longest: number }[] = [];
   const all: DayStats[][] = [];
@@ -298,7 +308,7 @@ function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up:
     idle = playOn(script, g, !!up.buying);
     all.push([...g.week]);
   }
-  return { g, idle, weeks: all };
+  return { g, idle, weeks: all, refused };
 }
 
 /** Play the rest of the week. Returns per day: minutes the bed sat empty (machine 'idle') while labour was on the
@@ -479,7 +489,8 @@ function upgradeStudy() {
   console.log(`\ncompetent's buying order (best payback first; skips what didn't pay): ${competentOrder.join(', ')}`);
 
   console.log(`\nBuying policy vs buying nothing, continuous 4-week game (weeks 3–4: steady state with what it bought)`);
-  console.log(`${'script'.padEnd(10)} | week 1 margin / scrap      | week 2 margin / scrap      | weeks 3–4 margin / scrap   | bought (mean) | cash end wk 4`);
+  console.log('solvent = never refused ply for want of money, and cash ≥ 0 at the end of week 4');
+  console.log(`${'script'.padEnd(10)} | solvent   | week 1 margin / scrap      | week 2 margin / scrap      | weeks 3–4 margin / scrap   | bought (mean) | cash end wk 4`);
   const policy: Record<string, { none: number[]; buy: number[]; scrapNone: number[]; scrapBuy: number[] }> = {};
   for (const script of SCRIPTS) {
     const none = seeds.map(seed => playWeek(script, seed, 1, 4));
@@ -487,7 +498,8 @@ function upgradeStudy() {
     const cell = (wk: (r: typeof none[number]) => DayStats[]) =>
       `${pct(mean(none.map(r => margin(wk(r)))))} → ${pct(mean(buy.map(r => margin(wk(r)))))} / ${pct(mean(none.map(r => scrapRate(wk(r)))), 4)} → ${pct(mean(buy.map(r => scrapRate(wk(r)))), 4)}`;
     const late = (r: typeof none[number]) => [...r.weeks[2], ...r.weeks[3]];
-    console.log(`${script.name.padEnd(10)} | ${cell(r => r.weeks[0])} | ${cell(r => r.weeks[1])} | ${cell(late)} | ${mean(buy.map(r => r.g.upgrades.size)).toFixed(1).padStart(13)} | $${mean(none.map(r => r.g.cash)).toFixed(0)} → $${mean(buy.map(r => r.g.cash)).toFixed(0)}`);
+    const solvent = (rs: typeof none) => rs.filter(r => r.refused === 0 && r.g.cash >= 0).length;
+    console.log(`${script.name.padEnd(10)} | ${`${solvent(none)} → ${solvent(buy)}`.padEnd(9)} | ${cell(r => r.weeks[0])} | ${cell(r => r.weeks[1])} | ${cell(late)} | ${mean(buy.map(r => r.g.upgrades.size)).toFixed(1).padStart(13)} | $${mean(none.map(r => r.g.cash)).toFixed(0)} → $${mean(buy.map(r => r.g.cash)).toFixed(0)}`);
     const counts = Object.fromEntries(ids.map(id => [id, buy.filter(r => r.g.upgrades.has(id)).length]));
     console.log(`${''.padEnd(10)}   bought by end of week 4 (seeds of ${seeds.length}): ${ids.map(id => `${id} ${counts[id]}`).join(', ')}`);
     policy[script.name] = { none: none.map(r => margin(late(r))), buy: buy.map(r => margin(late(r))), scrapNone: none.map(r => scrapRate(late(r))), scrapBuy: buy.map(r => scrapRate(late(r))) };

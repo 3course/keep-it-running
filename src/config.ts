@@ -47,6 +47,9 @@ export const CONFIG = {
     machineRatePerMinute: 2.0,   // ~$155/hr machine rate, the thing a joiner actually pays for
     loadMinutes: 3,              // time to load a sheet onto the bed
     firstDeadlineMinutesAfterOpen: 80,
+    // the "board's full" warning: sheets due today (and overdue) against what's left of the day at about this long a
+    // sheet, faults included (a careful operator's rule of thumb). Not a balance number: it only decides when to warn.
+    warnMinutesPerSheet: 40,
     lastDeadlineMinutesAfterClose: -45, // deadlines spread evenly from the first to endHour + this
     rush: { priceMult: 1.2, cutMinutesLess: 10, deadlineSlackMinutes: 90, maxPerDay: 2 },
     // a joiner drops a sheet off mid-afternoon: premium if it's cut tonight, otherwise it's gone

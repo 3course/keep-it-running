@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { createServer } from 'vite';
 
-const server = await createServer({ logLevel: 'error', server: { middlewareMode: true }, appType: 'custom' });
+const server = await createServer({ logLevel: 'error', server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { CONFIG } = await server.ssrLoadModule('/src/config.ts');

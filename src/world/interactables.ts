@@ -24,6 +24,8 @@ export interface Action {
   done?: string;
   /** Needs both hands: a can in your hand gets put down at your feet first. */
   twoHands?: boolean;
+  /** Draw attention to it: the right call just now (turning work down when the board's full). */
+  highlight?: boolean;
 }
 
 /** Binning the can in your hand: at any bin. */
@@ -162,14 +164,14 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       for (const d of g.distractions) {
         if (d.kind === 'phone' && d.order) {
           a.push({ label: `Take the order (${d.order} sheets)`, key: `phone-${d.id}`, done: `Took a ${d.order}-sheet order`, run: () => { g.respond(d.id, 'answer'); } });
-          a.push({ label: 'Turn it down', auto: false, done: `Turned down ${d.order} sheets`, run: () => { g.respond(d.id, 'decline'); } });
+          a.push({ label: 'Turn it down', auto: false, highlight: g.overCommitted, done: `Turned down ${d.order} sheets`, run: () => { g.respond(d.id, 'decline'); } });
         } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => { g.respond(d.id, 'answer'); } });
         else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, done: 'Talked the bank round', run: () => { g.respond(d.id, 'answer'); } });
       }
       a.push({ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() });
       for (const cb of g.callbacks) {
         a.push({ label: `Call ${cb.customer} back (${cb.sheets} sheets)`, key: `callback-${cb.id}`, done: `Rang ${cb.customer} back`, run: () => { g.callBack(cb.id); } });
-        a.push({ label: `Ring ${cb.customer}, turn it down`, auto: false, done: `Turned ${cb.customer} down`, run: () => { g.callBack(cb.id, 'decline'); } });
+        a.push({ label: `Ring ${cb.customer}, turn it down`, auto: false, highlight: g.overCommitted, done: `Turned ${cb.customer} down`, run: () => { g.callBack(cb.id, 'decline'); } });
       }
       return a;
     }

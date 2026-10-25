@@ -91,6 +91,8 @@ const CSS = `
 #kir-hud .lbl button { pointer-events: auto; font: 600 ${F(20)} 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
   border-radius: 10px; padding: 8px 12px; min-height: ${F(48)}; box-shadow: 0 3px 0 #14110f; max-width: 300px; line-height: 1.15; text-wrap: balance; touch-action: none; }
 #kir-hud .lbl button.hold { background: #f2a35b; }
+#kir-hud .lbl button.hot { background: #e8644a; color: #fff8ec; box-shadow: 0 0 0 3px rgba(232,100,74,.45); animation: kir-hot 1.2s ease-in-out infinite; }
+@keyframes kir-hot { 50% { box-shadow: 0 0 0 7px rgba(232,100,74,.15); } }
 #kir-hud .lbl button.held { background: #8fd37a; }
 #kir-hud .lbl button.tick { background: #8fd37a; animation: kir-tick .35s ease-out; }
 @keyframes kir-tick { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }

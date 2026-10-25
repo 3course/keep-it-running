@@ -21,7 +21,7 @@ const CUSTOMERS = ['Mick', 'Kerry', 'Dave', 'Priya', 'Sal', 'Tran', 'Lou', 'Gus'
 function emptyStats(day: number): DayStats {
   return {
     day, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0,
-    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0,
+    upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
   };
@@ -138,6 +138,12 @@ export class Game {
   get friendPresent(): boolean { return this.distractions.some(d => d.kind === 'friend' && d.engaged); }
   get canAct(): boolean { return this.busy === null && this.fireResponse === null; }
   get fridgeOpen(): boolean { return this.hour >= CONFIG.beer.fridgeUnlockHour; }
+  /** Sheets due by close today, overdue ones included, not cut yet (the one on the bed counts). */
+  get dueToday(): number { return this.jobs.filter(j => (j.status === 'queued' || j.status === 'cutting') && j.dueDay <= this.dayIndex).length; }
+  /** About how many sheets there's time to cut before 5pm. */
+  get canCutToday(): number { return Math.max(0, CONFIG.clock.endHour * 60 - this.minute) / CONFIG.jobs.warnMinutesPerSheet; }
+  /** More due today than there's time to cut: worth turning work down. */
+  get overCommitted(): boolean { return this.dueToday > this.canCutToday; }
   /** Today's fraction of the full breakdown rate (CONFIG.difficulty): none on the first days, ramping up. */
   get breakdownMult(): number {
     const ramp = CONFIG.difficulty.breakdownByDay;
@@ -659,7 +665,7 @@ export class Game {
     j.paidLate = late;
     const pay = Math.round(late ? j.price * CONFIG.economy.latePayFraction : j.price);
     this.today.sheetsDone += 1;
-    if (late) this.today.sheetsLate += 1;
+    if (late) { this.today.sheetsLate += 1; this.today.latePayLost = (this.today.latePayLost || 0) + j.price - pay; }
     this.typeLedger[j.type].revenue += pay;
     this.typeLedger[j.type].cut += 1;
     this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
@@ -1302,6 +1308,7 @@ export class Game {
     const lost = this.queued.filter(j => this.dayIndex >= j.dueDay + 1);
     for (const j of lost) j.status = 'lost';
     this.today.sheetsLost = lost.length;
+    this.today.lostJobsValue = (this.today.lostJobsValue || 0) + lost.reduce((s, j) => s + j.price, 0);
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     for (const c of [...this.callbacks]) this.loseCallback(c); // nobody rings back after knock-off

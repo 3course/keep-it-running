@@ -38,6 +38,11 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   // first day: the walk-round comes first, in order
   if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);
 
+  // more due today than there's time to cut: a nudge to turn work down (top of the "later" list; it's not a chore)
+  if (g.overCommitted && g.minute < CONFIG.clock.endHour * 60) {
+    add(false, 'board-full', `Board's full: ${g.dueToday} due today, time for about ${Math.floor(g.canCutToday)}`);
+  }
+
   // a ringing phone goes on top of the rest: it's the one thing that won't wait
   for (const d of g.distractions) {
     if (d.kind === 'phone') add(true, `phone-${d.id}`, d.order ? "Phone's ringing (new order)" : "Phone's ringing", 'phone');

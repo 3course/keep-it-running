@@ -167,7 +167,9 @@ export interface DayStats {
   sheetsDemanded: number;  // sheets offered today: 7am board, order calls (answered or not), drop-off, rush
   sheetsMissed: number;    // order calls that rang out and weren't called back in time
   sheetsDeclined: number;  // order calls answered and turned down (no reputation cost)
-  sheetsLost: number;      // carried-over jobs not delivered by close the day after they were due
+  sheetsLost: number;
+  latePayLost: number;    // $ kept back on sheets paid late
+  lostJobsValue: number;  // $ of work pulled by customers (overdue a full day)      // carried-over jobs not delivered by close the day after they were due
   stockOutMinutes: number; // minutes the bed sat empty with work queued but none of it in stock
   deliveryFees: number;    // ply delivery (and redelivery) fees
   overdraftFees: number;   // a day that closed overdrawn

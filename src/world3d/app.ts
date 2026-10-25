@@ -727,7 +727,7 @@ export class World3D {
       entries.push({ id: `visitor-${mate.id}`, anchor: new THREE.Vector3(this.visitor.x, 1.75, this.visitor.z), acts: visitorActions(g, mate), status: visitorStatus(g, mate) });
     }
     const shown = entries.filter(e => e.acts.length || e.status);
-    const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => a.label), e.status, g.spraying]));
+    const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => [a.label, !!a.highlight]), e.status, g.spraying]));
     if (sig !== this.labelSig && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
       this.labelSig = sig;
       for (const l of this.labelEls) l.el.remove();
@@ -740,6 +740,7 @@ export class World3D {
           const held = a.hold && g.spraying;
           b.textContent = held ? 'Spraying…' : a.label;
           if (a.hold) b.className = held ? 'held' : 'hold';
+          else if (a.highlight) b.className = 'hot';
           b.addEventListener('pointerdown', e => {
             e.preventDefault(); e.stopPropagation();
             this.labelPressed = true; this.labelPressedAt = this.time;

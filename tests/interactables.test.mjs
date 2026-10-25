@@ -291,3 +291,48 @@ describe('a visiting mate in the shed', () => {
     } finally { await game.close(); }
   });
 });
+
+describe("the board's full", () => {
+  /** Set the board in the page: `today` sheets due today, the clock with time for exactly `fit` more. */
+  const setBoard = (game, today, fit) => game.eval((g, w, s, a) => {
+    const proto = g.jobs[0];
+    g.jobs = Array.from({ length: a.today }, (_, i) => ({ ...proto, id: 900 + i, status: 'queued', dueDay: g.dayIndex, progress: 0 }));
+    g.minute = 17 * 60 - a.fit * 40;
+    return [g.dueToday, g.canCutToday, g.overCommitted];
+  }, { today, fit });
+  const hot = game => game.page.evaluate(() => [...document.querySelectorAll('#kir-hud .lbl button')].filter(b => b.classList.contains('hot')).map(b => b.textContent));
+
+  it('"Turn it down" glows on an order call only while the board\'s full', async () => {
+    const game = await freshGame(env);
+    try {
+      await game.eval(g => { g.tick = () => {}; });
+      assert.deepEqual(await setBoard(game, 6, 6), [6, 6, false]);
+      await game.eval(g => { g.spawnOrderCall(2); });
+      await walkTo(game, 'phone');
+      await waitForLabel(game, 'Turn it down');
+      assert.deepEqual(await hot(game), [], 'room for it: nothing highlighted');
+      assert.equal((await setBoard(game, 7, 6))[2], true);
+      await game.page.waitForFunction(() => [...document.querySelectorAll('#kir-hud .lbl button.hot')].some(b => b.textContent === 'Turn it down'), null, { timeout: 3_000 });
+      assert.deepEqual(await hot(game), ['Turn it down'], 'only "Turn it down"');
+      assert.ok((await game.eval((g, w, s) => s.hud.pad.textContent)).includes("Board's full: 7 due today, time for about 6"), 'and the notepad says so');
+    } finally { await game.close(); }
+  });
+
+  it('the day summary itemises late pay and pulled jobs, only when there were any', async () => {
+    const game = await freshGame(env);
+    try {
+      const render = (late, pulled) => game.eval(async (g, w, s, a) => {
+        const { renderDaySummary } = await import(new URL('src/ui/summary.ts', document.baseURI).href);
+        g.today.latePayLost = a.late; g.today.lostJobsValue = a.pulled;
+        const el = document.createElement('div');
+        renderDaySummary(el, g, () => {}, () => {});
+        const text = sel => el.querySelector(sel)?.textContent ?? null;
+        return { late: text('.lost-late'), pulled: text('.lost-pulled') };
+      }, { late, pulled });
+      assert.deepEqual(await render(0, 0), { late: null, pulled: null }, 'nothing lost: no lines');
+      assert.deepEqual(await render(516, 0), { late: 'Late jobs cost you$516', pulled: null });
+      assert.deepEqual(await render(0, 293), { late: null, pulled: 'Pulled jobs cost you$293' });
+      assert.deepEqual(await render(516, 293), { late: 'Late jobs cost you$516', pulled: 'Pulled jobs cost you$293' });
+    } finally { await game.close(); }
+  });
+});
