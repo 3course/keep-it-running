@@ -427,14 +427,14 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
     return {};
   },
   phone: (g, w, d, h, o) => {
-    // a wall phone on the office side of the partition, right beside the doorframe
-    const wall = -d / 2; // the cell's north edge is the wall face
-    g.add(boxAt(0.24, 0.34, 0.05, o.colour, 0, h - 0.36, wall + 0.025));          // base unit
-    g.add(boxAt(0.12, 0.06, 0.02, 0xd8cdb8, 0, h - 0.16, wall + 0.055));           // dial plate
-    const handset = boxAt(0.07, 0.26, 0.07, 0x1e1e20, 0.05, h - 0.33, wall + 0.09); // hanging on its cradle
+    // a wall phone on the office's back wall, beside the desk and its computer, facing into the room
+    const wall = d / 2; // the cell's south edge is the wall face
+    g.add(boxAt(0.24, 0.34, 0.05, o.colour, 0, h - 0.36, wall - 0.025));          // base unit
+    g.add(boxAt(0.12, 0.06, 0.02, 0xd8cdb8, 0, h - 0.16, wall - 0.055));           // dial plate
+    const handset = boxAt(0.07, 0.26, 0.07, 0x1e1e20, 0.05, h - 0.33, wall - 0.09); // hanging on its cradle
     handset.userData.baseY = handset.position.y;
     g.add(handset);
-    for (let i = 0; i < 5; i++) g.add(boxAt(0.03, 0.03, 0.03, 0x1e1e20, 0.05 + Math.sin(i * 1.4) * 0.03, h - 0.36 - (i + 1) * 0.07, wall + 0.08)); // coiled cord
+    for (let i = 0; i < 5; i++) g.add(boxAt(0.03, 0.03, 0.03, 0x1e1e20, 0.05 + Math.sin(i * 1.4) * 0.03, h - 0.36 - (i + 1) * 0.07, wall - 0.08)); // coiled cord
     // it's only a hand's width on screen: an invisible, thumb-sized box to tap
     const hit = boxAt(0.5, 1.3, 0.5, new THREE.MeshBasicMaterial({ visible: false }), 0, 0.3, 0);
     hit.castShadow = hit.receiveShadow = false;

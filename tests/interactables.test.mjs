@@ -223,8 +223,8 @@ describe('a visiting mate in the shed', () => {
   it('steps out of a doorway, and off the machine, phone and pickup', async () => {
     const game = await wanderingMate();
     try {
-      // the office, storage and yard doorways; in front of the machine; by the phone; the pickup by the roller door
-      for (const cell of [{ x: 7, y: 38 }, { x: 25, y: 21 }, { x: 5, y: 16 }, { x: 13, y: 28 }, { x: 9, y: 40 }, { x: 27, y: 31 }]) {
+      // the office, storage and yard doorways; in front of the machine; in front of the phone; the pickup by the roller door
+      for (const cell of [{ x: 7, y: 38 }, { x: 25, y: 21 }, { x: 5, y: 16 }, { x: 13, y: 28 }, { x: 8, y: 44 }, { x: 27, y: 31 }]) {
         await settled(game);
         await game.eval((g, w, s, c) => s.visitor.placeAt(c.x, c.y), cell);
         assert.ok((await where(game)).keepClear, `${cell.x},${cell.y} is somewhere to keep clear`);
