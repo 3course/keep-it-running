@@ -22,7 +22,8 @@ Compared with `claude/baseline-sim.md` (4ab3e47). `npm test`: 32/32 pass.
 
 - New **average** script, between competent and sloppy: a third of fires get to 20–60 min late and a third of faults 5–20 min late; right diagnosis 75% of the time, then the cheapest fix; puts off a third of bit/bag swaps until the part's nearly gone; gets to trucks and the next sheet late sometimes; answers everything; no beer. Works overtime only to finish a sheet on the bed, and won't start one in overtime that can't finish by 7pm.
 - Each script plays two weeks per seed: **week 1** of a new game (grace days 1–3, then 0.3, 0.45) and a **steady-state week** (a new game started on day 10, the end of the ramp: full rate all week, same conditions as the baseline).
-- `npm run sim` prints the detailed lines for the steady-state week; `npm run sim -- week1` prints them for week 1. Both end with the summary table below.
+- **Week 2** (added in a follow-up commit): the same game carried on into days 6–10 (ramp 0.6, 0.7, 0.8, 0.9, 1), so the middle of the ramp is measured. Cash, stock, rapport, upgrades and carried-over jobs continue from week 1.
+- `npm run sim` prints the detailed lines for the steady-state week; `npm run sim -- week1` / `-- week2` prints them for that week. All end with the summary table.
 - **Scrap rate** = sheets ruined / sheets cut (the sim's `cut` = sheets delivered).
 
 ## Results (5 seeds each)
@@ -52,6 +53,35 @@ Week 1, per week (means): competent 15.6 sheets/day, 9.8 faults, cash $3513 · a
 
 Checked separately on all 15 week-1 runs: **0 faults and 0 duct/extractor fires on days 1–3**, and the lesson fire happened on day 2 every time. Duct fires only appear for sloppy, on days 4–5.
 
+## Week 2 (days 6–10, continuing from week 1)
+
+| Script | Seed | Week 2 margin | Week 2 scrap | Sheets cut/day | Faults | Cash at end of week 2 |
+|---|---|---|---|---|---|---|
+| competent | 1 | 11% | 7% | 13.6 | 38 | $4454 |
+| competent | 2 | 17% | 7% | 14.0 | 34 | $5292 |
+| competent | 3 | 17% | 9% | 14.0 | 37 | $5310 |
+| competent | 4 | 20% | 6% | 14.0 | 34 | $5656 |
+| competent | 5 | 18% | 7% | 14.2 | 33 | $4210 |
+| **competent** | **mean** | **17%** | **7%** | **14.0** | **35.2** | |
+| average | 1 | −5% | 26% | 10.0 | 37 | $2662 |
+| average | 2 | −2% | 20% | 11.2 | 40 | $3855 |
+| average | 3 | 16% | 1% | 13.4 | 28 | $5808 |
+| average | 4 | 12% | 17% | 12.0 | 31 | $5278 |
+| average | 5 | 11% | 10% | 11.8 | 25 | $5673 |
+| **average** | **mean** | **7%** | **15%** | **11.7** | **32.2** | |
+| sloppy | 1 | −9% | 19% | 10.6 | 27 | $1611 |
+| sloppy | 2 | −17% | 19% | 9.6 | 29 | $3016 |
+| sloppy | 3 | −29% | 21% | 9.6 | 45 | −$77 |
+| sloppy | 4 | −41% | 32% | 9.4 | 35 | $146 |
+| sloppy | 5 | −26% | 21% | 10.4 | 26 | −$887 |
+| **sloppy** | **mean** | **−24%** | **22%** | **9.9** | **32.4** | |
+
+Week 1 → week 2 → steady-state margin: competent 24% → 17% → 11%, average 25% → 7% → 0%, sloppy 21% → −24% → −29%.
+
+- Week 2 is where the scripts separate: sloppy goes negative on every seed, average drops to break-even territory (two seeds negative), competent stays in 11–20%.
+- Competent's week 2 (17%) sits above its steady state (11%) for more than the ramp: the continuing game has a week's experience behind it — the extractor upgrade bought at the end of week 1 on most seeds (capex, not in the margin), stock on the pallet and full rapport — where the steady-state week is a new business.
+- Average's week 2 is the noisiest (−5% to 16%): faults it leaves late either get fixed in time or scrap the sheet, and there are 25–40 of them a week now.
+
 ## Against the targets
 
 - **Average rarely scraps on days 1–3:** 0 of 238 sheets. ✓
@@ -67,6 +97,5 @@ Checked separately on all 15 week-1 runs: **0 faults and 0 duct/extractor fires 
 ## Notes for a decision (not changed)
 
 - **Sloppy is profitable in week 1** (+13% to +28%). Its losses came almost entirely from breakdowns, and three clean days dominate the week. The day 4–5 values barely move this: tried 0.5/0.7, 0.7/0.9 and full rate on days 4–5 — sloppy's week 1 mean was 17%, 19% and 13% (average: 23%, 25%, 21%). If week 1 should already separate careful from careless play, that needs something other than breakdowns (e.g. sloppy's ordering and delivery fees biting sooner).
-- **The ramp's days 6–9 are untested by the sim**: week 1 sees days 1–5 and steady state starts on day 10. A week 2 report would show them.
 - **Average at steady state** (0% margin, 25% scrap) scraps almost as much as sloppy (27%): a third of faults left 5–20 min against scrap timers of 6–20 min ruins most of those sheets. Its margin sits between competent and sloppy because it orders and drinks like competent.
 - **Scrap on days 1–3 for competent and sloppy** is all sheets still cutting at knock-off (sloppy at 5pm, competent at 7pm lights-off after starting a sheet late in overtime), not breakdowns. Their scripts were left as they were so the steady state stays comparable.

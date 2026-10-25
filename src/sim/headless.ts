@@ -1,10 +1,11 @@
 // Headless balance check: plays a week with a "competent", an "average" and a "sloppy" operator policy and prints
 // the P&L for each. Run with `npm run sim`.
 //
-// Two weeks per script and seed: week 1 of a new game (breakdowns ramp in from zero, CONFIG.difficulty) and a
-// steady-state week (a new game started past the end of the ramp, so breakdowns run at the full rate all week).
-// The detailed lines are for the steady-state week; `npm run sim -- week1` prints them for week 1 instead.
-// Both end with a summary: margin and scrap rate (sheets ruined / sheets cut) per script.
+// Three weeks per script and seed: week 1 of a new game (breakdowns ramp in from zero, CONFIG.difficulty), week 2 of
+// the same game (days 6–10, the middle of the ramp) and a steady-state week (a new game started past the end of the
+// ramp, so breakdowns run at the full rate all week). The detailed lines are for the steady-state week;
+// `npm run sim -- week1` or `-- week2` prints them for that week instead. All end with a summary: margin and scrap
+// rate (sheets ruined / sheets cut) per script.
 import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
 import type { DayStats } from './types.js';
@@ -239,11 +240,21 @@ const STEADY_FROM = CONFIG.difficulty.breakdownByDay.length;
 
 interface WeekResult { g: Game; idle: { total: number; longest: number }[] }
 
-function playWeek(script: Script, seed: number, firstDay: number): WeekResult {
+/** Play `weeks` weeks of a new game starting on `firstDay`; the result is the last of them. */
+function playWeek(script: Script, seed: number, firstDay: number, weeks = 1): WeekResult {
   const g = new Game(seed, firstDay);
+  let idle: { total: number; longest: number }[] = [];
+  for (let w = 0; w < weeks; w++) {
+    if (w > 0) g.nextWeek();
+    idle = playOn(script, g);
+  }
+  return { g, idle };
+}
+
+/** Play the rest of the week. Returns per day: minutes the bed sat empty (machine 'idle') while labour was on the
+ * clock, and the longest such run. Fault downtime and consumable swaps aren't counted — this measures pacing, not breakdowns. */
+function playOn(script: Script, g: Game) {
   let guard = 0;
-  // Per day: minutes the bed sat empty (machine 'idle') while labour was on the clock, and the longest such run.
-  // Fault downtime and consumable swaps aren't counted — this measures pacing, not breakdowns.
   const idle: { total: number; longest: number }[] = [];
   let idleDay: DayStats | null = null, run = 0;
   while (g.phase !== 'weekSummary' && guard++ < 100000) {
@@ -262,7 +273,7 @@ function playWeek(script: Script, seed: number, firstDay: number): WeekResult {
       g.nextDay();
     }
   }
-  return { g, idle };
+  return idle;
 }
 
 const margin = (days: DayStats[]) => {
@@ -313,30 +324,37 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
 
 const SEEDS = [1, 2, 3, 4, 5];
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
-const detail = args[2] === 'week1' ? 'week1' : 'steady';
+const detail = args[2] === 'week1' || args[2] === 'week2' ? args[2] : 'steady';
 const runs = SCRIPTS.map(script => ({
   script,
   week1: SEEDS.map(seed => playWeek(script, seed, 1)),
+  week2: SEEDS.map(seed => playWeek(script, seed, 1, 2)),
   steady: SEEDS.map(seed => playWeek(script, seed, STEADY_FROM)),
 }));
 
+const days = CONFIG.week.days;
 console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash}), ` +
-  (detail === 'week1' ? 'week 1 of a new game' : `steady state (days ${STEADY_FROM}–${STEADY_FROM + CONFIG.week.days - 1}, full breakdown rate)`));
+  (detail === 'week1' ? 'week 1 of a new game' : detail === 'week2' ? `week 2 of the same game (days ${days + 1}–${2 * days})`
+    : `steady state (days ${STEADY_FROM}–${STEADY_FROM + days - 1}, full breakdown rate)`));
 for (const r of runs) r[detail].forEach((w, i) => report(r.script.name, SEEDS[i], w));
 
 const pct = (v: number) => `${(v * 100).toFixed(0)}%`.padStart(5);
 const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
 const grace = CONFIG.difficulty.breakdownByDay.findIndex(m => m > 0); // days at the start with no breakdowns
-console.log(`\nWeek 1 (breakdowns by day: ${CONFIG.difficulty.breakdownByDay.slice(0, CONFIG.week.days).join(', ')}) vs steady state. Scrap = sheets ruined / sheets cut.`);
-console.log(`${'script'.padEnd(10)} ${'seed'.padEnd(4)} | week 1: margin scrap  days 1-${grace} ruined/cut | steady: margin scrap`);
+const ramp = CONFIG.difficulty.breakdownByDay;
+const rampFor = (from: number) => Array.from({ length: days }, (_, i) => ramp[Math.min(from + i, ramp.length) - 1]).join(', ');
+console.log(`\nWeek 1 (breakdowns by day: ${rampFor(1)}), week 2 (${rampFor(days + 1)}) and steady state. Scrap = sheets ruined / sheets cut.`);
+console.log(`${'script'.padEnd(10)} ${'seed'.padEnd(4)} | week 1: margin scrap  days 1-${grace} ruined/cut | week 2: margin scrap | steady: margin scrap`);
 for (const r of runs) {
   const rows = SEEDS.map((seed, i) => {
-    const w1 = r.week1[i].g.week, st = r.steady[i].g.week, early = w1.slice(0, grace);
-    return { seed, m1: margin(w1), s1: scrapRate(w1), ruined: sum(early, 'sheetsScrapped'), cut: sum(early, 'sheetsDone'), ms: margin(st), ss: scrapRate(st) };
+    const w1 = r.week1[i].g.week, w2 = r.week2[i].g.week, st = r.steady[i].g.week, early = w1.slice(0, grace);
+    return { seed, m1: margin(w1), s1: scrapRate(w1), ruined: sum(early, 'sheetsScrapped'), cut: sum(early, 'sheetsDone'),
+      m2: margin(w2), s2: scrapRate(w2), ms: margin(st), ss: scrapRate(st) };
   });
-  for (const x of rows) {
-    console.log(`${r.script.name.padEnd(10)} s${String(x.seed).padEnd(3)} |        ${pct(x.m1)} ${pct(x.s1)}  ${`${x.ruined}/${x.cut}`.padStart(13)}        |         ${pct(x.ms)} ${pct(x.ss)}`);
-  }
-  const ruined = rows.reduce((s, x) => s + x.ruined, 0), cut = rows.reduce((s, x) => s + x.cut, 0);
-  console.log(`${r.script.name.padEnd(10)} mean |        ${pct(mean(rows.map(x => x.m1)))} ${pct(mean(rows.map(x => x.s1)))}  ${`${ruined}/${cut}`.padStart(13)}        |         ${pct(mean(rows.map(x => x.ms)))} ${pct(mean(rows.map(x => x.ss)))}`);
+  const line = (label: string, x: { m1: number; s1: number; m2: number; s2: number; ms: number; ss: number }, ruinedCut: string) =>
+    console.log(`${r.script.name.padEnd(10)} ${label} |        ${pct(x.m1)} ${pct(x.s1)}  ${ruinedCut.padStart(13)}        |        ${pct(x.m2)} ${pct(x.s2)} |         ${pct(x.ms)} ${pct(x.ss)}`);
+  for (const x of rows) line(`s${String(x.seed).padEnd(3)}`, x, `${x.ruined}/${x.cut}`);
+  const avg = (k: 'm1' | 's1' | 'm2' | 's2' | 'ms' | 'ss') => mean(rows.map(x => x[k]));
+  line('mean', { m1: avg('m1'), s1: avg('s1'), m2: avg('m2'), s2: avg('s2'), ms: avg('ms'), ss: avg('ss') },
+    `${rows.reduce((s, x) => s + x.ruined, 0)}/${rows.reduce((s, x) => s + x.cut, 0)}`);
 }
