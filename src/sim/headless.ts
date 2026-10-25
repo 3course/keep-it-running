@@ -3,7 +3,7 @@
 //
 // Three weeks per script and seed: week 1 of a new game (breakdowns ramp in from zero, CONFIG.difficulty), week 2 of
 // the same game (days 6–10, the middle of the ramp) and a steady-state week (a new game started past the end of the
-// ramp, so breakdowns run at the full rate all week). The detailed lines are for the steady-state week;
+// ramp, so breakdowns run at the ramp's plateau all week). The detailed lines are for the steady-state week;
 // `npm run sim -- week1` or `-- week2` prints them for that week instead. All end with a summary: margin and scrap
 // rate (sheets ruined / sheets cut) per script. These runs buy no upgrades.
 // `npm run sim -- upgrades [seeds]` (default 20) measures the upgrades instead: each one alone, and each script's
@@ -401,7 +401,7 @@ function defaultReport() {
   const days = CONFIG.week.days;
   console.log(`Keep It Running — headless week (start cash $${CONFIG.economy.startingCash}), ` +
     (detail === 'week1' ? 'week 1 of a new game' : detail === 'week2' ? `week 2 of the same game (days ${days + 1}–${2 * days})`
-      : `steady state (days ${STEADY_FROM}–${STEADY_FROM + days - 1}, full breakdown rate)`));
+      : `steady state (days ${STEADY_FROM}–${STEADY_FROM + days - 1}, breakdowns at ${CONFIG.difficulty.breakdownByDay[CONFIG.difficulty.breakdownByDay.length - 1]})`));
   for (const r of runs) r[detail].forEach((w, i) => report(r.script.name, SEEDS[i], w));
 
   const pct = (v: number) => `${(v * 100).toFixed(0)}%`.padStart(5);
@@ -454,7 +454,7 @@ function upgradeStudy() {
   const byName = (n: string) => SCRIPTS.find(s => s.name === n)!;
   const ids = CONFIG.upgrades.map(u => u.id);
 
-  /** Steady-state weeks (fresh, full breakdown rate) for a script with these owned. */
+  /** Steady-state weeks (fresh, breakdowns at the ramp's plateau) for a script with these owned. */
   const steady = (script: Script, owned: readonly UpgradeId[]) => seeds.map(seed => playWeek(script, seed, STEADY_FROM, 1, { owned }).g.week);
 
   console.log(`Keep It Running — upgrades, ${seeds.length} seeds, paired (start cash $${CONFIG.economy.startingCash}, buffer $${BUY_BUFFER})`);

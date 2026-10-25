@@ -1,6 +1,6 @@
 // The difficulty curve (CONFIG.difficulty) and day 2's lesson fire, checked on Game itself: no browser, just
 // the sim loaded through Vite. Breakdowns — faults, and fires spreading past a spot fire — follow the ramp:
-// none on the first days, full rate once it ends.
+// none on the first days, ramping to a plateau (the steady-state rate) once it ends.
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { createServer } from 'vite';
@@ -11,7 +11,8 @@ const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { CONFIG } = await server.ssrLoadModule('/src/config.ts');
 const RAMP = CONFIG.difficulty.breakdownByDay;
 const GRACE = RAMP.findIndex(m => m > 0); // days at the start with no breakdowns
-const STEADY = RAMP.length;               // from here on, the full rate
+const STEADY = RAMP.length;               // from here on, the plateau
+const PLATEAU = RAMP.at(-1);
 
 /** A new game on `day` with ply for everything and every consumable worn out (the worst odds there are). */
 function worstCase(seed, day) {
@@ -33,9 +34,9 @@ function cutAllDay(g) {
 }
 
 describe('difficulty curve', () => {
-  it(`breakdowns: none for the first ${GRACE} days, full rate from day ${STEADY}`, () => {
+  it(`breakdowns: none for the first ${GRACE} days, the plateau (${PLATEAU}) from day ${STEADY}`, () => {
     assert.ok(GRACE >= 3, 'days 1-3 are breakdown-free');
-    assert.equal(RAMP.at(-1), 1, 'the ramp ends at the full rate');
+    assert.ok(PLATEAU > 0 && PLATEAU <= 1, 'the ramp ends at a plateau, no more than the full rate');
     for (let day = 1; day <= STEADY + 5; day++) assert.equal(new Game(1, day).breakdownMult, RAMP[Math.min(day, RAMP.length) - 1], `day ${day}`);
     for (let i = 1; i < RAMP.length; i++) assert.ok(RAMP[i] >= RAMP[i - 1], 'it only ever ramps up');
   });
@@ -49,9 +50,9 @@ describe('difficulty curve', () => {
     }
   });
 
-  it('faults do happen at the full rate (the check above can fail)', () => {
+  it('faults do happen at the plateau (the check above can fail)', () => {
     const faults = [1, 2, 3].reduce((n, seed) => n + cutAllDay(worstCase(seed, STEADY)).faults, 0);
-    assert.ok(faults > 0, `faults at full rate: ${faults}`);
+    assert.ok(faults > 0, `faults at the plateau: ${faults}`);
   });
 
   it("a spot fire left alone doesn't spread on the grace days", () => {
@@ -65,13 +66,14 @@ describe('difficulty curve', () => {
     }
   });
 
-  it('at the full rate a spot fire left alone becomes a duct fire on time', () => {
+  it('at the plateau a spot fire left alone becomes a duct fire on time (slower than at the full rate)', () => {
     const g = new Game(1, STEADY);
     g.fire = { id: 99, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 };
-    for (let i = 0; i < CONFIG.fire.ductFireAfterMinutes - 1; i++) g.tick();
-    assert.equal(g.fire.stage, 'spot');
+    const minutes = Math.ceil(CONFIG.fire.ductFireAfterMinutes / PLATEAU);
+    for (let i = 0; i < minutes - 1; i++) g.tick();
+    assert.equal(g.fire.stage, 'spot', `still a spot fire after ${minutes - 1} minutes`);
     g.tick();
-    assert.equal(g.fire.stage, 'duct');
+    assert.equal(g.fire.stage, 'duct', `a duct fire after ${minutes}`);
   });
 });
 

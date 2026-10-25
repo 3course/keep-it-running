@@ -76,8 +76,8 @@ export const CONFIG = {
     dullBitBelow: 0.3,            // bit health below this counts as dull…
     dullBitMult: 1.5,             // …and multiplies the chance by this (job type's fireChanceMult stacks too)
     smokeOnlyMinutes: 20,         // smoke first; the orange glow shows after this
-    ductFireAfterMinutes: 90,     // ignored this long (at the full breakdown rate): duct fire — cut stops until it's out
-    extractorFireAfterMinutes: 180, // ignored this long (at the full breakdown rate): extractor fire — repair bill, machine down for the day
+    ductFireAfterMinutes: 90,     // ignored this long (at breakdown rate 1.0; longer at the ramp's plateau): duct fire — cut stops until it's out
+    extractorFireAfterMinutes: 180, // ignored this long (at breakdown rate 1.0): extractor fire — repair bill, machine down for the day
     extractorRepairCost: 800,
     walkToExtinguisherMinutes: 5, // extinguisher hangs by the roller door
     grabMinutes: 1,
@@ -96,7 +96,8 @@ export const CONFIG = {
   // spot fire — run at this fraction of their full rate on each day of the game: index 0 is day 1, later days use the last value.
   // The first days are for learning the shed: chores, the phone, pickups, deliveries and spot fires still happen.
   difficulty: {
-    breakdownByDay: [0, 0, 0, 0.3, 0.45, 0.6, 0.7, 0.8, 0.9, 1],
+    // plateaus at 0.8 from day 8: at 1.0 an average operator couldn't keep up with the faults (claude/sim-solvency.md)
+    breakdownByDay: [0, 0, 0, 0.3, 0.45, 0.6, 0.7, 0.8],
   },
 
   faults: {

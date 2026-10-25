@@ -168,3 +168,44 @@ Each was applied on its own, in the sim only:
 **Fresh steady-state week:**
 - Average 3.3% (was 0.4%); competent 11.0% (unchanged).
 - The upgrade pass/fail still holds: largest single gain for average +4.9 (nesting); everything owned keeps competent at 17.7% / 19.0%; the sensor cuts average's scrap 21.1% → 15.1%.
+
+## 5. Ramp plateau at 0.8 (commit 2)
+
+`difficulty.breakdownByDay` is now `[0, 0, 0, 0.3, 0.45, 0.6, 0.7, 0.8]`: the same climb, holding at 0.8 from day 8 instead of going on to 1.0 by day 10. The steady-state week is now days 8–12 at 0.8. Fires left alone spread at 0.8 too (a duct fire after ~113 minutes, not 90).
+
+`npm run sim -- upgrades 100`, continuous weeks 1–4 (nothing bought → buying), with the change against commit 1:
+
+| Script | Solvent (of 100) | Week 2 margin / scrap | Weeks 3–4 margin / scrap | Cash end of week 4 |
+|---|---|---|---|---|
+| Competent | 100 → 98 (was 100 → 100) | 14.2 → 19.5% / 7.3 → 6.7% (was 13.2 / 7.8%) | **14.2 → 21.7%** / 7.6 → 6.7% (was 10.8 → 19.0%) | $8,437 → $6,890 |
+| Average | **99 → 97** (was 96 → 90) | 8.3 → 9.6% / 16.6 → 17.1% (was 6.9%) | **7.0 → 8.1%** / 17.5 → 16.9% (was 1.4 → 2.4%) | $4,865 → $4,140 (was $3,060) |
+| Sloppy | 0 → 0 | −28.9 → −25.7% | −85 → −408% / 23.7 → 9.6% | −$5,166 → −$8,396 |
+
+Week 1 is unchanged (the ramp's first five days are the same).
+
+**Fresh steady-state week, no upgrades** (100 seeds; 5-seed default run in brackets):
+
+| Script | Commit 1 (rate 1.0) | Commit 2 (rate 0.8) |
+|---|---|---|
+| Competent | 11.0% (9%) | **14.5%** (12%) |
+| Average | 3.3% (4%) | **8.2%** (14%) |
+| Sloppy | — (−36%) | — (−15%) |
+
+**Sloppy, seed by seed (100 seeds):**
+- Weeks 2, 3 and 4 make no profit on any seed, with or without buying.
+- In a fresh plateau week, 4/100 seeds scrape a small operating profit before the $900 overheads, and none after.
+- Week 1 (the grace week) is profitable on every seed, as since the grace commit.
+
+### Pass/fail
+
+| Check | Result |
+|---|---|
+| Average solvent on ≥ 90/100 through week 4 | **PASS**: 99/100 buying nothing, 97/100 with its buying policy |
+| Competent steady-state 10–20% | **PASS**: 14.5% fresh steady week (100 seeds), 14.2% weeks 3–4 of the continuous game |
+| Sloppy never profitable | **PASS** past the grace week: 0/100 seeds profitable in weeks 2–4; 0/100 after overheads in a fresh plateau week. Week 1 is profitable on all seeds, by design of the grace days. |
+
+**New flag (from the upgrades pass/fail, not this commit's):** with everything owned, competent is now **21.6%** in a fresh week and **21.7%** in weeks 3–4 with its buying, over the "≤ 20%" line.
+- The plateau lifted its base by ~3.5 points and the upgrades' gains stack on top.
+- Not changed here. The knobs, if it should stay under 20%: nesting's effect (0.9, the biggest single gain), or a plateau a little higher (0.85).
+
+The other two upgrade checks still pass: largest single gain for average +4.9 (nesting); the sensor cuts average's scrap 17.4% → 12.4%.
