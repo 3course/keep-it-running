@@ -29,6 +29,8 @@ Proposal only, no game code. Numbers are from `sim-after-grace.md`, `sim-visitor
 - **Kayla:** 1–3 calls a shift, 5–15 minutes each, on the office phone. **The line is busy**: order calls go to voicemail (ring back within 60 minutes, as now), you can't use the phone either, and nothing else gets done.
 - **Leaves early in spirit:** in his last 10 minutes he won't start a chore.
 
+**Floor requirement:** hiring him must be net positive for the average script at steady state: average's steady-state margin with Dazza (wages included) must be above its margin without him, on the paired 20-seed runs.
+
 **Why he won't trivialise the loop:** he's in for 15 of ~50 hours a week, minus lateness (~10%) and arguments (~15–20%), so about a quarter of the phone and chore time, and never the busy ends of the day. When he argues, the phone is worse than if he weren't there. Target: pays for himself for average, ≤ +2 points for competent, never makes sloppy profitable.
 
 **Lines** (we only hear his end of the arguments):
