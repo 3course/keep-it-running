@@ -79,7 +79,7 @@ Checked separately on all 15 week-1 runs: **0 faults and 0 duct/extractor fires 
 Week 1 → week 2 → steady-state margin: competent 24% → 17% → 11%, average 25% → 7% → 0%, sloppy 21% → −24% → −29%.
 
 - Week 2 is where the scripts separate: sloppy goes negative on every seed, average drops to break-even territory (two seeds negative), competent stays in 11–20%.
-- Competent's week 2 (17%) sits above its steady state (11%) for more than the ramp: the continuing game has a week's experience behind it — the extractor upgrade bought at the end of week 1 on most seeds (capex, not in the margin), stock on the pallet and full rapport — where the steady-state week is a new business.
+- Competent's week 2 (17%) sits above its steady state (11%) for more than the ramp: the continuing game has a week's experience behind it — the extractor upgrade bought during week 1 on all five seeds (capex, not in the margin; it halves filter wear and bag faults), stock on the pallet and rapport of 72–92 — where the steady-state week is a new business.
 - Average's week 2 is the noisiest (−5% to 16%): faults it leaves late either get fixed in time or scrap the sheet, and there are 25–40 of them a week now.
 
 ## Against the targets
