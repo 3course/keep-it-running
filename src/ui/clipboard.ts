@@ -16,4 +16,4 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export const BUILD_TAG = 'v0.2 — world preview';
+export const BUILD_TAG = 'v0.2';

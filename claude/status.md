@@ -1,9 +1,9 @@
 # Keep It Running — status (25 Oct 2026)
 
 ## Links
-- **Playtest build** (3D, mobile): https://3course.github.io/keep-it-running/preview/. Weak GPUs: `?safe=1` (low tier), `?safe=2` (no shadows). `?seed=N` starts a new game on a fixed seed.
-- **Original panel prototype:** https://3course.github.io/keep-it-running/
-- **Repo:** https://github.com/3course/keep-it-running. `main` is the panel build, `world` the 3D build; both deploy automatically on push.
+- **The game** (3D, mobile): https://keepitrunning.fyi/. Weak GPUs: `?safe=1` (low tier), `?safe=2` (no shadows). `?seed=N` starts a new game on a fixed seed. The old `/preview/` address redirects here.
+- **Original panel prototype:** https://keepitrunning.fyi/panel/
+- **Repo:** https://github.com/3course/keep-it-running. `world` (the 3D build) deploys to the site root, `main` (the panel) to `/panel/`; one workflow builds both on a push to either.
 
 ## What's built
 - **Economy** (`src/sim`, `config.ts`): orders by phone through the day; three job types (formwork / MDF / acrylic); deadlines, late pay, pulled jobs. Ply is real stock, delivered by truck. Beer is a can you carry. The day summary itemises the P&L.

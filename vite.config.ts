@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
-// Served from GitHub Pages. main builds at /keep-it-running/; the deploy workflow builds the world
-// branch at /keep-it-running/preview/ by setting VITE_BASE.
-const base = (process.env.VITE_BASE || '/keep-it-running/').replace(/\/?$/, '/');
+// Served from GitHub Pages at https://keepitrunning.fyi/: this (world) build at the root, the main branch's panel
+// prototype at /panel/ (the deploy workflow sets VITE_BASE for each).
+const base = (process.env.VITE_BASE || '/').replace(/\/?$/, '/');
 
 export default defineConfig({
   base,
@@ -11,8 +11,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      // The service worker lives at <base>sw.js and only controls <base>, so the /preview/ install
-      // and anything at /keep-it-running/ stay separate (Workbox also names its caches by scope).
+      // The service worker lives at <base>sw.js and controls everything under <base>: at the root that includes
+      // /panel/ and /preview/, which aren't this app (see navigateFallbackDenylist).
       scope: base,
       includeAssets: ['icons/apple-touch-icon.png'],
       manifest: {
@@ -35,6 +35,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
+        // offline, any page under the scope gets this app's index.html — except the panel build and the old
+        // /preview/ address, which must reach the network (the panel app, and the redirect to the root)
+        navigateFallbackDenylist: [/^\/panel(\/|$)/, /^\/preview(\/|$)/],
       },
     }),
   ],
