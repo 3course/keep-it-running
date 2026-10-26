@@ -1,8 +1,12 @@
 name: Deploy to GitHub Pages
 
-# One site, two builds: main at /keep-it-running/ and the world branch at /keep-it-running/preview/.
-# Both are built on every push to either branch and deployed together, so neither overwrites the other.
-# This file must be the same on main and world.
+# One site at https://keepitrunning.fyi/ (custom domain set in repo Settings → Pages; a CNAME file isn't needed when
+# Pages deploys from Actions), two builds:
+#   - the world branch (the 3D game) at the root
+#   - the main branch (the panel prototype) at /panel/
+#   - /preview/, where the 3D build used to live, redirects to the root (world's public/preview/ and public/404.html)
+# Both branches are checked out and built on every push to either, and deployed together as one artifact, so a push to
+# one never wipes the other. This file must be the same on main and world.
 
 on:
   push:
@@ -38,27 +42,28 @@ jobs:
             main/package-lock.json
             world/package-lock.json
 
-      - name: Build main
+      - name: Build main (panel prototype, /panel/)
         working-directory: main
         env:
-          VITE_BASE: /keep-it-running/
+          VITE_BASE: /panel/
         run: |
           npm ci
           npm run build
 
-      - name: Build world (preview)
+      - name: Build world (the 3D game, at the root)
         working-directory: world
         env:
-          VITE_BASE: /keep-it-running/preview/
+          VITE_BASE: /
         run: |
           npm ci
           npm run build
 
       - name: Combine
         run: |
-          mkdir -p site/preview
-          cp -r main/dist/. site/
-          cp -r world/dist/. site/preview/
+          mkdir -p site/panel
+          cp -r world/dist/. site/
+          cp -r main/dist/. site/panel/
+          test -f site/preview/index.html # the redirect for old /preview/ links ships in the world build
 
       - uses: actions/upload-pages-artifact@v3
         with:
