@@ -1,6 +1,5 @@
-// Google Analytics 4. Paste your measurement ID (GA4 → Admin → Data streams → Measurement ID, looks like G-ABC123XYZ9)
-// into GA_ID. While it's still the placeholder, or when running on localhost, nothing loads and track() is a no-op.
-const GA_ID = 'G-XXXXXXXXXX';
+// Google Analytics 4 (measurement ID below). Loads only off localhost; track() is a no-op until initAnalytics() has run.
+const GA_ID = 'G-TLMMPEN6DE';
 
 type Params = Record<string, string | number | boolean>;
 type Gtag = (...args: unknown[]) => void;
