@@ -7,7 +7,7 @@ type Gtag = (...args: unknown[]) => void;
 let ready = false;
 
 function enabled(): boolean {
-  if (!/^G-[A-Z0-9]{6,}$/.test(GA_ID) || GA_ID === 'G-XXXXXXXXXX') return false;
+  if (!/^G-[A-Z0-9]{6,}$/.test(GA_ID)) return false;
   const h = location.hostname;
   return !(h === 'localhost' || h === '127.0.0.1' || h === '[::1]' || h.endsWith('.localhost') || h.endsWith('.test'));
 }
