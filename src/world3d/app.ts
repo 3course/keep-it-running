@@ -8,6 +8,7 @@ import type { Game } from '../sim/Game.js';
 import { Hints } from '../ui/hints.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
+import { track } from '../analytics.js';
 import { actionsFor, statusFor, uiHooks, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
@@ -432,8 +433,17 @@ export class World3D {
     console.info('[Keep It Running] WebGL context restored; scene rebuilt');
   }
 
+  private lastTracked = '';
+
   private showSummary() {
     this.save();
+    const gt = this.g, key = `${gt.dayIndex}-${gt.phase}`;
+    if (key !== this.lastTracked) { // the summary can re-render (purchases, resume); count each day/week once per page load
+      this.lastTracked = key;
+      const d = gt.today;
+      const margin = d.revenue > 0 ? Math.round(((d.revenue - d.costs) / d.revenue) * 100) : 0;
+      track(gt.phase === 'weekSummary' ? 'week_complete' : 'day_complete', { day: d.day, day_index: gt.dayIndex, cash: Math.round(gt.cash), revenue: Math.round(d.revenue), margin_pct: margin, in_debt: gt.cash < 0 });
+    }
     this.hud.hidePlyOrder();
     this.hud.setHudVisible(false);
     const g = this.g;

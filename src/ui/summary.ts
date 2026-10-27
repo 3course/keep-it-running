@@ -2,10 +2,29 @@
 import { CONFIG, type UpgradeId } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import type { DayStats } from '../sim/types.js';
+import { startOver } from '../world/save.js';
 import { copyText } from './clipboard.js';
 
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
+
+/** Two-tap "Start over": the first tap arms it, the second wipes the save and reloads. Disarms itself after a few seconds. */
+function wireStartOver(el: HTMLElement, g: Game) {
+  const btn = el.querySelector<HTMLElement>('.startover');
+  if (!btn) return;
+  const label = btn.textContent ?? '';
+  let armed: number | undefined;
+  btn.addEventListener('click', () => {
+    if (armed === undefined) {
+      btn.textContent = 'Tap again to wipe this game and start fresh';
+      btn.classList.add('armed');
+      armed = window.setTimeout(() => { armed = undefined; btn.textContent = label; btn.classList.remove('armed'); }, 4000);
+      return;
+    }
+    window.clearTimeout(armed);
+    startOver(g.cash, g.dayIndex);
+  });
+}
 
 /** The P&L: boards are charged as they're cut, not when they're bought; what's left on the pallet is stock. */
 function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
@@ -61,7 +80,9 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     <button class="next">${last ? 'Close out the week' : `Start day ${d.day + 1}`}</button>
     <p class="feedback">Thoughts? Copy the day log and send it to Courtney.</p>
     <button class="copy">Copy day log</button><p class="status"></p>
-    ${onResetHints ? '<a class="reset">Reset hints</a>' : ''}`;
+    ${onResetHints ? '<a class="reset">Reset hints</a>' : ''}
+    <a class="startover ${g.cash < 0 ? 'debt' : ''}">${g.cash < 0 ? "Drowning in debt? Start over with a clean slate" : 'Start over'}</a>`;
+  wireStartOver(el, g);
   el.querySelectorAll<HTMLButtonElement>('button[data-upg]').forEach(b => b.addEventListener('click', () => {
     if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints); }
   }));
@@ -97,6 +118,8 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
         return `<div class="row small ${m >= 0.15 ? 'good' : m >= 0 ? '' : 'bad'}"><span>${d.day} · ${money(d.revenue)} · ${money(d.costs)}</span><span>${pct(m)} · ${d.sheetsDone} · ${d.sheetsScrapped}</span></div>`;
       }).join('')}
       <p class="verdict">${verdict}</p></section>
-    <button class="next">Run another week</button>`;
+    <button class="next">${g.cash < 0 ? 'Run another week (still in debt)' : 'Run another week'}</button>
+    <a class="startover ${g.cash < 0 ? 'debt' : ''}">${g.cash < 0 ? 'Start over with a clean slate' : 'Start over'}</a>`;
+  wireStartOver(el, g);
   el.querySelector('.next')!.addEventListener('click', () => { g.nextWeek(); onNext(); });
 }

@@ -124,6 +124,9 @@ const CSS = `
 #kir-hud .summary .copy { display: block; margin: 0 auto; background: #3d6f9e; }
 #kir-hud .summary .status { text-align: center; color: #a2937f; font-size: ${F(14)}; }
 #kir-hud .summary .reset { display: block; text-align: center; margin-top: 14px; padding: 12px; color: #a2937f; font-size: ${F(15)}; text-decoration: underline; cursor: pointer; }
+#kir-hud .summary .startover { display: block; text-align: center; margin-top: 6px; padding: 12px; color: #a2937f; font-size: ${F(15)}; text-decoration: underline; cursor: pointer; }
+#kir-hud .summary .startover.debt { color: #e0a45c; font-size: ${F(17)}; }
+#kir-hud .summary .startover.armed { color: #ef7b6b; font-weight: bold; text-decoration: none; }
 #kir-hud .pointers { position: absolute; inset: 0; pointer-events: none; }
 #kir-hud .ptr { position: absolute; width: ${F(44)}; height: ${F(44)}; transform: translate(-50%, -50%); border-radius: 50%; background: rgba(20,17,15,.78); box-sizing: border-box;
   border: 2px solid #f2c76b; display: flex; align-items: center; justify-content: center; font-size: ${F(22)}; line-height: 1; transition: transform .08s; }

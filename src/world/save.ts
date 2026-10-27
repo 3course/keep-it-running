@@ -2,6 +2,7 @@
 // Game.ts isn't touched: its fields (including private ones, which are ordinary properties at runtime)
 // are copied out and back in, with the few non-JSON bits (RNG state, the upgrade Set, fault references,
 // the current-job reference) handled by hand.
+import { track } from '../analytics.js';
 import { CONFIG } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
@@ -80,4 +81,12 @@ export function readSave(): { game: Game; world: WorldState } | null {
 
 export function clearSave() {
   try { localStorage.removeItem(WORLD.saveKey); } catch { /* ignore */ }
+}
+
+/** Wipe the save and reload into a brand-new game: starting cash, day 1, no upgrades. */
+export function startOver(cash: number, dayIndex: number) {
+  track('start_over', { cash: Math.round(cash), day_index: dayIndex, in_debt: cash < 0 });
+  clearSave();
+  // give the analytics beacon a moment to leave before the page goes away
+  setTimeout(() => location.reload(), 200);
 }
