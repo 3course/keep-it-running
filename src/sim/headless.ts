@@ -71,11 +71,50 @@ function sloppyOrders(g: Game) {
   }
 }
 
+// ---------- rare events (CONFIG.rareEvent): each script's way with them. True = that's this minute spent. ----------
+// (The big job is a phone call: each script answers it the way it answers any order call.)
+const bagFull = (g: Game) => 1 - g.wear.filter > CONFIG.fire.bagFullAbove;
+
+/** Competent: changes a full bag before the inspector sees it, walks them round, and clears the slats while it cuts. */
+function competentRare(g: Game): boolean {
+  if (g.inspectorTouring) { g.escort(60); return true; }
+  if (g.inspectorWaiting && g.canAct && !g.fault) {
+    if (bagFull(g) && !g.replacing && g.replaceConsumable('filter')) return true;
+    if (!g.replacing && g.showCouncilRound()) { g.escort(60); return true; }
+  }
+  if (g.dockBlocked && g.canAct && (g.machine !== 'idle' || g.truckOnApron)) return g.clearDebris();
+  return false;
+}
+
+/** Average: gets to the inspector and the slats late a third of the time (like its faults), but gets there. */
+function averageRare(g: Game): boolean {
+  if (g.inspectorTouring) { g.escort(60); return true; }
+  if (g.inspectorWaiting && g.canAct && averageReacts(g, `council-${g.dayIndex}`, 5, 25) && g.showCouncilRound()) { g.escort(60); return true; }
+  if (g.dockBlocked && g.canAct && averageReacts(g, `ute-${g.dayIndex}`, 10, 40)) return g.clearDebris();
+  return false;
+}
+
+// sloppy's call on each inspector, made when they turn up: true = never gets round to them
+const sloppyDodges = new WeakMap<Game, Map<number, boolean>>();
+/** Sloppy: leaves the inspector standing half the time, wanders off mid-walk, and only clears the slats for a truck. */
+function sloppyRare(g: Game): boolean {
+  if (g.inspectorTouring) { if (g.rng.chance(0.6)) g.escort(60); return true; }
+  if (g.inspectorWaiting && g.canAct) {
+    let m = sloppyDodges.get(g);
+    if (!m) sloppyDodges.set(g, m = new Map());
+    if (!m.has(g.dayIndex)) m.set(g.dayIndex, g.rng.chance(0.5));
+    if (!m.get(g.dayIndex) && g.showCouncilRound()) return true;
+  }
+  if (g.dockBlocked && g.canAct && g.truckOnApron && g.rng.chance(0.5)) return g.clearDebris();
+  return false;
+}
+
 const competent: Policy = (g) => {
   // a fire beats everything: drop what you're doing and go
   if (g.fire && !g.fireResponse) g.fightFire();
   g.setSpraying(g.fireResponse?.step === 'atDuct');
   if (g.fireResponse) return;
+  if (competentRare(g)) return;
   if (g.fault) {
     const f = g.fault;
     if (f.phase === 'diagnose') {
@@ -116,6 +155,7 @@ const sloppyIgnores = new WeakMap<Game, Map<number, boolean>>();
 
 const sloppy: Policy = (g) => {
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
+  if (sloppyRare(g)) return;
   if (g.fire) {
     let calls = sloppyIgnores.get(g);
     if (!calls) sloppyIgnores.set(g, calls = new Map());
@@ -203,6 +243,7 @@ function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
 const average: Policy = (g) => {
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (g.fire && averageReacts(g, `fire-${g.fire.id}`, 20, 60) && g.fightFire()) return;
+  if (averageRare(g)) return;
   if (g.fault) {
     const f = g.fault;
     if (!averageReacts(g, `fault-${g.dayIndex}-${g.today.faults}`, 5, 20)) return; // hasn't noticed / gets to it after this
@@ -384,13 +425,16 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
 }
 
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
+// `-- baseline`: rare events and milestones off, as the economy was before them (the frozen baseline)
+if (args.includes('baseline')) Object.assign(CONFIG as unknown as Record<string, boolean>, { rareEvents: false, milestones: false });
+console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'})`);
 if (args[2] === 'upgrades') upgradeStudy();
 else defaultReport();
 
 /** The usual run: no upgrades, 5 seeds, week 1, week 2 and steady state. */
 function defaultReport() {
   const SEEDS = [1, 2, 3, 4, 5];
-  const detail = args[2] === 'week1' || args[2] === 'week2' ? args[2] : 'steady';
+  const detail = args.includes('week1') ? 'week1' : args.includes('week2') ? 'week2' : 'steady';
   const runs = SCRIPTS.map(script => ({
     script,
     week1: SEEDS.map(seed => playWeek(script, seed, 1)),
@@ -434,6 +478,19 @@ function defaultReport() {
     const cell = (ws: WeekResult[]) => `${perDay(ws, d => d.beers).toFixed(1)} / ${perDay(ws, mates).toFixed(1)}`.padEnd(11);
     console.log(`${r.script.name.padEnd(10)} |  ${cell(r.week1)}|  ${cell(r.week2)}|  ${cell(r.steady)}`);
   }
+
+  // rare events and milestones, over every run above (week 1, week 2 and the steady-state week, all seeds)
+  if (CONFIG.rareEvents || CONFIG.milestones) {
+    console.log(`\nRare events and milestones (${SEEDS.length} seeds × week 1, week 2, steady):`);
+    for (const r of runs) {
+      const games = [...r.week1, ...r.week2, ...r.steady].map(w => w.g);
+      const events = games.flatMap(g => g.rareLog);
+      const tally = new Map<string, number>();
+      for (const e of events) tally.set(`${e.id} ${e.outcome}`, (tally.get(`${e.id} ${e.outcome}`) ?? 0) + 1);
+      const unlocked = (id: string) => games.filter(g => g.milestones.unlocked.includes(id as never)).length;
+      console.log(`${r.script.name.padEnd(10)} | events ${events.length}: ${[...tally].sort().map(([k, n]) => `${k} ${n}`).join(', ') || 'none'} | unlocked: spark arrestor ${unlocked('sparkArrestor')}/${games.length}, second bit rack ${unlocked('secondBitRack')}/${games.length}`);
+    }
+  }
 }
 
 /**
@@ -446,7 +503,7 @@ function defaultReport() {
  * Margin is operating margin: upgrades are capex and stay out of it, as in the game.
  */
 function upgradeStudy() {
-  const seeds = Array.from({ length: Number(args[3]) || 20 }, (_, i) => i + 1); // `-- upgrades 100` for more
+  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 20 }, (_, i) => i + 1); // `-- upgrades 100` for more
   const pct = (v: number, w = 5) => `${(v * 100).toFixed(1)}%`.padStart(w);
   const pts = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}`.padStart(6);
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;

@@ -1,10 +1,10 @@
-import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type UpgradeId } from '../config.js';
+import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type RareEvent, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
-  VisitorAsk,
+  MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
 } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
@@ -79,6 +79,17 @@ export class Game {
   machineDown = false;         // extractor fire: nothing more cuts today
   extinguisherUsesToday = 0;
   lessonFireDone = false;      // the scripted spot fire (CONFIG.fire.lesson) has happened
+  /** The wall extinguisher's off its hook (set by the view each frame; the sim's fire walk counts on its own). */
+  extinguisherAway = false;
+
+  // rare events and milestones (CONFIG.rareEvent, CONFIG.milestone)
+  rare: RareEventState | null = null;  // today's rare event, if there is one
+  milestones: MilestoneState = { fireFreeStreak: 0, bestDayProfit: 0, unlocked: [] };
+  /** The day's biggest event or decision and what it cost or earned: written at close, shown on the summary. */
+  story: string | null = null;
+  private notes: { text: string; amount: number; rank: number }[] = []; // today's candidates for the story
+  /** Every rare event so far and how it went (for the balance sim). */
+  rareLog: { day: number; id: RareEventId; outcome: string }[] = [];
   private nextFireId = 1;
 
   // people
@@ -164,6 +175,7 @@ export class Game {
   private walkMinutes(m: number) { return Math.ceil(m / this.walkMult()); }
   /** Minutes to swap a consumable (the bag rack makes the bag quicker). */
   private replaceMinutes(key: ConsumableKey) {
+    if (key === 'bit' && this.hasMilestone('secondBitRack')) return CONFIG.milestone.bitSwapMinutes;
     return key === 'filter' && this.upgrades.has('bagRack') ? this.upgradeEffect('bagRack') : CONFIG.consumables[key].replaceMinutes;
   }
   /** A walk to or from the fire: shorter with an extinguisher hanging by the exhaust. */
@@ -187,6 +199,7 @@ export class Game {
       `Keep It Running — day ${d.day} (week day ${this.day}/${CONFIG.week.days})`,
       `Revenue $${Math.round(d.revenue)} · costs $${Math.round(d.costs)} · margin ${m} · cash $${Math.round(this.cash)}`,
       `Sheets: ${d.sheetsDone} delivered (${d.sheetsLate} late), ${d.sheetsScrapped} scrapped · faults ${d.faults} · fires ${d.firesSpot} · beers ${d.beers}`,
+      ...(this.story ? [`Story of the day: ${this.story}`] : []),
       '',
     ];
     const lines = this.log.filter(l => l.dayIndex === this.dayIndex).map(l => `${this.formatTime(l.minute).padStart(7)}  ${l.text}`);
@@ -265,6 +278,8 @@ export class Game {
     this.today.sheetsDemanded += fresh.length;
     this.lateDropToday = this.rng.chance(CONFIG.jobs.lateDrop.chance);
     this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0));
+    this.rare = null; this.notes = []; this.story = null;
+    if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     const carryNote = carried.length ? ` (${carried.length} carried over)` : '';
     this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board${carryNote}. Roller door's up.`);
   }
@@ -426,6 +441,7 @@ export class Game {
     while (this.orderCalls.length && this.minute >= this.orderCalls[0].minute) {
       this.spawnOrderCall(this.orderCalls.shift()!.sheets);
     }
+    if (this.rare) this.tickRare();
 
     // ply deliveries
     this.tickDeliveries();
@@ -557,6 +573,7 @@ export class Game {
     if (this.current) p *= this.jobType(this.current).fireChanceMult;
     if (1 - this.wear.filter > c.bagFullAbove) p *= c.bagFullMult;
     if (this.wear.bit < c.dullBitBelow) p *= c.dullBitMult;
+    if (this.hasMilestone('sparkArrestor')) p *= CONFIG.milestone.fireChanceMult;
     return p;
   }
 
@@ -638,6 +655,7 @@ export class Game {
     this.machineDown = true;
     this.say("The extractor's gone up. That's the machine done for today.", 'bad');
     this.spend(c.extractorRepairCost, 'fixes', 'extractor repair');
+    this.note(`The extractor went up: $${c.extractorRepairCost} repair and no more cutting today.`, -c.extractorRepairCost);
     this.fault = null;
     if (this.current && this.current.status === 'cutting') this.scrapCurrent(`${this.current.name} is ruined.`);
     this.current = null;
@@ -736,7 +754,8 @@ export class Game {
     this.say(`Phone ringing — ${t.name.toLowerCase()} order, ${sheets} × ${t.material}`, 'info');
   }
 
-  private addOrder(sheets: number, typeId: JobTypeId) {
+  private addOrder(sheets: number, typeId: JobTypeId, big = false) {
+    if (big) { this.addBigJob(sheets, typeId); return; }
     const o = CONFIG.jobs.orders;
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
     const name = this.rng.pick(JOB_NAMES);
@@ -771,7 +790,7 @@ export class Game {
             const customer = dist.customer ?? this.rng.pick(CUSTOMERS);
             this.callbacks.push({
               id: dist.id, customer, sheets: dist.order, orderType: dist.orderType!,
-              expiresMinute: this.minute + CONFIG.jobs.orders.callbackMinutes,
+              expiresMinute: this.minute + CONFIG.jobs.orders.callbackMinutes, big: dist.big,
             });
             this.say(`Missed the call. ${customer} left a voicemail: ${dist.order} sheets. Ring back by ${this.formatTime(this.minute + CONFIG.jobs.orders.callbackMinutes)}.`);
           } else {
@@ -794,6 +813,7 @@ export class Game {
     this.addRapport(-CONFIG.distractions.phone.ignoreRapportCost);
     this.today.sheetsMissed += c.sheets;
     this.say(`Never rang ${c.customer} back. ${c.sheets}-sheet order went elsewhere.`, 'bad');
+    if (c.big) this.bigJobAnswered(false, c.sheets, 'missed');
   }
 
   /** Ring back a voicemail from the office phone: take the order, or turn it down. */
@@ -805,10 +825,11 @@ export class Game {
     if (action === 'decline') {
       this.today.sheetsDeclined += c.sheets;
       this.say(`Rang ${c.customer} back. Turned down ${c.sheets} sheets.`);
+      if (c.big) this.bigJobAnswered(false, c.sheets, 'declined');
       return true;
     }
     this.say(`Rang ${c.customer} back.`);
-    this.addOrder(c.sheets, c.orderType);
+    this.addOrder(c.sheets, c.orderType, c.big);
     return true;
   }
 
@@ -952,7 +973,7 @@ export class Game {
   /** Sign for the truck on the apron. Then it's bundles, one trip each. `quick`: one tap in the world, no minute spent. */
   signDelivery(id: number, quick = false): boolean {
     const d = this.deliveries.find(x => x.id === id);
-    if (!d || d.stage !== 'waiting' || this.phase !== 'day' || !this.canAct) return false;
+    if (!d || d.stage !== 'waiting' || this.phase !== 'day' || !this.canAct || this.dockBlocked) return false;
     const sheets = d.lines.flatMap(l => Array.from({ length: l.qty }, () => l.type));
     const n = CONFIG.supply.bundles;
     d.bundles = Array.from({ length: n }, (_, i) => sheets.slice(Math.round(i * sheets.length / n), Math.round((i + 1) * sheets.length / n)));
@@ -965,7 +986,7 @@ export class Game {
   /** One bundle from the truck onto the pallet. `walked`: the world walked it; otherwise it takes a trip's time. */
   unloadBundle(id: number, walked = false): boolean {
     const d = this.deliveries.find(x => x.id === id);
-    if (!d || d.stage !== 'unloading' || !d.bundles.length || this.phase !== 'day' || !this.canAct) return false;
+    if (!d || d.stage !== 'unloading' || !d.bundles.length || this.phase !== 'day' || !this.canAct || this.dockBlocked) return false;
     for (const t of d.bundles.shift()!) this.addStock(d, t);
     if (!walked) this.busy = { label: 'unloading ply', remaining: this.walkMinutes(CONFIG.supply.unloadTripMinutes) };
     if (!d.bundles.length) {
@@ -1076,10 +1097,11 @@ export class Game {
           // turning work down honestly costs nothing; it's missing the call that hurts
           this.today.sheetsDeclined += dist.order;
           this.say(`Turned down ${dist.order} sheets. "Flat out this week, sorry mate."`);
+          if (dist.big) this.bigJobAnswered(false, dist.order, 'declined');
           return true;
         }
         this.addRapport(d.phone.answerRapportGain);
-        if (dist.order) this.addOrder(dist.order, dist.orderType!);
+        if (dist.order) this.addOrder(dist.order, dist.orderType!, dist.big);
         else if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
         else this.say('Just a quote. Followed up later.');
         return true;
@@ -1283,6 +1305,200 @@ export class Game {
     this.say(`${mate.name}: "${ask.text}"`);
   }
 
+  // ---------- rare events (CONFIG.rareEvent) ----------
+
+  private rareDef(id: RareEventId): RareEvent { return CONFIG.rareEvent.events.find(e => e.id === id)!; }
+  private tellMinutes(def: RareEvent) { return Math.ceil(def.tell.seconds * 1000 / CONFIG.clock.realMsPerGameMinute); }
+
+  /** Morning roll, on its own seeded stream: about one day in six, one event, in the slot of one of today's order calls. */
+  private rollRareEvent() {
+    const re = CONFIG.rareEvent;
+    if (this.dayIndex < re.fromDay) return;
+    const r = new Rng((Math.imul(this.seed ^ 0x5bd1e995, 0x85ebca6b) + Math.imul(this.dayIndex, 0xc2b2ae35)) >>> 0);
+    if (!r.chance(re.dayChance)) return;
+    const slot = (e: RareEvent) => this.orderCalls.findIndex(c => c.minute >= e.earliestHour * 60);
+    const def = r.weighted(re.events.filter(e => slot(e) >= 0), e => e.weight);
+    if (def) this.scheduleRare(def, this.orderCalls[slot(def)].minute);
+  }
+
+  /** Debug (?event=<id>): today's event is this one, landing soon after the clock starts. */
+  forceRareEvent(id: string): boolean {
+    const def = CONFIG.rareEvent.events.find(e => e.id === id);
+    if (!def || this.phase !== 'day') return false;
+    this.scheduleRare(def, this.minute + CONFIG.rareEvent.debugLeadMinutes + this.tellMinutes(def), false);
+    return true;
+  }
+
+  /**
+   * Book it for `at`, in place of the first order call from then on (rather than stacking on top). `takeSlot`: it lands
+   * when that call would have rung; otherwise (forced) it keeps `at` and the call just doesn't ring.
+   */
+  private scheduleRare(def: RareEvent, at: number, takeSlot = true) {
+    const i = this.orderCalls.findIndex(c => c.minute >= at);
+    if (def.replacesInterruption && i >= 0) {
+      if (takeSlot) at = this.orderCalls[i].minute;
+      this.orderCalls.splice(i, 1);
+    }
+    this.rare = { id: def.id, at, phase: 'scheduled' };
+  }
+
+  private tickRare() {
+    const r = this.rare!, def = this.rareDef(r.id);
+    if (r.phase === 'scheduled' && this.minute >= r.at - this.tellMinutes(def)) { r.phase = 'tell'; this.say(`${def.tell.cue}.`, 'info'); }
+    if (r.phase === 'tell' && this.minute >= r.at) this.landRare(r, def);
+    else if (r.phase === 'live' && r.id === 'council' && !r.touring && --r.waitLeft! <= 0) this.finishCouncil(false);
+  }
+
+  private landRare(r: RareEventState, def: RareEvent) {
+    r.phase = 'live';
+    if (r.id === 'council') {
+      r.waitLeft = def.waitMinutes; r.escortSec = 0; r.touring = false;
+      this.say("The council's here: an inspector with a clipboard at the roller door. Stop the machine and walk them round.", 'bad');
+    } else if (r.id === 'bigJob') {
+      const t = this.pickType();
+      this.today.sheetsDemanded += def.sheets!;
+      this.distractions.push({
+        id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — big job', big: true,
+        line: `Big job: ${def.sheets} sheets of ${t.material}, ${def.dueDays} days.`,
+        remaining: CONFIG.distractions.phone.window, engaged: false, order: def.sheets, orderType: t.id, customer: 'Hallam Builders',
+      });
+      this.say(`Phone ringing — a big job: ${def.sheets} × ${t.material} in ${def.dueDays} days`, 'info');
+    } else {
+      r.tripsLeft = def.trips; r.blockedAt = this.minute;
+      this.say("CRUNCH. A reversing ute's clipped the roller door. The dock's blocked until the slats are cleared.", 'bad');
+    }
+  }
+
+  /** The dock's blocked: busted roller-door slats in the way. No truck can be signed for or unloaded until they're gone. */
+  get dockBlocked(): boolean { return this.rare?.id === 'uteClip' && this.rare.phase === 'live'; }
+
+  /** One load of busted slats to the skip. `walked`: the world carried it; otherwise it takes a trip's time. */
+  clearDebris(walked = false): boolean {
+    const r = this.rare;
+    if (!this.dockBlocked || !r || this.phase !== 'day' || !this.canAct) return false;
+    const def = this.rareDef('uteClip');
+    r.tripsLeft! -= 1;
+    if (!walked) this.busy = { label: 'carting slats to the skip', remaining: this.walkMinutes(def.tripMinutes!) };
+    if (r.tripsLeft! > 0) { this.say(`Slats in the skip. ${r.tripsLeft} more load${r.tripsLeft === 1 ? '' : 's'}.`); return true; }
+    const mins = this.minute - r.blockedAt!;
+    r.phase = 'done'; r.outcome = 'cleared';
+    this.say('Roller door cleared. The dock is open again.', 'good');
+    this.note(`A ute clipped the roller door: ${def.trips} loads to the skip and the dock blocked for ${mins} min.`, 0, 3);
+    return true;
+  }
+
+  /** The inspector's here and waiting to be shown round. */
+  get inspectorWaiting(): boolean { return this.rare?.id === 'council' && this.rare.phase === 'live' && !this.rare.touring; }
+  get inspectorTouring(): boolean { return this.rare?.id === 'council' && this.rare.phase === 'live' && !!this.rare.touring; }
+
+  /** Stop the machine and start walking them round. */
+  showCouncilRound(): boolean {
+    const r = this.rare;
+    if (!this.inspectorWaiting || !r || this.phase !== 'day' || !this.canAct) return false;
+    r.touring = true; r.escortSec = 0;
+    if (this.machine === 'cutting') { this.machine = 'paused'; r.pausedCut = true; }
+    this.say('Machine off. Walking the inspector round.');
+    return true;
+  }
+
+  /** Time spent with the inspector on the walk-round (the view: while you're beside them; the sim: a minute a tick). */
+  escort(seconds: number) {
+    const r = this.rare;
+    if (!this.inspectorTouring || !r) return;
+    r.escortSec = (r.escortSec ?? 0) + seconds;
+    if (r.escortSec >= this.rareDef('council').tourSeconds!) this.finishCouncil(true);
+  }
+
+  private finishCouncil(walked: boolean) {
+    const r = this.rare!, def = this.rareDef('council');
+    const faults = [
+      ...(!walked ? ['nobody showed them round'] : []),
+      ...(1 - this.wear.filter > CONFIG.fire.bagFullAbove ? ['the extractor bag full'] : []),
+      ...(this.extinguisherAway || this.fireResponse !== null ? ['the extinguisher off its hook'] : []),
+    ];
+    r.phase = 'done'; r.touring = false;
+    if (r.pausedCut && this.machine === 'paused' && this.current && !this.replacing) this.machine = 'cutting';
+    if (faults.length) {
+      r.outcome = 'fined';
+      this.spend(def.penalty, 'fees', 'council fine');
+      this.say(`The inspector wrote you up: ${faults.join(', ')}. $${def.penalty} fine.`, 'bad');
+      this.note(`The council inspector found ${faults.join(' and ')}: $${def.penalty} fine.`, -def.penalty, 3);
+    } else {
+      r.outcome = 'passed';
+      this.addRapport(def.passRapport!);
+      this.say(`Inspection passed. "Tidy shop." (+${def.passRapport} rapport)`, 'good');
+      this.note(`The council inspector signed you off: a clean shop, +${def.passRapport} rapport.`, 0, 3);
+    }
+  }
+
+  /** The 20 sheets, all due at close in `dueDays`, at the big-job price. */
+  private addBigJob(sheets: number, typeId: JobTypeId) {
+    const def = this.rareDef('bigJob');
+    const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
+    const dueDay = this.dayIndex + def.dueDays!, close = CONFIG.clock.endHour * 60;
+    let value = 0;
+    for (let i = 0; i < sheets; i++) {
+      const j = this.makeJob(t, `BIG JOB — Hallam townhouses (${i + 1}/${sheets})`, dueDay, close, { priceMult: def.priceMult });
+      value += j.price;
+      this.jobs.push(j);
+    }
+    this.say(`Order in: the big job, ${sheets} × ${t.material}, due in ${def.dueDays} days. $${value} of work.`, 'good');
+    this.bigJobAnswered(true, sheets, 'taken', value);
+  }
+
+  private bigJobAnswered(taken: boolean, sheets: number, how: 'taken' | 'declined' | 'missed', value = 0) {
+    if (this.rare?.id === 'bigJob') { this.rare.phase = 'done'; this.rare.outcome = how; }
+    if (taken) this.note(`Took the big job: ${sheets} sheets, $${value} of work due in ${this.rareDef('bigJob').dueDays} days.`, value, 3);
+    else this.note(how === 'declined' ? `Turned down the big job (${sheets} sheets): the board was full enough.` : `Missed the big job: ${sheets} sheets went to someone else.`, 0, 3);
+  }
+
+  // ---------- milestones (CONFIG.milestone) ----------
+
+  hasMilestone(id: MilestoneId): boolean { return CONFIG.milestones && (this.milestones?.unlocked ?? []).includes(id); }
+
+  /** At close: the fire-free streak and the best day, and anything they unlock. */
+  private updateMilestones() {
+    if (!CONFIG.milestones) return;
+    const m = this.milestones, c = CONFIG.milestone;
+    m.fireFreeStreak = this.today.firesSpot > 0 ? 0 : m.fireFreeStreak + 1;
+    const profit = this.today.revenue - this.today.costs;
+    m.bestDayProfit = Math.max(m.bestDayProfit, Math.round(profit));
+    if (!m.unlocked.includes('sparkArrestor') && m.fireFreeStreak >= c.fireFreeDays) {
+      m.unlocked.push('sparkArrestor');
+      this.say(`${c.fireFreeDays} days without a fire: the upgraded extractor's in. Fewer sparks make it to the duct.`, 'good');
+      this.note(`${c.fireFreeDays} days without a fire unlocked the upgraded extractor.`, 0, 2);
+    }
+    if (!m.unlocked.includes('secondBitRack') && profit >= c.bigDayProfit) {
+      m.unlocked.push('secondBitRack');
+      this.say(`Your first $${c.bigDayProfit} day: a second bit rack by the machine. Bit swaps take ${c.bitSwapMinutes} min.`, 'good');
+      this.note(`Your first $${c.bigDayProfit} day ($${Math.round(profit)} profit) unlocked a second bit rack.`, Math.round(profit), 2);
+    }
+  }
+
+  // ---------- the story of the day ----------
+
+  /** Something worth telling: ranked (rare events first, then milestones), then by how much money it moved. */
+  private note(text: string, amount: number, rank = 1) { this.notes.push({ text, amount, rank }); }
+
+  /** The day's biggest event or decision, and what it cost or earned. */
+  private storyOfTheDay(): string {
+    const d = this.today;
+    const scrapped = this.jobs.filter(j => j.status === 'scrapped'); // the board only holds today's finished and ruined sheets
+    const money: { text: string; amount: number; rank: number }[] = [...this.notes];
+    if (scrapped.length) {
+      const cost = scrapped.reduce((s, j) => s + j.materialCost, 0);
+      money.push({ text: `${scrapped.length} sheet${scrapped.length > 1 ? 's' : ''} in the skip: $${cost} of board ruined.`, amount: -cost, rank: 1 });
+    }
+    if (d.latePayLost > 0) money.push({ text: `Late jobs cost you $${Math.round(d.latePayLost)}.`, amount: -d.latePayLost, rank: 1 });
+    if (d.lostJobsValue > 0) money.push({ text: `Customers pulled $${Math.round(d.lostJobsValue)} of overdue work.`, amount: -d.lostJobsValue, rank: 1 });
+    if (d.mateBeer > 0) money.push({ text: `Shouted the mates $${Math.round(d.mateBeer)} of beer.`, amount: -d.mateBeer, rank: 1 });
+    if (d.sheetsDeclined > 0) money.push({ text: `Turned down ${d.sheetsDeclined} sheet${d.sheetsDeclined > 1 ? 's' : ''} to keep the board doable.`, amount: 0, rank: 0 });
+    const best = money.sort((a, b) => b.rank - a.rank || Math.abs(b.amount) - Math.abs(a.amount))[0];
+    if (best) return best.text;
+    const profit = Math.round(d.revenue - d.costs);
+    return `A quiet one: ${d.sheetsDone} sheet${d.sheetsDone === 1 ? '' : 's'} out the door, ${profit >= 0 ? `$${profit} profit` : `$${-profit} down`}.`;
+  }
+
   knockOff() {
     if (this.phase !== 'endOfDayPrompt') return;
     this.say('Knocked off at 5.');
@@ -1321,6 +1537,11 @@ export class Game {
       this.deliveries = this.deliveries.filter(x => x.id !== truck.id);
       this.say('Driver forklifted the rest onto the pallet.');
     }
+    if (this.dockBlocked) { this.rare!.phase = 'done'; this.rare!.outcome = 'blocked'; this.say("Slats still in the doorway at knock-off. The landlord's handyman sorts it overnight."); }
+    if (this.rare?.id === 'council' && this.rare.phase !== 'done' && this.rare.phase !== 'scheduled') this.finishCouncil(this.rare.touring === true);
+    if (this.rare && this.rare.phase !== 'scheduled') this.rareLog.push({ day: this.dayIndex, id: this.rare.id, outcome: this.rare.outcome ?? 'unresolved' });
+    this.updateMilestones();
+    this.story = this.storyOfTheDay();
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
     this.fire = null; this.fireResponse = null; this.spraying = false;
     const ply = this.plyOnHand;

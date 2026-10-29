@@ -36,6 +36,9 @@ export const WORLD = {
 
   visitorSpeed: 1.6,                   // m/s: a visiting mate ambles
   visitorTalkRange: 2.0,               // m: close enough to answer a mate who's come up to you
+  inspectorSpeed: 1.2,                 // m/s: the council inspector, clipboard in hand
+  inspectorStayClose: 3.0,             // m: the walk-round only counts while you're this close to them
+  inspectorLinger: 14,                 // s they spend looking at each stop on the round
   interactRange: 0.7,                  // m from the player's centre to an object's footprint
   offerSwapBelow: 0.6,                 // swap labels (bit, bag, spoilboard) only show once the part is this worn
   rollerOpenMinutes: 4,                // game minutes the roller door stays up after a pickup or delivery

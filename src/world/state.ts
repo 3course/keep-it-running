@@ -3,7 +3,7 @@ import { MACHINE_SPOT, START_TILE, type ObjectId } from './layout.js';
 import { WORLD } from './worldConfig.js';
 
 /** What the player can be carrying. One thing at a time. */
-export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle';
+export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle' | 'debris';
 
 /**
  * The physical shed: the things the economy (Game) doesn't model — where you are, what's in your hands,

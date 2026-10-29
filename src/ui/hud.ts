@@ -108,6 +108,7 @@ const CSS = `
 #kir-hud .summary h1 { font-size: ${F(26)}; font-weight: normal; margin: 0; }
 #kir-hud .summary h2 { font-size: ${F(14)}; color: #a2937f; margin: 0 0 6px; font-weight: normal; letter-spacing: 1px; text-transform: uppercase; }
 #kir-hud .summary .sub { color: #a2937f; margin: 4px 0 10px; }
+#kir-hud .summary .story { margin: 0 0 12px; padding: 8px 10px; border-left: 3px solid #f2c76b; background: rgba(242,199,107,.08); line-height: 1.3; }
 #kir-hud .summary section { background: #241f1a; border: 2px solid #4a3f33; padding: 8px 12px; margin-bottom: 8px; }
 #kir-hud .summary .row { display: flex; justify-content: space-between; gap: 8px; line-height: 1.5; }
 #kir-hud .summary .small { font-size: ${F(14)}; }

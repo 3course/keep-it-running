@@ -7,6 +7,7 @@ import { copyText } from './clipboard.js';
 
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
+const escapeHtml = (t: string) => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
 /** Two-tap "Start over": the first tap arms it, the second wipes the save and reloads. Disarms itself after a few seconds. */
 function wireStartOver(el: HTMLElement, g: Game) {
@@ -69,6 +70,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
   el.innerHTML = `
     <h1>End of day ${d.day}</h1>
     <p class="sub">Cash ${money(g.cash)} · Rapport ${g.rapport}</p>
+    ${g.story ? `<p class="story"><b>Story of the day:</b> ${escapeHtml(g.story)}</p>` : ''}
     <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
     <section><h2>Shop floor</h2>${floor.map(([k, v]) => `<div class="row"><span class="dim">${k}</span><span>${v}</span></div>`).join('')}
       <p class="verdict">${dayVerdict(d)}</p></section>

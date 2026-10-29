@@ -21,6 +21,13 @@ const stockNext = game => game.eval((g, w, s, boardCost) => {
 /** A spot fire at the exhaust unit end of the duct. */
 const startFire = game => game.eval(g => { g.fire = { id: 99, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 }; });
 
+/** Bring today's rare event on now (it's forced, then the clock ticks once to land it). */
+const landRare = (game, id) => game.eval((g, w, s, id) => {
+  g.forceRareEvent(id); g.rare.at = g.minute + 1; g.rare.phase = 'tell';
+  Object.getPrototypeOf(g).tick.call(g);
+  return g.rare.phase;
+}, id);
+
 const CASES = {
   async machine(game) {
     await stockNext(game);
@@ -130,6 +137,30 @@ const CASES = {
     assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.exhaust]), [null, true]);
   },
 
+  // not an object: the council inspector (a rare event), waiting inside the roller door to be shown round
+  async inspector(game) {
+    await landRare(game, 'council');
+    await frames(game, 5);
+    assert.ok(await game.eval((g, w, s) => s.built.inspector.visible), 'they\'re in the shed');
+    assert.equal((await tapLabel(game, 'Show them round')).said, 'Machine off; walking the inspector round');
+    assert.equal(await game.eval(g => g.inspectorTouring), true);
+    // the walk-round only counts while you're with them, and they wait when you fall behind
+    await game.page.waitForTimeout(1500);
+    const near = await game.eval(g => g.rare.escortSec);
+    assert.ok(near > 0.5, `counted while beside them (${near.toFixed(1)} s)`);
+    const where = await game.eval((g, w, s) => { s.pos = { x: 4.75, z: 21.75 }; return [s.inspector.x, s.inspector.z]; }); // off in the office
+    await frames(game, 3);
+    const before = await game.eval(g => g.rare.escortSec);
+    await game.page.waitForTimeout(1500);
+    assert.equal(await game.eval(g => g.rare.escortSec), before, 'not counted while you\'re away');
+    const now = await game.eval((g, w, s) => [s.inspector.x, s.inspector.z]);
+    assert.ok(Math.hypot(now[0] - where[0], now[1] - where[1]) < 0.6, 'and they waited for you');
+    await game.eval(g => { g.escort(90); });
+    await frames(game, 3);
+    assert.equal(await game.eval(g => g.rare.outcome), 'passed');
+    assert.equal(await game.eval((g, w, s) => s.built.inspector.visible), false, 'and they\'re gone');
+  },
+
   async rollerDoor(game) {
     // day 1: last week's ply order is on the apron, waiting for a signature
     assert.equal(await game.eval(g => g.truckOnApron?.stage), 'waiting');
@@ -190,8 +221,8 @@ describe('interactables', () => {
     const withActions = [...body.matchAll(/case '(\w+)':/g)].map(m => m[1]);
     const { OBJECTS } = await env.load('/src/world/layout.ts');
     for (const id of withActions) assert.ok(OBJECTS.some(o => o.id === id), `${id} is in the shed`);
-    assert.deepEqual(Object.keys(CASES).sort(), [...withActions, 'visitor'].sort());
-    assert.equal(Object.keys(CASES).length, 18);
+    assert.deepEqual(Object.keys(CASES).sort(), [...withActions, 'visitor', 'inspector'].sort());
+    assert.equal(Object.keys(CASES).length, 19);
   });
 
   // the exhaust unit's glow: a spot fire only smokes at first; day 2's lesson fire (CONFIG.fire.lesson) glows from the start
@@ -333,6 +364,83 @@ describe("the board's full", () => {
       assert.deepEqual(await render(516, 0), { late: 'Late jobs cost you$516', pulled: null });
       assert.deepEqual(await render(0, 293), { late: null, pulled: 'Pulled jobs cost you$293' });
       assert.deepEqual(await render(516, 293), { late: 'Late jobs cost you$516', pulled: 'Pulled jobs cost you$293' });
+    } finally { await game.close(); }
+  });
+});
+
+describe('rare events and milestones in the shed', () => {
+  it('ute clips the roller door: the door hangs crooked, slats pile up, a load at a time to the skip', async () => {
+    const game = await freshGame(env);
+    try {
+      assert.equal(await landRare(game, 'uteClip'), 'live');
+      await frames(game, 3);
+      const looks = () => game.eval((g, w, s) => ({ tilt: s.built.objects.get('rollerDoor').parts.door.rotation.z, stacks: s.built.debris.children.filter(c => c.visible).length }));
+      assert.deepEqual(await looks(), { tilt: 0.12, stacks: 3 });
+      await walkTo(game, 'rollerDoor');
+      assert.equal((await tapLabel(game, 'Pull off the busted slats (3 left)')).said, 'Got a load of slats');
+      assert.equal(await game.eval((g, w) => w.carrying), 'debris');
+      await walkTo(game, 'skip');
+      assert.equal((await tapLabel(game, 'Tip it in')).said, 'Slats in the skip');
+      assert.deepEqual(await game.eval((g, w) => [w.carrying, g.rare.tripsLeft, g.dockBlocked]), [null, 2, true]);
+      await frames(game, 3);
+      assert.equal((await looks()).stacks, 2);
+    } finally { await game.close(); }
+  });
+
+  it('big job: taken at the phone, 20 sheets on the board', async () => {
+    const game = await freshGame(env);
+    try {
+      await landRare(game, 'bigJob');
+      await walkTo(game, 'phone');
+      assert.equal((await tapLabel(game, 'Take the big job (20 sheets, 3 days)')).said, 'Took the big job: 20 sheets');
+      assert.equal(await game.eval(g => g.jobs.filter(j => j.name.startsWith('BIG JOB')).length), 20);
+    } finally { await game.close(); }
+  });
+
+  it('every event is told before it lands: a pointer to it and a sound', async () => {
+    for (const [id, icon, cue, landCue] of [['council', '📋', 'knock', 'knock'], ['bigJob', '💼', 'buzz', null], ['uteClip', '🛻', 'beeper', 'crunch']]) {
+      const game = await freshGame(env);
+      try {
+        // off in the yard, so the roller door and the office are off-screen
+        await game.eval((g, w, s) => { s.pos = { x: 5.25, z: 3.75 }; w.tour = null; g.forceRareEvent(arg); g.rare.phase = 'tell'; }, id);
+        await frames(game, 5);
+        const pointers = await game.page.evaluate(() => [...document.querySelectorAll('#kir-hud .pointers .icon')].map(e => e.textContent));
+        assert.ok(pointers.includes(icon), `${id}: ${icon} pointer (${pointers})`);
+        assert.ok((await game.eval((g, w, s) => s.ring.cues)).includes(cue), `${id}: ${cue}`);
+        await game.eval(g => { g.rare.at = g.minute + 1; Object.getPrototypeOf(g).tick.call(g); });
+        await frames(game, 3);
+        if (landCue) assert.equal((await game.eval((g, w, s) => s.ring.cues)).at(-1), landCue, `${id} lands: ${landCue}`);
+      } finally { await game.close(); }
+    }
+  });
+
+  it('milestone progress is a notepad line: tap it to go and look at what it unlocks', async () => {
+    const game = await freshGame(env);
+    try {
+      await frames(game, 3);
+      const line = "Milestone: 0 of 3 days without a fire → upgraded extractor";
+      assert.ok((await game.eval((g, w, s) => s.hud.pad.textContent)).includes(line));
+      await game.page.evaluate(text => [...document.querySelectorAll('#kir-hud li[data-targets]')].find(li => li.textContent === text).click(), line);
+      assert.equal(await game.eval((g, w, s) => s.pending?.id), 'extractor', 'walking to the extractor');
+      // unlocked: the line goes, and the model changes
+      await game.eval(g => { g.milestones.unlocked.push('sparkArrestor', 'secondBitRack'); });
+      await frames(game, 3);
+      assert.ok(!(await game.eval((g, w, s) => s.hud.pad.textContent)).includes('Milestone:'));
+      assert.deepEqual(await game.eval((g, w, s) => [s.built.objects.get('extractor').parts.arrestor.visible, s.built.objects.get('bitRack').parts.second.visible]), [true, true]);
+    } finally { await game.close(); }
+  });
+
+  it('the day summary tells the story of the day', async () => {
+    const game = await freshGame(env);
+    try {
+      const story = await game.eval(async g => {
+        const { renderDaySummary } = await import(new URL('src/ui/summary.ts', document.baseURI).href);
+        g.story = 'The council inspector found the extractor bag full: $300 fine.';
+        const el = document.createElement('div');
+        renderDaySummary(el, g, () => {}, () => {});
+        return el.querySelector('.story')?.textContent;
+      });
+      assert.equal(story, 'Story of the day: The council inspector found the extractor bag full: $300 fine.');
     } finally { await game.close(); }
   });
 });

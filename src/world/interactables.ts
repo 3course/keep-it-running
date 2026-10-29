@@ -109,6 +109,10 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return [...a, ...canBin(g)];
     }
     case 'skip':
+      if (w.carrying === 'debris') {
+        // busted roller-door slats (a rare event): each load clears a bit more of the dock
+        return [{ label: 'Tip it in', done: 'Slats in the skip', run: () => { if (!g.clearDebris(true)) return 'Not right now'; w.carrying = null; } }, ...canBin(g)];
+      }
       return [...(w.carrying === 'bag' || w.carrying === 'offcuts' || w.carrying === 'scrap'
         ? [{ label: 'Tip it in', done: 'Tipped in the skip', run: () => { w.carrying = null; } }] : []), ...canBin(g)];
     case 'bitRack':
@@ -141,6 +145,10 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return [];
     }
     case 'rollerDoor': {
+      // a ute's clipped it (a rare event): nothing comes through until the busted slats are gone
+      if (g.dockBlocked) {
+        return empty ? [{ label: `Pull off the busted slats (${g.rare!.tripsLeft} left)`, twoHands: true, key: 'debris', done: 'Got a load of slats', run: () => { w.carrying = 'debris'; } }] : [];
+      }
       const a: Action[] = [];
       const truck = g.truckOnApron;
       const doorUp = w.rollerUpUntil !== null;
@@ -162,7 +170,12 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       if (!g.canAct) return [];
       const a: Action[] = [];
       for (const d of g.distractions) {
-        if (d.kind === 'phone' && d.order) {
+        if (d.kind === 'phone' && d.order && d.big) {
+          // the big job (a rare event): a lot of good work, if there's room for it
+          const days = CONFIG.rareEvent.events.find(e => e.id === 'bigJob')!.dueDays;
+          a.push({ label: `Take the big job (${d.order} sheets, ${days} days)`, key: `phone-${d.id}`, done: `Took the big job: ${d.order} sheets`, run: () => { g.respond(d.id, 'answer'); } });
+          a.push({ label: 'Turn it down', auto: false, highlight: g.overCommitted, done: `Turned down the big job`, run: () => { g.respond(d.id, 'decline'); } });
+        } else if (d.kind === 'phone' && d.order) {
           a.push({ label: `Take the order (${d.order} sheets)`, key: `phone-${d.id}`, done: `Took a ${d.order}-sheet order`, run: () => { g.respond(d.id, 'answer'); } });
           a.push({ label: 'Turn it down', auto: false, highlight: g.overCommitted, done: `Turned down ${d.order} sheets`, run: () => { g.respond(d.id, 'decline'); } });
         } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => { g.respond(d.id, 'answer'); } });
@@ -170,7 +183,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       }
       a.push({ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() });
       for (const cb of g.callbacks) {
-        a.push({ label: `Call ${cb.customer} back (${cb.sheets} sheets)`, key: `callback-${cb.id}`, done: `Rang ${cb.customer} back`, run: () => { g.callBack(cb.id); } });
+        a.push({ label: `Call ${cb.customer} back (${cb.big ? 'big job, ' : ''}${cb.sheets} sheets)`, key: `callback-${cb.id}`, done: `Rang ${cb.customer} back`, run: () => { g.callBack(cb.id); } });
         a.push({ label: `Ring ${cb.customer}, turn it down`, auto: false, highlight: g.overCommitted, done: `Turned ${cb.customer} down`, run: () => { g.callBack(cb.id, 'decline'); } });
       }
       return a;
@@ -245,4 +258,20 @@ export function visitorActions(g: Game, d: Distraction): Action[] {
 /** What a visiting mate's up to, shown over them when you're close (what they've come to say is in their speech bubble). */
 export function visitorStatus(g: Game, d: Distraction): string | null {
   return d.engaged ? `${g.mateName(d)}: yarning, ${d.chat}m to go` : null;
+}
+
+/** The council inspector (a rare event), when you're next to them: they're waiting to be shown round. */
+export function inspectorActions(g: Game): Action[] {
+  if (!g.inspectorWaiting) return [];
+  return [{ label: 'Show them round', auto: false, done: 'Machine off; walking the inspector round', run: () => { if (!g.showCouncilRound()) return 'Not right now'; } }];
+}
+
+/** What the inspector's up to, over their head when you're close. */
+export function inspectorStatus(g: Game): string | null {
+  if (g.inspectorWaiting) return `Council: "Mind if I have a look round?" (${g.rare!.waitLeft}m)`;
+  if (g.inspectorTouring) {
+    const left = Math.max(0, Math.ceil(CONFIG.rareEvent.events.find(e => e.id === 'council')!.tourSeconds! - (g.rare!.escortSec ?? 0)));
+    return `Council: walking the round, stay with them (${left}s)`;
+  }
+  return null;
 }

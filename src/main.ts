@@ -14,6 +14,9 @@ const saved = readSave();
 const seed = Number(new URLSearchParams(location.search).get('seed')) || undefined;
 const game = saved?.game ?? new Game(seed);
 const world = saved?.world ?? newWorld(game);
+// ?event=<id> (council, bigJob, uteClip): force that rare event on day 1, landing soon after the clock starts
+const forced = new URLSearchParams(location.search).get('event');
+if (forced && game.dayIndex === 1 && !game.rare && !game.forceRareEvent(forced)) console.warn(`[Keep It Running] no rare event "${forced}"`);
 // new_game = a fresh start; resume = someone coming back to a saved game (that's the retention number)
 track(saved ? 'resume_game' : 'new_game', { day_index: game.dayIndex, cash: Math.round(game.cash) });
 

@@ -96,6 +96,7 @@ export interface Distraction {
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
   orderType?: JobTypeId;  // phone: what kind of job the order is
   customer?: string;      // phone: who's calling with the order
+  big?: boolean;          // phone: the big-job call (a rare event)
   // friend: a mate visiting (CONFIG.visitors)
   mate?: string;          // which mate (src/data/mates.ts)
   ask?: VisitorAsk | null; // what they've come up to you to say; null while they wander
@@ -148,7 +149,36 @@ export interface Callback {
   sheets: number;
   orderType: JobTypeId;
   expiresMinute: number;  // minutes since midnight today; after this they've gone elsewhere
+  big?: boolean;          // the big job (a rare event)
 }
+
+/**
+ * Today's rare event (CONFIG.rareEvent), from the morning roll to done. 'scheduled' → 'tell' (its cue, `tell.seconds`
+ * before) → 'live' (it's landed; resolve it in the shed) → 'done' (with `outcome` for the story of the day).
+ */
+export interface RareEventState {
+  id: RareEventId;
+  at: number;             // minute it lands
+  phase: 'scheduled' | 'tell' | 'live' | 'done';
+  outcome?: string;
+  // council
+  waitLeft?: number;      // minutes they'll still wait to be shown round
+  touring?: boolean;      // you're walking them round
+  escortSec?: number;     // seconds of the walk-round done, staying with them
+  pausedCut?: boolean;    // the sheet that was cutting when you stopped the machine for them
+  // ute
+  tripsLeft?: number;     // loads of slats still to go to the skip; the dock's blocked until 0
+  blockedAt?: number;     // minute the dock was blocked
+}
+export type RareEventId = 'council' | 'bigJob' | 'uteClip';
+
+/** Milestones (CONFIG.milestone): streaks that unlock things for good, saved with the game. */
+export interface MilestoneState {
+  fireFreeStreak: number;   // days running without a fire
+  bestDayProfit: number;    // best day's operating profit so far
+  unlocked: MilestoneId[];
+}
+export type MilestoneId = 'sparkArrestor' | 'secondBitRack';
 
 export interface DayStats {
   day: number;

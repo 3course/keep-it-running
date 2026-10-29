@@ -73,6 +73,8 @@ export interface BuiltWorld {
   fadeables: Fadeable[];
   vehicles: { ute: THREE.Group; truck: THREE.Group };
   mate: THREE.Group;
+  inspector: THREE.Group;
+  debris: THREE.Group;
   dust: THREE.Mesh[];
   pickables: THREE.Object3D[]; // things a tap can hit: object groups, vehicles
   floor: THREE.Mesh;
@@ -370,14 +372,27 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
   bitRack: (g, w, d, h, o) => {
     g.add(boxAt(w, h, 0.12, o.colour, 0, 0, -d / 2 + 0.06));
     for (let i = 0; i < 5; i++) g.add(boxAt(0.05, 0.18, 0.05, 0xc8c8c8, -w / 2 + 0.2 + i * 0.15, h * 0.55, -d / 2 + 0.16));
-    return {};
+    // the second rack (a milestone): alongside the first, loaded with pre-set holders
+    const second = new THREE.Group();
+    second.add(boxAt(w * 0.8, h * 0.85, 0.12, 0x4f8a6a, 0, 0, -d / 2 + 0.06));
+    for (let i = 0; i < 4; i++) second.add(boxAt(0.06, 0.2, 0.06, 0xe0c060, -w * 0.3 + i * 0.16, h * 0.5, -d / 2 + 0.16));
+    second.position.x = w * 0.95; second.visible = false;
+    g.add(second);
+    return { second };
   },
   extractor: (g, w, d, h, o) => {
     g.add(boxAt(w * 0.55, h, d * 0.8, o.colour, -w * 0.2, 0, 0));
     const bag = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), toon(0xd4cba6, true));
     bag.position.set(w * 0.25, 0.55, 0); bag.castShadow = true; g.add(bag);
     g.add(boxAt(0.12, 0.6, 0.12, 0x8a8f94, w * 0.25, 0.85, 0));
-    return { bag };
+    // the upgraded extractor (a milestone): a spark-arrestor drum on top, painted safety orange
+    const arrestor = new THREE.Group();
+    const drum = mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.5, 12), toon(0xe2762a));
+    drum.position.set(-w * 0.2, h + 0.25, 0); arrestor.add(drum);
+    arrestor.add(boxAt(0.56, 0.06, 0.56, 0x3a3a3e, -w * 0.2, h + 0.5, 0));
+    arrestor.visible = false;
+    g.add(arrestor);
+    return { bag, arrestor };
   },
   compressor: (g, w, d, h, o) => {
     const tank = mesh(new THREE.CylinderGeometry(0.28, 0.28, w - 0.1, 12), toon(o.colour));
@@ -656,6 +671,33 @@ export function buildCharacter(body: number) {
   return g;
 }
 
+/** The council inspector (a rare event): hi-vis, clipboard. Walked by the view (src/world3d/inspector.ts). */
+function buildInspector() {
+  const g = buildCharacter(0xe9d23a);
+  g.add(boxAt(0.42, 0.06, 0.42, 0x2a2a2e, 0, 0.62, 0)); // hi-vis vest's reflective band
+  const board = boxAt(0.22, 0.3, 0.03, 0x8a6a40, 0.22, 0.55, -0.12); board.rotation.x = -0.4; g.add(board); // clipboard
+  g.visible = false;
+  return g;
+}
+
+/** Busted roller-door slats piled inside the door (a rare event): one stack per load still to go to the skip. */
+function buildDebris() {
+  const g = new THREE.Group();
+  for (let i = 0; i < 3; i++) {
+    const stack = new THREE.Group();
+    for (let k = 0; k < 3; k++) {
+      const slat = boxAt(1.1, 0.06, 0.18, k % 2 ? 0x7f858b : 0x9ea4aa, 0, k * 0.07, 0);
+      slat.rotation.y = (k - 1) * 0.35 + i;
+      stack.add(slat);
+    }
+    stack.position.set(0, 0, (i - 1) * 0.7);
+    g.add(stack);
+  }
+  g.position.set(27.6 * C, 0, 31 * C);
+  g.visible = false;
+  return g;
+}
+
 /** A visiting mate: placed and walked about by the view (src/world3d/visitor.ts). */
 function buildMate() {
   const g = buildCharacter(0x5a8fc0);
@@ -723,8 +765,10 @@ export function buildWorld(scene: THREE.Scene, pointLights = true): BuiltWorld {
   scene.add(vehicles.ute, vehicles.truck);
   const mate = buildMate();
   scene.add(mate);
+  const inspector = buildInspector(), debris = buildDebris();
+  scene.add(inspector, debris);
   const dust = buildDust();
   for (const m of dust) scene.add(m);
   pickables.push(vehicles.ute, vehicles.truck);
-  return { grid, collisionBoxes, rollerBox, objects, fadeables, vehicles, mate, dust, pickables, floor, doorways };
+  return { grid, collisionBoxes, rollerBox, objects, fadeables, vehicles, mate, inspector, debris, dust, pickables, floor, doorways };
 }

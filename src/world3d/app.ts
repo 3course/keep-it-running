@@ -9,7 +9,7 @@ import { Hints } from '../ui/hints.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { track } from '../analytics.js';
-import { actionsFor, statusFor, uiHooks, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
+import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
@@ -21,6 +21,7 @@ import { buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { VisitorWalker } from './visitor.js';
+import { InspectorWalker } from './inspector.js';
 import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
@@ -109,6 +110,9 @@ export class World3D {
   private sipsSeen = 0;
   /** The visiting mate's walking (where they go is Game's call). Public for tests. */
   readonly visitor: VisitorWalker;
+  /** The council inspector's walking (a rare event). Public for tests. */
+  readonly inspector: InspectorWalker;
+  private rareSeen: { key: string; at: number } | null = null; // last rare-event phase seen, and when its cue last played
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
@@ -130,6 +134,7 @@ export class World3D {
     this.camera = new THREE.PerspectiveCamera(WORLD.fov, this.vw / this.vh, 0.1, 120);
     this.solid = solidCells(); // solid objects and the big clutter
     this.visitor = new VisitorWalker(this.walkable);
+    this.inspector = new InspectorWalker(this.walkable);
     this.buildScene();
 
     this.pos = { x: w.px, z: w.py };
@@ -349,6 +354,7 @@ export class World3D {
     this.syncWorld();
     this.move(dt);
     this.updateVisitor(dt);
+    this.updateRare(dt);
     this.updateTour();
     this.updateTrail(dt);
     this.updateViewOffset();
@@ -736,6 +742,10 @@ export class World3D {
     if (mate && Math.hypot(this.visitor.x - this.pos.x, this.visitor.z - this.pos.z) <= WORLD.visitorTalkRange) {
       entries.push({ id: `visitor-${mate.id}`, anchor: new THREE.Vector3(this.visitor.x, 1.75, this.visitor.z), acts: visitorActions(g, mate), status: visitorStatus(g, mate) });
     }
+    // the council inspector, when you're beside them
+    if (live && this.inspector.visible && Math.hypot(this.inspector.x - this.pos.x, this.inspector.z - this.pos.z) <= WORLD.visitorTalkRange) {
+      entries.push({ id: 'inspector', anchor: new THREE.Vector3(this.inspector.x, 1.75, this.inspector.z), acts: inspectorActions(g), status: inspectorStatus(g) });
+    }
     const shown = entries.filter(e => e.acts.length || e.status);
     const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => [a.label, !!a.highlight]), e.status, g.spraying]));
     if (sig !== this.labelSig && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
@@ -870,6 +880,13 @@ export class World3D {
     const next = cur + (open - cur) * Math.min(1, 3 * dt);
     door.userData.open = next;
     door.scale.y = 1 - next * 0.92; door.position.y = next * WORLD.lintel * 0.9;
+    // a ute's clipped it (a rare event): the door hangs crooked and the busted slats pile up inside
+    door.rotation.z = g.dockBlocked ? 0.12 : 0;
+    this.built.debris.visible = g.dockBlocked || w.carrying === 'debris';
+    this.built.debris.children.forEach((stack, i) => { stack.visible = g.dockBlocked && i < (g.rare!.tripsLeft ?? 0); });
+    // milestones: the spark arrestor on the extractor, the second bit rack
+    o('extractor').parts.arrestor.visible = g.hasMilestone('sparkArrestor');
+    o('bitRack').parts.second.visible = g.hasMilestone('secondBitRack');
     // exhaust fan spins while cutting
     if (g.machine === 'cutting') o('exhaust').parts.fan.rotation.y += dt * 12;
 
@@ -880,7 +897,23 @@ export class World3D {
     const bundles = this.built.vehicles.truck.userData.bundles as THREE.Group;
     const onTray = plyTruck ? (plyTruck.stage === 'waiting' ? 3 : plyTruck.bundles.length - (w.carrying === 'bundle' ? 1 : 0)) : 0;
     bundles.children.forEach((b, i) => { b.visible = i < onTray; });
-    this.built.vehicles.ute.visible = !courier && w.utePresent;
+    // the ute that's about to clip the door (a rare event): backing up the apron toward it through the tell
+    const ute = this.built.vehicles.ute;
+    ute.userData.home ??= ute.position.clone();
+    const reversing = g.rare?.id === 'uteClip' && g.rare.phase === 'tell';
+    if (reversing) {
+      const tell = Math.ceil(CONFIG.rareEvent.events.find(e => e.id === 'uteClip')!.tell.seconds * 1000 / CONFIG.clock.realMsPerGameMinute);
+      const k = THREE.MathUtils.clamp(1 - (g.rare!.at - g.minute) / tell, 0, 1);
+      const home = ute.userData.home as THREE.Vector3, door = o('rollerDoor').centre;
+      ute.position.set(THREE.MathUtils.lerp(home.x, door.x + 2.2, k), 0, THREE.MathUtils.lerp(home.z, door.z, k));
+      ute.rotation.y = Math.PI / 2;
+    } else { ute.position.copy(ute.userData.home as THREE.Vector3); ute.rotation.y = 0; }
+    ute.visible = reversing || (!courier && w.utePresent);
+    // the council inspector
+    const ins = this.built.inspector;
+    ins.visible = this.inspector.visible;
+    ins.position.set(this.inspector.x, 0, this.inspector.z);
+    ins.rotation.y = this.inspector.facing;
     const mate = g.distractions.find(d => d.kind === 'friend');
     this.built.mate.visible = !!mate;
     if (mate) {
@@ -1138,6 +1171,11 @@ export class World3D {
       if (g.truckOnApron || g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
       else if (w.utePresent) problems.push({ key: 'ute', icon: '🛻', pos: this.built.vehicles.ute.position.clone().setY(1.2) });
       if (g.distractions.some(d => d.kind === 'friend' && d.ask)) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });
+      // today's rare event: its tell, then where it's waiting for you
+      const r = g.rare;
+      if (r?.phase === 'tell') problems.push({ key: 'rare', icon: r.id === 'council' ? '📋' : r.id === 'bigJob' ? '💼' : '🛻', pos: at(r.id === 'bigJob' ? 'phone' : 'rollerDoor'), ring: true });
+      else if (g.inspectorWaiting) problems.push({ key: 'rare', icon: '📋', pos: this.built.inspector.position.clone().setY(1.2) });
+      else if (g.dockBlocked) problems.push({ key: 'rare', icon: '🚧', pos: at('rollerDoor') });
       const left = Math.max(0, this.coverLeft), u = this.hud.unit;
       const cx = (left + this.vw) / 2, cy = this.vh / 2, minX = left + 26 * u, maxX = this.vw - 26 * u, minY = 130 * u, maxY = this.vh - 70 * u;
       for (const pb of problems) {
@@ -1155,6 +1193,32 @@ export class World3D {
       }
     }
     this.hud.setPointers(list);
+  }
+
+  /**
+   * Today's rare event, in the shed: the inspector on foot (the walk-round counts while you're with them), the wall
+   * extinguisher's state for the inspection, and the cues — heard every couple of seconds through the tell, and once
+   * as it lands (a crunch for the ute).
+   */
+  private updateRare(dt: number) {
+    const g = this.g, w = this.w;
+    g.extinguisherAway = w.hooks.wall === false;
+    this.inspector.update(this.paused ? 0 : dt, g, { x: this.pos.x, z: this.pos.z });
+    const r = g.phase === 'day' && !this.paused ? g.rare : null;
+    const key = r ? `${r.id}:${r.phase}` : '';
+    if (!r || (r.phase !== 'tell' && r.phase !== 'live')) { this.rareSeen = r ? { key, at: this.time } : null; return; }
+    const landed = r.phase === 'live' && this.rareSeen?.key !== key;
+    const kind = r.id === 'council' ? 'knock' : r.id === 'bigJob' ? 'buzz' : 'beeper';
+    const every = r.id === 'uteClip' ? 1 : 2.5;
+    let play: 'knock' | 'buzz' | 'beeper' | 'crunch' | null = null;
+    if (landed) play = r.id === 'uteClip' ? 'crunch' : r.id === 'council' ? 'knock' : null;
+    else if (r.phase === 'tell' && (this.rareSeen?.key !== key || this.time - this.rareSeen.at >= every)) play = kind;
+    if (this.rareSeen?.key !== key || play) this.rareSeen = { key, at: this.time };
+    if (!play) return;
+    const src = this.built.objects.get(r.id === 'bigJob' ? 'phone' : 'rollerDoor')!.centre;
+    const dx = src.x - this.pos.x, dz = src.z - this.pos.z, dist = Math.hypot(dx, dz) || 1;
+    const pan = (dx * Math.cos(this.camYaw) - dz * Math.sin(this.camYaw)) / dist;
+    this.ring.cue(play, pan, THREE.MathUtils.clamp(1 - dist / 32, 0.15, 1));
   }
 
   /** The phone, heard from where you are: panned toward the office, quieter further away. */

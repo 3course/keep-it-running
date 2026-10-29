@@ -38,6 +38,18 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   // first day: the walk-round comes first, in order
   if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);
 
+  // today's rare event: its tell, then what to do about it
+  const r = g.rare;
+  if (r && r.phase === 'tell') {
+    if (r.id === 'council') add(true, 'rare-tell', 'Car door out front. Someone at the roller door?', 'rollerDoor');
+    else if (r.id === 'bigJob') add(true, 'rare-tell', "Text from a builder: \"Ringing in a sec, big one\"", 'phone');
+    else add(true, 'rare-tell', 'Reversing beeper on the apron. Close…');
+  } else if (r && r.phase === 'live') {
+    if (g.inspectorWaiting) add(true, 'council', `The council's here: stop the machine, show them round (${r.waitLeft}m)`, 'rollerDoor');
+    else if (g.inspectorTouring) add(true, 'council', 'Walk the inspector round: stay with them');
+    else if (g.dockBlocked && w.carrying !== 'debris') add(true, 'debris', `Clear the busted roller door (${r.tripsLeft} load${r.tripsLeft === 1 ? '' : 's'} to the skip)`, 'rollerDoor');
+  }
+
   // more due today than there's time to cut: a nudge to turn work down (top of the "later" list; it's not a chore)
   if (g.overCommitted && g.minute < CONFIG.clock.endHour * 60) {
     add(false, 'board-full', `Board's full: ${g.dueToday} due today, time for about ${Math.floor(g.canCutToday)}`);
@@ -68,6 +80,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     case 'scrap': add(true, 'carry-scrap', 'Bin the scrap', 'offcutBin'); break;
     case 'bag': add(true, 'carry-bag', 'Old bag to the skip', 'skip'); break;
     case 'offcuts': add(true, 'carry-offcuts', 'Offcuts to the skip', 'skip'); break;
+    case 'debris': add(true, 'carry-debris', 'Slats to the skip', 'skip'); break;
     case 'extinguisher': if (!g.fire) {
       const empty: ObjectId[] = HOOKS.filter(h => hookThere(g, h.hook) && !onHook(g, w, h.hook)).map(h => h.id);
       add(false, 'carry-ext', 'Hang the extinguisher back up', empty);
@@ -86,6 +99,13 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   // work on the board with no ply for it, and nothing for it on order
   const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.lines.some(l => l.type === t)));
   if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, ['phone', 'desk']);
+
+  // milestones still to come: tap one to go and look at what it unlocks
+  if (CONFIG.milestones) {
+    const m = g.milestones, c = CONFIG.milestone;
+    if (!g.hasMilestone('sparkArrestor')) add(false, 'milestone-fire', `Milestone: ${m.fireFreeStreak} of ${c.fireFreeDays} days without a fire → upgraded extractor`, 'extractor');
+    if (!g.hasMilestone('secondBitRack')) add(false, 'milestone-day', `Milestone: best day $${Math.max(0, m.bestDayProfit)} of $${c.bigDayProfit} → second bit rack`, 'bitRack');
+  }
 
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({

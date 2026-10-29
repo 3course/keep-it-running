@@ -1,5 +1,55 @@
 // Every tunable number in the game lives here. Nothing else should hardcode balance.
 
+/**
+ * A rare event: the odd day something big happens. One at most a day, rolled at day start; it takes the time slot of
+ * one of that day's scheduled order calls (`replacesInterruption`: that call doesn't ring) rather than stacking on top.
+ * Every one is told before it lands (`tell`: seen and heard `seconds` early) and is dealt with in the shed, on foot.
+ */
+export interface RareEvent {
+  id: 'council' | 'bigJob' | 'uteClip';
+  name: string;
+  weight: number;               // relative odds, among the events that can still happen today
+  earliestHour: number;         // it lands no earlier than this
+  tell: { seconds: number; cue: string };     // what you see and hear before it lands (1 game minute = 1 real second)
+  steps: string[];              // how it's resolved, in the shed
+  payoff: number;               // $ earned (or rapport for the council: see `passRapport`)
+  penalty: number;              // $ lost
+  replacesInterruption: boolean;
+  // per event
+  waitMinutes?: number;         // council: how long they'll wait to be shown round before writing you up anyway
+  tourSeconds?: number;         // council: the walk-round, staying with them
+  passRapport?: number;         // council: rapport for a clean inspection
+  sheets?: number;              // big job: sheets in the order
+  dueDays?: number;             // big job: working days to deliver it all
+  priceMult?: number;           // big job: on each sheet's usual price
+  trips?: number;               // ute: loads of busted slats to the skip before the dock opens
+  tripMinutes?: number;         // ute (sim only: the world walks it): one trip to the skip and back
+}
+
+const RARE_EVENTS: RareEvent[] = [
+  {
+    id: 'council', name: 'Council inspection', weight: 3, earliestHour: 9,
+    tell: { seconds: 20, cue: 'A council car pulls up out the front; a car door, then a knock on the roller door' },
+    steps: ['Meet them at the roller door', 'Stop the machine', 'Walk them round for 90 s, staying with them'],
+    payoff: 0, penalty: 300, replacesInterruption: true,
+    waitMinutes: 20, tourSeconds: 90, passRapport: 5,
+  },
+  {
+    id: 'bigJob', name: 'Big job', weight: 3, earliestHour: 8.5,
+    tell: { seconds: 20, cue: 'Your mobile buzzes: a builder texts that he\'s about to ring with a big one' },
+    steps: ['Answer the office phone', 'Take it (or turn it down)', 'Cut 20 sheets inside three days'],
+    payoff: 0, penalty: 0, replacesInterruption: true,
+    sheets: 20, dueDays: 3, priceMult: 1.35,
+  },
+  {
+    id: 'uteClip', name: 'Ute clips the roller door', weight: 2, earliestHour: 10,
+    tell: { seconds: 15, cue: 'A reversing beeper on the apron, getting closer' },
+    steps: ['Pull the busted slats off the roller door', 'Three trips to the skip', 'The dock opens again'],
+    payoff: 0, penalty: 0, replacesInterruption: true,
+    trips: 3, tripMinutes: 4,
+  },
+];
+
 export const CONFIG = {
   clock: {
     startHour: 7,
@@ -222,6 +272,24 @@ export const CONFIG = {
   ],
 
   week: { days: 5 },
+
+  // Off: no rare events at all, and the economy runs exactly as before them (the frozen baseline; `npm run sim -- baseline`).
+  rareEvents: true,
+  rareEvent: {
+    dayChance: 1 / 6,          // about one day in six has one
+    fromDay: 4,                // none during the grace days
+    debugLeadMinutes: 2,       // ?event=<id> forces one on day 1: it lands this long after the clock starts, plus its tell
+    events: RARE_EVENTS,
+  },
+
+  // Off: no milestones, and no unlocks from them (also part of the frozen baseline).
+  milestones: true,
+  milestone: {
+    fireFreeDays: 3,           // this many days running without a fire…
+    fireChanceMult: 0.6,       // …unlocks the upgraded extractor (spark arrestor): spot fires start this much as often
+    bigDayProfit: 1000,        // the first day with at least this operating profit…
+    bitSwapMinutes: 3,         // …unlocks a second bit rack by the machine: a bit swap takes this long, not consumables.bit
+  },
 
   ui: {
     swapHintBelow: 0.3,   // the to-do list says "Swap the …" once a consumable's health drops below this

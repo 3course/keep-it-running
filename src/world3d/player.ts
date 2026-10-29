@@ -7,7 +7,7 @@ import { WORLD } from '../world/worldConfig.js';
 import { boxAt, toon } from './build.js';
 
 const CARRY_COLOUR: Record<Carry, number> = {
-  sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460, bundle: 0xc9a46a,
+  sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460, bundle: 0xc9a46a, debris: 0x7f858b, // debris: busted roller-door slats
 };
 
 export class PlayerView {
