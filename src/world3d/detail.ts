@@ -115,3 +115,69 @@ function enrichFloor(floor: THREE.Mesh, grid: number[][]) {
   for (let x = 22 * px; x < 29 * px; x++) { ctx.fillRect(x, 29.5 * px, 1, 1); ctx.fillRect(x, 31.5 * px, 1, 1); }
   tex.needsUpdate = true;
 }
+
+/**
+ * Sawdust round the router and the extractor: flecks that spread outward as the extractor bag fills (it fills as the
+ * machine cuts) and vanish when the bag's changed. One instanced mesh, one draw call; the count drawn is the level.
+ */
+export class Sawdust {
+  private mesh: THREE.InstancedMesh;
+  private shown = -1;
+
+  constructor(scene: THREE.Scene) {
+    const tex = pixelTexture(8, 53, (px, rnd) => {
+      // an irregular blob of pale chips, transparent round the edge
+      for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+        const d = Math.hypot(x - 3.5, y - 3.5) + rnd() * 1.6;
+        // bright chips with a darker fringe, so a fleck reads as a little pile on the sandy concrete
+        if (d < 2.6) px(x, y, rnd() < 0.5 ? '#fbf1d2' : '#f3e2b0');
+        else if (d < 3.7) px(x, y, rnd() < 0.6 ? '#b8975e' : '#e8d29c');
+      }
+    });
+    tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, alphaTest: 0.5, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+    const geo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    const spots = [...sawdustSpots(objectById('machine').rect, 46, 3), ...sawdustSpots(objectById('extractor').rect, 26, 5)]
+      .sort((a, b) => a.r - b.r); // nearest the machines first, so it spreads outward as it builds
+    this.mesh = new THREE.InstancedMesh(geo, mat, spots.length);
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0);
+    spots.forEach((p, i) => {
+      q.setFromAxisAngle(up, p.rot);
+      m.compose(new THREE.Vector3(p.x, 0.012, p.z), q, new THREE.Vector3(p.size, 1, p.size));
+      this.mesh.setMatrixAt(i, m);
+    });
+    this.mesh.count = 0;
+    this.mesh.renderOrder = 1;
+    scene.add(this.mesh);
+  }
+
+  /** level: 0 (bag just changed) .. 1 (bag full). */
+  update(level: number) {
+    const n = Math.round(Math.max(0, Math.min(1, level)) * this.mesh.instanceMatrix.count);
+    if (n === this.shown) return;
+    this.shown = n;
+    this.mesh.count = n;
+  }
+
+  /** For tests: how many flecks are down. */
+  get count() { return this.mesh.count; }
+}
+
+/** Spots for sawdust round a footprint (metres): a ring just outside it, seeded, each with its distance out. */
+function sawdustSpots(r: Rect, n: number, seed: number) {
+  let s = seed * 7919;
+  const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  const C = 0.5, x0 = r.x * C, z0 = r.y * C, w = r.w * C, d = r.h * C;
+  const out: { x: number; z: number; r: number; size: number; rot: number }[] = [];
+  for (let i = 0; i < n; i++) {
+    // a point on the footprint's edge, pushed out by up to a metre (mostly close in)
+    const t = rnd() * 2 * (w + d), out1 = Math.pow(rnd(), 1.6) * 1.0 + 0.08;
+    let x: number, z: number;
+    if (t < w) { x = x0 + t; z = z0 - out1; }
+    else if (t < w + d) { x = x0 + w + out1; z = z0 + (t - w); }
+    else if (t < 2 * w + d) { x = x0 + (t - w - d); z = z0 + d + out1; }
+    else { x = x0 - out1; z = z0 + (t - 2 * w - d); }
+    out.push({ x, z, r: out1 + rnd() * 0.2, size: 0.18 + rnd() * 0.3, rot: rnd() * Math.PI });
+  }
+  return out;
+}

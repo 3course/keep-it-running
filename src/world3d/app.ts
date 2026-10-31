@@ -26,7 +26,7 @@ import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
 import { perf } from './perf.js';
-import { applyTextures, type SheetLooks } from './detail.js';
+import { applyTextures, Sawdust, type SheetLooks } from './detail.js';
 import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
 
@@ -313,6 +313,8 @@ export class World3D {
   private resMult = 1;
   /** Sheet materials by job type, when the tier has textures. */
   private looks: SheetLooks | null = null;
+  /** Sawdust building up round the router and extractor (decals tier). Public for tests. */
+  sawdust: Sawdust | null = null;
   private get renderScale() { return WORLD.renderScale * this.resMult; }
   private lastFrameAt = 0;
   private slowChecks = 0;
@@ -421,6 +423,7 @@ export class World3D {
     this.built = buildWorld(this.scene, this.tier.pointLights);
     // the tier's extra detail, on top of the plain world (the low tier gets none of it)
     this.looks = this.tier.detail.textures ? applyTextures(this.built, this.built.grid) : null;
+    this.sawdust = this.tier.detail.decals ? new Sawdust(this.scene) : null;
 
     // light from the upper left, soft warm fill
     this.scene.add(new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4));
@@ -899,6 +902,8 @@ export class World3D {
     (bag.material as THREE.MeshToonMaterial).color.setHex(fill > CONFIG.fire.bagFullAbove ? 0xe2cf8a : 0xd4cba6);
     const level = fill > CONFIG.fire.bagFullAbove ? Math.ceil((fill - CONFIG.fire.bagFullAbove) / (1 - CONFIG.fire.bagFullAbove) * 4) : 0;
     this.built.dust.forEach((d, i) => { d.visible = i < level * 10; });
+    // sawdust round the machines: builds up as the bag fills, gone when it's changed
+    this.sawdust?.update(1 - g.wear.filter);
 
     // pallets, bin
     // ply stock: one stack per line, a sheet of height per sheet on the pallet
