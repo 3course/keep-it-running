@@ -24,6 +24,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0,
   };
 }
 
@@ -67,6 +68,12 @@ export class Game {
   // Ply is stock: cash leaves when it's ordered, but the day's P&L is charged a sheet's cost when it's loaded.
   stockValue = Object.fromEntries(CONFIG.jobs.types.map(t => [t.id, 0])) as Record<JobTypeId, number>; // cost of what's on the pallet
   inHandCost = 0;                // cost of the sheet in your hands
+
+  // chores (CONFIG.chore; all zero and unused with CONFIG.chores off)
+  bedPile = 0;           // finished boards on the bed, waiting to go to the finished pallet
+  offcutBin = 0;         // 0..1
+  offcutPile = 0;        // loads to the skip left to clear an overflow off the floor
+  compressorSheets = 0;  // sheets cut since the compressor was last drained
 
   // consumables 0..1 (1 = fresh)
   wear: Record<ConsumableKey, number> = { bit: 1, spoilboard: 1, filter: 1 };
@@ -199,6 +206,7 @@ export class Game {
       `Keep It Running — day ${d.day} (week day ${this.day}/${CONFIG.week.days})`,
       `Revenue $${Math.round(d.revenue)} · costs $${Math.round(d.costs)} · margin ${m} · cash $${Math.round(this.cash)}`,
       `Sheets: ${d.sheetsDone} delivered (${d.sheetsLate} late), ${d.sheetsScrapped} scrapped · faults ${d.faults} · fires ${d.firesSpot} · beers ${d.beers}`,
+      ...(CONFIG.chores ? [`Chores: ${d.sheetsShifted} shifted (clamps), ${d.sheetsLifted} lifted (compressor), boards lost $${Math.round(d.choreBoards)} · offcut bin overflowed ${d.binOverflows}×`] : []),
       ...(this.story ? [`Story of the day: ${this.story}`] : []),
       '',
     ];
@@ -422,7 +430,9 @@ export class Game {
       this.current.progress += 1;
       this.typeLedger[this.current.type].minutes += 1;
       this.wearConsumables();
-      if (this.current.progress >= this.current.cutMinutes) this.finishJob();
+      const r = this.current.ruin;
+      if (r && this.current.progress >= r.at && !this.current.ruinedBy) this.ruinSheet(r.by);
+      else if (this.current.progress >= this.current.cutMinutes) this.finishJob();
       else this.maybeFault(false);
       this.maybeLessonFire();
       this.maybeFire();
@@ -675,8 +685,19 @@ export class Game {
     }
   }
 
+  /** A chore skipped catches up: the sheet shifts (clamps) or lifts (the vacuum let go). Ruined mid-cut. */
+  private ruinSheet(by: 'shift' | 'lift') {
+    const j = this.current!;
+    j.ruinedBy = by;
+    if (by === 'shift') this.today.sheetsShifted += 1; else this.today.sheetsLifted += 1;
+    this.today.choreBoards += j.materialCost;
+    this.scrapCurrent(by === 'shift' ? `${j.name} shifted on the bed: a clamp short.` : `The vacuum let go and ${j.name} lifted: the compressor wants draining.`);
+    this.current = null; this.machine = 'idle';
+  }
+
   private scrapCurrent(reason: string) {
     if (!this.current) return;
+    this.afterSheet(false);
     this.current.status = 'scrapped';
     this.today.sheetsScrapped += 1;
     this.typeLedger[this.current.type].scrapped += 1;
@@ -702,6 +723,7 @@ export class Game {
     this.typeLedger[j.type].revenue += pay;
     this.typeLedger[j.type].cut += 1;
     this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
+    this.afterSheet(true);
     this.current = null;
     this.machine = 'idle';
   }
@@ -878,8 +900,10 @@ export class Game {
 
   // ---------- player actions ----------
 
-  loadNextSheet(): boolean {
+  /** `clamps`: how many of the four clamps went on (CONFIG.chore.clamp); the sim's scripts and the view say. */
+  loadNextSheet(clamps: number = CONFIG.chore.clamp.clamps): boolean {
     if (this.phase !== 'day' || !this.canAct || this.machine !== 'idle' || this.fault) return false;
+    if (this.bedFull) return false; // no room on the bed for a sheet
     const next = this.takeSheet();
     if (!next) return false;
     // the board goes on today's books now, as it's used
@@ -890,8 +914,80 @@ export class Game {
     next.status = 'cutting';
     this.current = next;
     this.machine = 'loading';
-    this.loadingRemaining = Math.ceil(CONFIG.jobs.loadMinutes * this.stepDurationMult());
+    let load: number = CONFIG.jobs.loadMinutes;
+    if (CONFIG.chores) {
+      const ch = CONFIG.chore;
+      load += clamps * ch.clamp.minutesPerClamp + (this.offcutPile > 0 ? ch.offcuts.pileSlowMinutes : 0);
+      this.rollRuin(next, clamps);
+    }
+    this.loadingRemaining = Math.ceil(load * this.stepDurationMult());
     this.say(`Loading ${next.material}...`);
+    return true;
+  }
+
+  // ---------- chores (CONFIG.chore) ----------
+
+  /** The bed's holding as many finished boards as it takes: they have to go to the finished pallet before another sheet. */
+  get bedFull(): boolean { return CONFIG.chores && this.bedPile >= CONFIG.chore.stack.bedHolds; }
+  /** The compressor's hiss has dropped: it's due a drain. */
+  get compressorDue(): boolean { return CONFIG.chores && this.compressorSheets >= CONFIG.chore.compressor.sheetsPerDrain; }
+  /** How many sheets the offcut bin takes (the bigger bin takes more). */
+  get binSheets(): number { return this.upgrades.has('bigBin') ? this.upgradeEffect('bigBin') : CONFIG.chore.offcuts.sheetsToFill; }
+
+  /** As a sheet's loaded: will it shift (a clamp left off) or lift (the compressor past due)? If so, when. */
+  private rollRuin(j: Job, clamps: number) {
+    const ch = CONFIG.chore;
+    const missing = Math.min(ch.clamp.clamps, Math.max(0, ch.clamp.clamps - clamps));
+    // the hiss dropping is the warning: the next sheet's still safe, the ones after that aren't
+    const over = this.compressorSheets - ch.compressor.sheetsPerDrain;
+    const pShift = ch.clamp.shiftChanceByMissing[missing];
+    const pLift = over > 0 ? Math.min(ch.compressor.liftChanceMax, over * ch.compressor.liftChancePerSheetOver) : 0;
+    const by = pShift > 0 && this.rng.chance(pShift) ? 'shift' : pLift > 0 && this.rng.chance(pLift) ? 'lift' : null;
+    if (by) j.ruin = { by, at: this.rng.int(Math.max(1, Math.round(j.cutMinutes * 0.2)), Math.max(1, Math.round(j.cutMinutes * 0.8))) };
+  }
+
+  /** Every sheet off the machine, good or ruined: offcuts in the bin (or on the floor), and the compressor runs on. */
+  private afterSheet(good: boolean) {
+    if (!CONFIG.chores) return;
+    if (good) this.bedPile += 1;
+    this.compressorSheets += 1;
+    if (this.offcutBin >= 1 - 1e-9) {
+      if (this.offcutPile === 0) { this.today.binOverflows += 1; this.say("The offcut bin's full: offcuts all over the floor round it.", 'bad'); }
+      this.offcutPile = CONFIG.chore.offcuts.pileTrips;
+    } else this.offcutBin = Math.min(1, this.offcutBin + 1 / this.binSheets);
+  }
+
+  /** Carry the finished boards off the bed to the finished pallet (`walked`: the view walked it; no time here). */
+  clearBed(walked = false): boolean {
+    if (this.phase !== 'day' || !this.canAct || this.bedPile <= 0) return false;
+    this.bedPile = 0;
+    if (!walked) this.busy = { label: 'boards to the finished pallet', remaining: this.walkMinutes(CONFIG.chore.stack.unloadMinutes + (this.offcutPile > 0 ? CONFIG.chore.offcuts.pileSlowMinutes : 0)) };
+    return true;
+  }
+
+  /** Bag the offcut bin and take it to the skip. */
+  emptyOffcutBin(walked = false): boolean {
+    if (this.phase !== 'day' || !this.canAct || this.offcutBin <= 0) return false;
+    this.offcutBin = 0;
+    if (!walked) this.busy = { label: 'offcuts to the skip', remaining: this.walkMinutes(CONFIG.chore.offcuts.tripMinutes) };
+    return true;
+  }
+
+  /** A load of the overflow off the floor to the skip. */
+  clearOffcutPile(walked = false): boolean {
+    if (this.phase !== 'day' || !this.canAct || this.offcutPile <= 0) return false;
+    this.offcutPile -= 1;
+    if (!walked) this.busy = { label: 'offcuts off the floor', remaining: this.walkMinutes(CONFIG.chore.offcuts.tripMinutes) };
+    if (this.offcutPile === 0) this.say('Floor clear of offcuts.', 'good');
+    return true;
+  }
+
+  /** Hold the compressor's drain valve open: the water's out and the vacuum's strong again. */
+  drainCompressor(walked = false): boolean {
+    if (this.phase !== 'day' || !this.canAct || this.compressorSheets <= 0) return false;
+    this.compressorSheets = 0;
+    if (!walked) this.busy = { label: 'draining the compressor', remaining: CONFIG.chore.compressor.drainMinutes };
+    this.say('Compressor drained. The hiss is back up.');
     return true;
   }
 

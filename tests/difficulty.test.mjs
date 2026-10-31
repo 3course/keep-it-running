@@ -28,6 +28,8 @@ function cutAllDay(g) {
     for (const d of g.distractions) if (d.order) g.respond(d.id, 'answer');
     if (g.machine === 'idle' && g.queued.length) g.loadNextSheet();
     g.wear = { bit: 0, spoilboard: 0, filter: 0 };
+    // the chores done as they come up (they're not what this measures): bed cleared, bin empty, compressor drained
+    g.bedPile = 0; g.offcutBin = 0; g.offcutPile = 0; g.compressorSheets = 0;
     g.tick();
   }
   return g.today;

@@ -74,7 +74,11 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   }
   if (w.bed === 'done') add(true, 'unload', 'Unload the machine', 'machine');
   if (w.bed === 'scrap' && !g.fault) add(true, 'scrap', 'Clear the scrap off the bed', 'machine');
-  if (w.bed === 'placed') add(true, 'clamp', 'Clamp the sheet', 'machine');
+  if (w.bed === 'placed') add(true, 'clamp', `Clamp the sheet (${w.clamps ?? 0}/${CONFIG.chore.clamp.clamps})`, 'machine');
+  // the chores (CONFIG.chore): boards off the bed, the offcuts, the compressor
+  if (g.bedPile > 0) add(g.bedFull, 'unload', g.bedFull ? `Bed's full: carry the boards off (${g.bedPile})` : `Carry the boards off the bed (${g.bedPile})`, 'machine');
+  if (g.offcutPile > 0) add(true, 'offcut-pile', `Offcuts all over the floor (${g.offcutPile} load${g.offcutPile > 1 ? 's' : ''} to the skip)`, 'offcutBin');
+  if (g.compressorDue) add(true, 'drain', 'The compressor hiss has dropped: drain it', 'compressor');
   if (w.bed === 'clamped' && g.machine === 'idle') add(true, 'start', 'Start the cut', 'machine');
   switch (w.carrying) {
     case 'sheet': add(true, 'carry-sheet', 'Load the sheet', 'machine'); break;
@@ -96,7 +100,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (g.wear.filter < low) add(false, 'bag', 'Change the extractor bag', 'extractor');
   if (g.wear.spoilboard < low) add(false, 'spoilboard', 'New spoilboard', 'machine');
   if (w.oldBagWaiting) add(false, 'oldbag', 'Old bag out of the extractor', 'extractor');
-  if (w.offcutBin >= offcutsBagAt(g)) add(false, 'offcuts', 'Empty the offcut bin', 'offcutBin');
+  if (!g.offcutPile && g.offcutBin >= offcutsBagAt(g)) add(g.offcutBin >= 1, 'offcuts', g.offcutBin >= 1 ? 'Offcut bin is full: empty it' : 'Empty the offcut bin', 'offcutBin');
   // a pickup: the stack off the finished pallet, out through the roller door to the ute
   if (w.utePresent && w.carrying === 'stack') add(true, 'pickup', `Take the stack out to the ute (${w.finishedStack})`, 'rollerDoor');
   else if (w.utePresent && w.finishedStack > 0) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'finishedPallet');

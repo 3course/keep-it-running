@@ -37,7 +37,10 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
   const overdraft = d.overdraftFees ? row('&nbsp;&nbsp;Overdraft fee', money(-d.overdraftFees), 'bad') : '';
   // money that never came in: shown only when there was some
   const lost = (d.latePayLost > 0 ? row('Late jobs cost you', money(d.latePayLost), 'bad lost-late') : '')
-    + (d.lostJobsValue > 0 ? row('Pulled jobs cost you', money(d.lostJobsValue), 'bad lost-pulled') : '');
+    + (d.lostJobsValue > 0 ? row('Pulled jobs cost you', money(d.lostJobsValue), 'bad lost-pulled') : '')
+    // chores skipped: the boards they ruined (in "Boards used" above), with the work that went with them
+    + ((d.sheetsShifted ?? 0) > 0 ? row(`Missed clamps: ${d.sheetsShifted} sheet${d.sheetsShifted > 1 ? 's' : ''} shifted`, money(choreShare(d, 'shift')), 'bad lost-shift') : '')
+    + ((d.sheetsLifted ?? 0) > 0 ? row(`Undrained compressor: ${d.sheetsLifted} sheet${d.sheetsLifted > 1 ? 's' : ''} lifted`, money(choreShare(d, 'lift')), 'bad lost-lift') : '');
   return row('Revenue', money(d.revenue), 'money')
     + row('&nbsp;&nbsp;Boards used', money(-d.materials), 'dim') + row('&nbsp;&nbsp;Delivery fees', money(-d.deliveryFees), 'dim')
     + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
@@ -48,8 +51,16 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
     + `<p class="dim small">Other: parts ${money(d.consumables)}, fixes ${money(d.fixes)}, beer ${money(d.beer)}, mate had a beer ${money(d.mateBeer)}, fees ${money(d.fees)}. Ply on hand is stock you've paid for, not a cost yet.</p>`;
 }
 
+/** The boards ruined by one chore: the day's chore-ruined board cost, split by how many sheets each ruined. */
+function choreShare(d: DayStats, by: 'shift' | 'lift') {
+  const n = (d.sheetsShifted ?? 0) + (d.sheetsLifted ?? 0);
+  return n ? d.choreBoards * ((by === 'shift' ? d.sheetsShifted : d.sheetsLifted) / n) : 0;
+}
+
 function dayVerdict(d: DayStats): string {
   const m = d.revenue > 0 ? (d.revenue - d.costs) / d.revenue : -1;
+  if ((d.sheetsShifted ?? 0) >= 1) return 'Four clamps. Every sheet. A sheet that walks is a sheet in the skip.';
+  if ((d.sheetsLifted ?? 0) >= 1) return 'When the compressor hiss drops, drain it. The vacuum is all that holds the sheet down.';
   if (d.sheetsScrapped >= 2) return "Two sheets in the skip. That's where the margin went.";
   if (d.wrongCalls >= 3) return 'Guessing at faults costs minutes. Minutes cost sheets.';
   if (d.beers >= 3) return 'The fridge won today.';
@@ -67,6 +78,8 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     ['Sheets delivered', `${d.sheetsDone}`], [`&nbsp;&nbsp;of which late (${Math.round(CONFIG.economy.latePayFraction * 100)}%)`, `${d.sheetsLate}`],
     ['Sheets scrapped', `${d.sheetsScrapped}`], ['Faults', `${d.faults}`], ['Wrong diagnoses', `${d.wrongCalls}`], ['Beers', `${d.beers}`],
     ['Fires (duct/extr.)', `${d.firesSpot} (${d.firesDuct}/${d.firesExtractor})`],
+    ...(CONFIG.chores ? [['Sheets shifted (clamps)', `${d.sheetsShifted ?? 0}`], ['Sheets lifted (compressor)', `${d.sheetsLifted ?? 0}`],
+      ['Offcut bin overflowed', `${d.binOverflows ?? 0}`]] as [string, string][] : []),
   ];
   el.innerHTML = `
     <h1>End of day ${d.day}</h1>
@@ -103,7 +116,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
   const total = g.week.reduce<DayStats>((acc, d) => {
     for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k] ?? 0; // a day saved before a field existed
     return acc;
-  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0 });
+  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
   const last = g.week[g.week.length - 1]; // stock is a snapshot at close, not a sum
   total.costs += g.weekOverheads;

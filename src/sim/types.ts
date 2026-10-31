@@ -36,6 +36,10 @@ export interface Job {
   type: JobTypeId;
   /** Cut with the wrong bit for its board (the view's bit rack): it comes off the machine a reject. */
   rough?: boolean;
+  /** Chores (CONFIG.chore): this sheet will shift (clamps left off) or lift (compressor not drained) at this many minutes in… */
+  ruin?: { by: 'shift' | 'lift'; at: number };
+  /** …and it did: ruined. */
+  ruinedBy?: 'shift' | 'lift';
 }
 
 /** An order call's sheets before you say yes (Game.previewOrder). */
@@ -221,6 +225,11 @@ export interface DayStats {
   firesExtractor: number;  // fires that reached the extractor
   faults: number;
   wrongCalls: number;
+  // chores (CONFIG.chore)
+  sheetsShifted: number;   // ruined: clamps left off
+  sheetsLifted: number;    // ruined: the compressor wasn't drained
+  choreBoards: number;     // what those ruined boards cost
+  binOverflows: number;    // times the offcut bin spilled onto the floor
 }
 
 export interface LogEntry {

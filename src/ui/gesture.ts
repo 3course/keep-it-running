@@ -65,6 +65,8 @@ export class GesturePad {
   /** Set while the thumb's down on a hold (the view keeps time for it). */
   private holdStart: number | null = null;
   private reset: () => void = () => {};
+  /** Taps only: told each time a target's tapped (clamps count as they go on, even if you stop short). */
+  private onTap: ((n: number) => void) | null = null;
 
   constructor(private parent: HTMLElement) {
     if (!document.getElementById('kir-gesture-css')) {
@@ -76,9 +78,9 @@ export class GesturePad {
   get active(): GestureSpec | null { return this.spec; }
 
   /** Open a gesture. `done` runs once it's finished cleanly; `fumble` is asked each time it's finished. */
-  open(spec: GestureSpec, done: Done, fumble: () => boolean, cancel?: () => void) {
+  open(spec: GestureSpec, done: Done, fumble: () => boolean, cancel?: () => void, onTap?: (n: number) => void) {
     this.close();
-    this.spec = spec; this.onDone = done; this.fumble = fumble;
+    this.spec = spec; this.onDone = done; this.fumble = fumble; this.onTap = onTap ?? null;
     const el = this.el = document.createElement('div');
     el.className = 'gesture';
     el.dataset.kind = spec.kind;
@@ -154,7 +156,9 @@ export class GesturePad {
           b.style.left = `${(100 * (i + 1)) / (spec.n + 1)}%`; b.style.top = `${spec.n > 2 && i % 2 ? 65 : 40}%`;
           b.addEventListener('pointerdown', e => {
             e.preventDefault();
+            if (b.classList.contains('done')) return;
             b.classList.add('done');
+            this.onTap?.(spots.filter(s => s.classList.contains('done')).length);
             if (spots.every(s => s.classList.contains('done'))) this.complete();
           });
           area.appendChild(b);

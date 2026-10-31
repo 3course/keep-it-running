@@ -265,13 +265,45 @@ export const CONFIG = {
     // small: cheap, quick to pay back
     { id: 'premiumBits',  name: 'Premium compression bits',  cost: 350,  desc: 'Bits wear 15% slower',                    effect: 0.85 }, // bit wear multiplier
     { id: 'bagRack',      name: 'Wall-mounted bag rack',     cost: 250,  desc: 'Changing the extractor bag takes 5 min, not 8', effect: 5 }, // filter replaceMinutes
-    { id: 'bigBin',       name: 'Bigger offcut bin',         cost: 300,  desc: 'Bag the offcuts at 80% full, not 50%: fewer trips', effect: 0.8 }, // bag-it level (the bin is the 3D view's)
+    { id: 'bigBin',       name: 'Bigger offcut bin',         cost: 300,  desc: 'Takes 8 sheets of offcuts, not 5: fewer trips to the skip', effect: 8 }, // sheets of offcuts the bin holds (chores.offcuts)
     { id: 'exhaustExtinguisher', name: 'Extinguisher by the exhaust', cost: 400, desc: 'One hanging right by the duct: fire walks 40% shorter', effect: 0.6 }, // fire walk multiplier
     // mid
     { id: 'faultSensor',  name: 'Fault sensor',              cost: 1500, desc: 'Pauses the cut the moment a fault starts: the sheet waits for you', effect: 1 },
   ],
 
   week: { days: 5 },
+
+  // The chores, with teeth (claude/sim-chores.md). Off: none of them, and the economy runs exactly as it did before them
+  // (`npm run sim -- nochores`).
+  chores: true,
+  chore: {
+    // clamping: each loaded sheet takes four clamps. Every one left off is a chance it shifts mid-cut and is ruined.
+    clamp: {
+      clamps: 4,
+      minutesPerClamp: 0.25,        // added to loading the sheet
+      // chance the sheet shifts, by clamps left off (0..4): one's a slip, two's a habit, none is asking for it
+      shiftChanceByMissing: [0, 0.03, 0.12, 0.27, 0.48],
+    },
+    // finished boards pile on the bed until they're carried to the finished pallet; a full bed takes no sheet
+    stack: {
+      bedHolds: 3,                  // finished boards on the bed before it's full
+      unloadMinutes: 2,             // one trip to the finished pallet with the lot
+    },
+    // offcuts fill the bin; once it's full the next sheet's offcuts go on the floor round it
+    offcuts: {
+      sheetsToFill: 5,              // sheets of offcuts the bin holds (the bigger bin upgrade: its effect)
+      tripMinutes: 4,               // a bag of offcuts (or a load off the floor pile) to the skip
+      pileTrips: 2,                 // loads to clear an overflow off the floor
+      pileSlowMinutes: 2,           // the pile's in the way: loading and unloading the bed each take this much longer
+    },
+    // the compressor (vacuum hold-down): water builds up as it runs; the hiss drops when it's due a drain
+    compressor: {
+      sheetsPerDrain: 6,            // due after this many sheets
+      drainMinutes: 2,              // holding the drain valve open
+      liftChancePerSheetOver: 0.08, // each sheet loaded past due (after one more on the warning): this much more chance it lifts
+      liftChanceMax: 0.5,
+    },
+  },
 
   // Off: no rare events at all, and the economy runs exactly as before them (the frozen baseline; `npm run sim -- baseline`).
   rareEvents: true,

@@ -1,4 +1,4 @@
-# Keep It Running — status (25 Oct 2026)
+# Keep It Running — status (31 Oct 2026)
 
 ## Links
 - **The game** (3D, mobile): https://keepitrunning.fyi/. Weak GPUs: `?safe=1` (low tier), `?safe=2` (no shadows). `?seed=N` starts a new game on a fixed seed. The old `/preview/` address redirects here.
@@ -15,6 +15,8 @@
   - **Phone:** moved to the office back wall beside the computer, a straight run in from the door.
   - **Upgrades:** premium bits, bag rack, bigger offcut bin, extinguisher by the exhaust, and a $1,500 **fault sensor** (pauses the cut on spindle/bag/collet faults so the sheet waits for you).
   - **Board's-full warning:** a notepad line when more's due than you can cut by 5pm, and "Turn it down" glows. Day-summary lines for money lost to late pay and pulled jobs.
+  - **Hands-on fixes (31 Oct):** each fault is fixed where it is (extractor bag: clips → skip → new bag → fit → restart; bits picked off the rack to suit the board), each step a one-thumb gesture; the beer fumble spoils gestures. Spray aim, phone yes/no card, docket signature, the stack carried out to the ute.
+  - **Chores with teeth (31 Oct):** clamps, finished boards on the bed, the offcut bin and the compressor now cost time or ruined sheets when skipped (`claude/sim-chores.md`).
 
 ## Sim (`npm run sim`)
 - `npm run sim`: 5 seeds, no upgrades; week 1, week 2 and a steady-state week (days 8–12 at 0.8).
@@ -30,6 +32,8 @@
 | Average | 99 / 97 | 7.0% / 8.1% | 17.5% / 16.9% | 8.2% |
 | Sloppy | 0 / 0 | loses ~$2,400–2,600 a week | 23.7% / 9.6% | no profit after overheads on any seed |
 
+(Before the chores. With them, 20 seeds: competent steady 14%, average 6% (17/20 solvent buying nothing), sloppy −38%: `sim-chores.md`.)
+
 Week 1 (grace): ~21–25% for all three, so sloppy is profitable that week only.
 
 ## Docs in `claude/`
@@ -43,13 +47,12 @@ Week 1 (grace): ~21–25% for all three, so sloppy is profitable that week only.
 ## Open questions
 - **Competent with every upgrade owned is ~21.7%,** over the 20% line. Left deliberately; the knobs are nesting's effect or a 0.85 plateau.
 - **Spare spindle and second vacuum zone earn nothing** in the sim: the spindle's fix path is never the better choice, and the vacuum zone measures ~0.
+- **Average is thinner with the chores:** ~6% steady, 17/20 solvent through week 4 buying nothing. Knobs in `sim-chores.md`.
 - **Dazza the office manager** is designed (`office-manager-and-upgrades.md`, must be net positive for average) but not built.
 - **Bar names in the visitor stories** (Dr Morse, The Builders Arms, Labour in Vain, Naked for Satan, and their suburbs) are unverified placeholders, in `config.ts` → `visitors.bars`.
 - **Human playtest pending:**
   - Does the day feel full or frantic?
   - Do players heed the board's-full warning? The sim assumes 2 in 3.
 - **Still open from before:**
-  - faults are fixed at the machine, not where they happen;
-  - chores with no money effect (clamping, stacking, offcuts, compressor);
   - Stage 2 people and art;
   - the Android GPU report.

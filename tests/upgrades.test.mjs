@@ -10,9 +10,8 @@ after(() => server.close());
 const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { CONFIG } = await server.ssrLoadModule('/src/config.ts');
 const { FAULTS } = await server.ssrLoadModule('/src/data/faults.ts');
-const { offcutsBagAt, newWorld } = await server.ssrLoadModule('/src/world/state.ts');
+const { newWorld } = await server.ssrLoadModule('/src/world/state.ts');
 const { actionsFor } = await server.ssrLoadModule('/src/world/interactables.ts');
-const { WORLD } = await server.ssrLoadModule('/src/world/worldConfig.ts');
 const U = Object.fromEntries(CONFIG.upgrades.map(u => [u.id, u]));
 
 /** A game on `day`, nothing random turning up, competence full (no slow-downs), and these upgrades bought the proper way. */
@@ -73,13 +72,15 @@ describe('effects', () => {
     assert.equal((() => { const g = game(['bagRack']); g.replaceConsumable('bit'); return g.replacing.remaining; })(), CONFIG.consumables.bit.replaceMinutes, 'the bit swap is unchanged');
   });
 
-  it(`bigger offcut bin: bag it at ${U.bigBin.effect * 100}% full, not ${WORLD.offcutsEmptyAt * 100}%`, () => {
-    for (const [owned, at] of [[[], WORLD.offcutsEmptyAt], [['bigBin'], U.bigBin.effect]]) {
-      const g = game(owned), w = newWorld(g);
-      assert.equal(offcutsBagAt(g), at);
-      w.offcutBin = (WORLD.offcutsEmptyAt + U.bigBin.effect) / 2; // between the two
-      const bag = actionsFor('offcutBin', g, w).some(a => a.label === 'Bag the offcuts');
-      assert.equal(bag, !owned.length, owned.length ? 'not worth bagging yet' : 'time to bag it');
+  it(`bigger offcut bin: takes ${U.bigBin.effect} sheets of offcuts before it spills, not ${CONFIG.chore.offcuts.sheetsToFill}`, () => {
+    for (const [owned, holds] of [[[], CONFIG.chore.offcuts.sheetsToFill], [['bigBin'], U.bigBin.effect]]) {
+      const g = game(owned);
+      assert.equal(g.binSheets, holds);
+      // a sheet's offcuts at a time: full after `holds`, spilling on the next
+      for (let i = 0; i < holds; i++) g.afterSheet(true);
+      assert.ok(g.offcutBin > 0.999 && g.offcutPile === 0, `full after ${holds}, not spilt`);
+      g.afterSheet(true);
+      assert.equal(g.offcutPile, CONFIG.chore.offcuts.pileTrips, 'one more and it spills');
     }
   });
 

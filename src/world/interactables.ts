@@ -22,6 +22,8 @@ export interface Action {
   run?: (choice?: number) => string | void;
   /** Hands-on: tapping the label opens this one-thumb gesture, and `run` happens when it's done. */
   gesture?: GestureSpec;
+  /** Taps gestures: each target as it's tapped (clamps go on one at a time, even if you stop short). */
+  onTap?: (n: number) => void;
   hold?: boolean;     // hold to do it (spraying)
   /** false: never done automatically on arrival — it costs money or is a choice. Tap the label. */
   auto?: boolean;
@@ -87,11 +89,21 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       if (g.machineDown) return [];
       if (g.fault) return faultActions('machine', g, w);
       const a: Action[] = [];
-      if (w.bed === 'empty' && w.carrying === 'sheet') a.push({ label: 'Load sheet', done: 'Sheet on the bed', run: () => { w.bed = 'placed'; w.carrying = null; } });
-      if (w.bed === 'placed') a.push({ label: 'Clamp', done: 'Sheet clamped', run: () => { w.bed = 'clamped'; } });
-      if (w.bed === 'clamped' && g.machine === 'idle' && g.canAct) a.push({ label: 'Start', done: 'Cut started', run: () => {
-        if (!g.loadNextSheet()) return "Machine won't start";
+      const clamps = CONFIG.chore.clamp.clamps, on = w.clamps ?? 0;
+      // a bed piled with finished boards takes no sheet (machine's status says so)
+      if (w.bed === 'empty' && w.carrying === 'sheet' && !g.bedFull) a.push({ label: 'Load sheet', done: 'Sheet on the bed', run: () => { w.bed = 'placed'; w.carrying = null; w.clamps = 0; } });
+      // four clamps, a tap each; stop short and the sheet may shift mid-cut
+      if (w.bed === 'placed') a.push({ label: 'Clamp', key: 'clamp', gesture: { kind: 'taps', icon: '🗜️', n: clamps - on }, onTap: n => { w.clamps = on + n; },
+        done: 'Sheet clamped', run: () => { w.clamps = clamps; w.bed = 'clamped'; } });
+      if ((w.bed === 'clamped' || (CONFIG.chores && w.bed === 'placed')) && g.machine === 'idle' && g.canAct) a.push({ label: 'Start', key: 'start', auto: w.bed === 'clamped', done: 'Cut started', run: () => {
+        if (!g.loadNextSheet(w.bed === 'clamped' ? clamps : on)) return "Machine won't start";
         w.bed = 'running'; w.bedJobId = g.current?.id ?? null;
+      } });
+      // the finished boards piled on the bed, off to the finished pallet in one go
+      if (g.bedPile > 0 && empty) a.push({ label: `Carry the boards off (${g.bedPile})`, key: 'unload', twoHands: true, done: 'Boards off the bed', run: () => {
+        const n = g.bedPile;
+        if (!g.clearBed(true)) return 'Not right now';
+        w.carrying = 'cut'; w.carryCount = n;
       } });
       if (w.bed === 'done' && empty) a.push({ label: 'Unload', twoHands: true, done: 'Cut sheet off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'cut'; } });
       if (w.bed === 'scrap' && empty) a.push({ label: 'Clear the scrap', twoHands: true, done: 'Scrap off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'scrap'; } });
@@ -115,15 +127,22 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return [{ label: 'Grab a sheet', done: 'None left — order ply', run: () => { w.shrugs = (w.shrugs ?? 0) + 1; } }];
     }
     case 'finishedPallet':
-      if (w.carrying === 'cut') return [{ label: 'Stack it', done: 'Cut sheet stacked for pickup', run: () => { w.carrying = null; w.finishedStack += 1; w.utePresent = true; } }];
+      if (w.carrying === 'cut') return [{ label: 'Stack it', done: 'Cut sheets stacked for pickup', run: () => { w.carrying = null; w.finishedStack += w.carryCount ?? 1; w.carryCount = undefined; w.utePresent = true; } }];
       if (w.carrying === 'stack') return [{ label: 'Put the stack back', done: 'Stack back on the pallet', run: () => { w.carrying = null; } }];
       // the customer's ute is out the front: carry the stack out to it
       if (empty && w.utePresent && w.finishedStack > 0) return [{ label: `Pick up the stack (${w.finishedStack})`, twoHands: true, key: 'pickup', done: 'Got the stack', run: () => { w.carrying = 'stack'; } }];
       return [];
     case 'offcutBin': {
       const a: Action[] = [];
-      if (w.carrying === 'scrap') a.push({ label: 'Bin the scrap', done: 'Scrap binned', run: () => { w.carrying = null; w.offcutBin = Math.min(1, w.offcutBin + 2 * WORLD.offcutsPerSheet); } });
-      if (empty && w.offcutBin >= offcutsBagAt(g)) a.push({ label: 'Bag the offcuts', twoHands: true, done: 'Offcuts bagged', run: () => { w.carrying = 'offcuts'; w.offcutBin = 0; } });
+      // (a ruined sheet's offcuts were counted in the bin as it came off the machine)
+      if (w.carrying === 'scrap') a.push({ label: 'Bin the scrap', done: 'Scrap binned', run: () => { w.carrying = null; } });
+      // it overflowed: scoop the floor pile up, a load at a time, for the skip
+      if (empty && g.offcutPile > 0) a.push({ label: `Scoop up the offcuts (${g.offcutPile} left)`, key: 'offcut-pile', twoHands: true, gesture: { kind: 'drag', icon: '🧹', dir: 'up' },
+        done: 'A load of offcuts off the floor', run: () => { if (!g.clearOffcutPile(true)) return 'Not right now'; w.carrying = 'offcuts'; } });
+      else if (empty && g.offcutBin >= offcutsBagAt(g)) a.push({ label: 'Bag the offcuts', key: 'offcuts', twoHands: true, done: 'Offcuts bagged', run: () => {
+        if (!g.emptyOffcutBin(true)) return 'Not right now';
+        w.carrying = 'offcuts';
+      } });
       return [...a, ...canBin(g)];
     }
     case 'skip':
@@ -148,8 +167,9 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return a;
     }
     case 'compressor':
-      // the compressor isn't modelled yet: a look at the gauge, so the tap answers
-      return empty ? [{ label: 'Check compressor', done: "Compressor checked — pressure's fine", run: () => {} }] : [];
+      // hold the drain valve open: the water's out and the vacuum holds again (the hiss tells you when it's due)
+      return empty && g.canAct && g.compressorSheets > 0 ? [{ label: 'Drain the tank', key: 'drain', gesture: { kind: 'hold', icon: '💧', seconds: 2 },
+        done: 'Compressor drained', run: () => { if (!g.drainCompressor(true)) return 'Nothing to drain'; } }] : [];
     case 'exhaust':
       return w.carrying === 'extinguisher' && g.fire ? [{ label: 'Hold to spray', hold: true }] : [];
     case 'extinguisher':
@@ -249,7 +269,8 @@ export function statusFor(id: ObjectId, g: Game, w: WorldState): string | null {
       if (g.machine === 'paused') return 'Paused for a swap.';
       if (g.current && g.machine === 'cutting') return `${g.current.name}\n${g.current.material} · ${g.current.progress}/${g.current.cutMinutes} min`;
       if (w.bed === 'clamped') return 'Clamped. Ready to start.';
-      if (w.bed === 'placed') return 'Sheet on the bed. Clamp it down.';
+      if (w.bed === 'placed') return `Sheet on the bed. Clamps ${w.clamps ?? 0}/${CONFIG.chore.clamp.clamps}.`;
+      if (g.bedFull) return "Bed's full of finished boards. Carry them off.";
       return null;
     }
     case 'plyPallet': {
@@ -260,6 +281,8 @@ export function statusFor(id: ObjectId, g: Game, w: WorldState): string | null {
 ${work}`;
     }
     case 'finishedPallet': return w.finishedStack ? `${w.finishedStack} waiting for pickup` : null;
+    case 'compressor': return g.compressorDue ? 'The hiss has dropped: water in the tank. Drain it.' : g.compressorSheets > 0 ? 'Hissing away.' : 'Just drained.';
+    case 'offcutBin': return g.offcutPile > 0 ? 'Overflowing: offcuts all round it.' : `${Math.round(g.offcutBin * g.binSheets)} of ${g.binSheets} sheets' offcuts`;
     case 'bitRack': return g.replacing?.key === 'bit' ? `Swapping bit… ${g.replacing.remaining}m` : null;
     case 'extractor': return g.replacing?.key === 'filter' ? `Changing bag… ${g.replacing.remaining}m` : null;
     case 'phone': return g.busy ? `${g.busy.label}… ${g.busy.remaining}m` : null;

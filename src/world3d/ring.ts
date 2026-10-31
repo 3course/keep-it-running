@@ -91,6 +91,33 @@ export class RingSound {
       tone('sine', 60, 0, 0.4);
     }
   }
+  /**
+   * The compressor's hiss: soft filtered noise, louder near it. `freq` is its pitch (high after a drain, dropping as the
+   * water builds up). Call every frame; nothing until audio's unlocked, silent when muted.
+   */
+  hiss(freq: number, volume: number, pan: number) {
+    this.hissNow = { freq, level: this.muted ? 0 : volume };
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (!this.hissNodes) {
+      const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate), d = buf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; // noise texture only
+      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
+      const band = ctx.createBiquadFilter(); band.type = 'bandpass'; band.Q.value = 1.4;
+      const gain = ctx.createGain(); gain.gain.value = 0;
+      const p = ctx.createStereoPanner();
+      src.connect(band).connect(gain).connect(p).connect(ctx.destination); src.start();
+      this.hissNodes = { band, gain, pan: p };
+    }
+    const now = ctx.currentTime, h = this.hissNodes;
+    h.band.frequency.setTargetAtTime(freq, now, 0.3);
+    h.gain.gain.setTargetAtTime(this.muted ? 0 : volume, now, 0.2);
+    h.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, pan)), now, 0.1);
+  }
+  private hissNodes: { band: BiquadFilterNode; gain: GainNode; pan: StereoPannerNode } | null = null;
+  /** For tests: the hiss's pitch and loudness now. */
+  hissNow = { freq: 0, level: 0 };
+
   /** Cues played so far (for tests). */
   readonly cues: CueKind[] = [];
 

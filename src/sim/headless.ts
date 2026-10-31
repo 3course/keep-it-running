@@ -109,6 +109,54 @@ function sloppyRare(g: Game): boolean {
   return false;
 }
 
+// ---------- chores (CONFIG.chore): each script's way with them. True = that's this minute spent. ----------
+const CLAMPS = CONFIG.chore.clamp.clamps;
+/** The sheets off the machine so far today: a key that holds still while one chore's due, so each script decides once. */
+const sheetsToday = (g: Game) => g.today.sheetsDone + g.today.sheetsScrapped;
+
+/** Competent: four clamps every sheet, drains the compressor when the hiss drops, empties the bin when it's full (before
+ * the next sheet's offcuts spill), clears a spill straight away, and carries finished boards off a couple at a time while
+ * the next one cuts (one trip for the lot), before the bed fills. */
+function competentChores(g: Game): boolean {
+  if (!CONFIG.chores || !g.canAct) return false;
+  if (g.offcutPile > 0) return g.clearOffcutPile();
+  if (g.compressorDue) return g.drainCompressor();
+  if (g.offcutBin >= 1 - 1e-9) return g.emptyOffcutBin();
+  if (g.bedFull || (g.bedPile >= CONFIG.chore.stack.bedHolds - 1 && g.machine === 'cutting')) return g.clearBed();
+  return false;
+}
+
+/** Average: the same chores, done while a sheet cuts, but a third of the time it gets to the compressor, the bin and a
+ * spill late; it leaves the boards on the bed till it's full; and one sheet in four goes on a clamp short. */
+function averageChores(g: Game): boolean {
+  if (!CONFIG.chores || !g.canAct) return false;
+  if (g.offcutPile > 0 && averageReacts(g, `pile-${g.dayIndex}-${g.today.binOverflows}`, 20, 60)) return g.clearOffcutPile();
+  if (g.compressorDue && averageReacts(g, `drain-${g.dayIndex}-${sheetsToday(g) - g.compressorSheets}`, 30, 90)) return g.drainCompressor();
+  if (g.offcutBin >= 1 - 1e-9 && averageReacts(g, `bin-${g.dayIndex}-${sheetsToday(g)}`, 20, 60)) return g.emptyOffcutBin();
+  if (g.bedFull) return g.clearBed();
+  return false;
+}
+const averageClamps = (g: Game) => (g.rng.chance(1 / 4) ? CLAMPS - 1 : CLAMPS);
+
+// sloppy's call on each spill: true = gets round to clearing it today
+const sloppyClears = new WeakMap<Game, Map<string, boolean>>();
+/** Sloppy: two or three clamps, never empties the bin (it spills), clears a spill half the time, only drains the compressor
+ * once a sheet's lifted, and only clears the bed when it's full. */
+function sloppyChores(g: Game): boolean {
+  if (!CONFIG.chores || !g.canAct) return false;
+  if (g.offcutPile > 0) {
+    let m = sloppyClears.get(g);
+    if (!m) sloppyClears.set(g, m = new Map());
+    const key = `${g.dayIndex}-${g.today.binOverflows}`;
+    if (!m.has(key)) m.set(key, g.rng.chance(0.5));
+    if (m.get(key) && g.rng.chance(0.05)) return g.clearOffcutPile();
+  }
+  if (g.compressorDue && g.today.sheetsLifted > 0) return g.drainCompressor();
+  if (g.bedFull) return g.clearBed();
+  return false;
+}
+const sloppyClamps = (g: Game) => (g.rng.chance(0.5) ? CLAMPS - 2 : CLAMPS - 1);
+
 const competent: Policy = (g) => {
   // a fire beats everything: drop what you're doing and go
   if (g.fire && !g.fireResponse) g.fightFire();
@@ -145,8 +193,11 @@ const competent: Policy = (g) => {
     // proactive maintenance between sheets
     if (g.wear.bit < 0.3) { g.replaceConsumable('bit'); return; }
     if (g.wear.filter < 0.25) { g.replaceConsumable('filter'); return; }
+    // a due compressor or a full bed first: the next sheet needs both
+    if ((g.compressorDue || g.bedFull) && competentChores(g)) return;
     if (g.loadNextSheet()) return;
   }
+  if (competentChores(g)) return; // while it cuts
   handleTruck(g); // between sheets, or while one cuts
 };
 
@@ -189,7 +240,8 @@ const sloppy: Policy = (g) => {
   const due = (g.minute >= 16 * 60 ? 2 : g.minute >= 14 * 60 ? 1 : 0) - g.beersToday;
   if (due > 0 && g.canAct) { if (g.heldCan) g.binCan(); g.buyBeer(); }
   if (g.needLoo && g.looSlow >= 0.15) g.useToilet();
-  if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet();
+  if (sloppyChores(g)) return;
+  if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet(CONFIG.chores ? sloppyClamps(g) : CLAMPS);
 };
 
 // average's reaction to each fire and fault, decided when it turns up: the absolute minute they get round to it
@@ -274,12 +326,14 @@ const average: Policy = (g) => {
   competentOrders(g);
   if (g.machine === 'idle' && g.queued.length) {
     if (averageWantsSwap(g, 'bit', 0.3)) { g.replaceConsumable('bit'); return; }
+    if (g.bedFull && averageChores(g)) return; // the bed has to be cleared to load
     if (averageWantsSwap(g, 'filter', 0.25)) { g.replaceConsumable('filter'); return; }
     // in overtime, only a sheet that'll be off the bed by lights-out (a half-cut one is scrap)
     const next = g.nextUp();
     const fits = !g.overtime || (!!next && g.minute + CONFIG.jobs.loadMinutes + next.cutMinutes < CONFIG.clock.overtimeEndHour * 60);
-    if (fits && g.rng.chance(0.8) && g.loadNextSheet()) return;
+    if (fits && g.rng.chance(0.8) && g.loadNextSheet(CONFIG.chores ? averageClamps(g) : CLAMPS)) return;
   }
+  if (averageChores(g)) return; // with the sheet cutting
   if (g.rng.chance(0.7)) handleTruck(g);
 };
 
@@ -427,13 +481,15 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
 // `-- baseline`: rare events and milestones off, as the economy was before them (the frozen baseline)
 if (args.includes('baseline')) Object.assign(CONFIG as unknown as Record<string, boolean>, { rareEvents: false, milestones: false });
-console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'})`);
+// `-- nochores`: the chores without teeth, as the economy was before them
+if (args.includes('nochores')) Object.assign(CONFIG as unknown as Record<string, boolean>, { chores: false });
+console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'}, chores ${CONFIG.chores ? 'on' : 'off'})`);
 if (args[2] === 'upgrades') upgradeStudy();
 else defaultReport();
 
-/** The usual run: no upgrades, 5 seeds, week 1, week 2 and steady state. */
+/** The usual run: no upgrades, 5 seeds (`-- seeds=20` for more), week 1, week 2 and steady state. */
 function defaultReport() {
-  const SEEDS = [1, 2, 3, 4, 5];
+  const SEEDS = Array.from({ length: Number(args.find(a => /^seeds=\d+$/.test(a))?.slice(6)) || 5 }, (_, i) => i + 1);
   const detail = args.includes('week1') ? 'week1' : args.includes('week2') ? 'week2' : 'steady';
   const runs = SCRIPTS.map(script => ({
     script,
@@ -477,6 +533,17 @@ function defaultReport() {
   for (const r of runs) {
     const cell = (ws: WeekResult[]) => `${perDay(ws, d => d.beers).toFixed(1)} / ${perDay(ws, mates).toFixed(1)}`.padEnd(11);
     console.log(`${r.script.name.padEnd(10)} |  ${cell(r.week1)}|  ${cell(r.week2)}|  ${cell(r.steady)}`);
+  }
+
+  // chores: what skipping them cost, per day
+  if (CONFIG.chores) {
+    console.log(`\nChores per day, mean of seeds (shifted = clamps left off, lifted = compressor not drained; boards = their cost):`);
+    console.log(`${'script'.padEnd(10)} |  week 1: shifted lifted bin-spills boards |  week 2: shifted lifted spills boards |  steady: shifted lifted spills boards`);
+    for (const r of runs) {
+      const cell = (ws: WeekResult[]) => ['sheetsShifted', 'sheetsLifted', 'binOverflows', 'choreBoards'].map(k =>
+        (k === 'choreBoards' ? `$${perDay(ws, d => d.choreBoards).toFixed(0)}` : perDay(ws, d => d[k as keyof DayStats] as number).toFixed(2)).padStart(k === 'binOverflows' ? 7 : 6)).join(' ');
+      console.log(`${r.script.name.padEnd(10)} |        ${cell(r.week1)}   |        ${cell(r.week2)} |        ${cell(r.steady)}`);
+    }
   }
 
   // rare events and milestones, over every run above (week 1, week 2 and the steady-state week, all seeds)

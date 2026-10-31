@@ -572,10 +572,10 @@ export class World3D {
     if (w.bed === 'running') {
       const job = g.jobs.find(j => j.id === w.bedJobId);
       if (!job) w.bed = 'scrap';
-      else if (job.status === 'done') w.bed = 'done';
+      else if (job.status === 'done') { w.bed = CONFIG.chores ? 'empty' : 'done'; w.clamps = 0; } // its boards join the pile at the bed's end
       else if (job.status === 'scrapped' && !g.fault) w.bed = 'scrap';
     }
-    if (g.today.sheetsDone > w.sheetsSeen) w.offcutBin = Math.min(1, w.offcutBin + (g.today.sheetsDone - w.sheetsSeen) * WORLD.offcutsPerSheet);
+    w.offcutBin = g.offcutBin; // the bin's Game's now (CONFIG.chore.offcuts)
     w.sheetsSeen = g.today.sheetsDone;
     if (w.watchingSwap && g.replacing?.key !== w.watchingSwap) {
       if (w.watchingSwap === 'filter') w.oldBagWaiting = true;
@@ -756,7 +756,13 @@ export class World3D {
 
   private stopWalking() { this.path = null; this.pending = null; this.pendingCan = null; }
   /** Top walking speed now: beer and a full bladder both slow you down. */
-  private get maxSpeed() { return WORLD.maxSpeed * this.g.walkMult(); }
+  private get maxSpeed() { return WORLD.maxSpeed * this.g.walkMult() * (this.inOffcuts() ? WORLD.offcutPileWalkMult : 1); }
+  /** Wading through a spilled heap of offcuts round the bin. */
+  private inOffcuts() {
+    if (this.g.offcutPile <= 0) return false;
+    const b = this.built.objects.get('offcutBin')!.centre;
+    return Math.hypot(this.pos.x - b.x, this.pos.z - b.z) <= WORLD.offcutPileReach;
+  }
   private cell(): P { return { x: Math.floor(this.pos.x / C), y: Math.floor(this.pos.z / C) }; }
 
   private planTo(goals: P[]): boolean {
@@ -837,7 +843,7 @@ export class World3D {
     if (a.gesture) {
       this.gestureAt = at ?? null;
       this.gesture.open(a.gesture, choice => { this.gestureAt = null; this.hints.mark('gesture'); this.runAction(a, choice); }, () => this.g.gestureFumbled(a.label.toLowerCase()),
-        () => { this.gestureAt = null; });
+        () => { this.gestureAt = null; this.labelSig = ''; }, a.onTap && (n => { a.onTap!(n); this.labelSig = ''; }));
       return;
     }
     this.runAction(a);
@@ -997,10 +1003,19 @@ export class World3D {
       const job = g.current ?? (g.inHand !== null ? g.jobs.find(j => j.id === g.inHand) : undefined) ?? g.nextUp();
       (mp.sheet as THREE.Mesh).material = w.bed === 'scrap' ? this.looks.scrap : job ? this.looks.byType[job.type] : this.looks.plywood;
     } else ((mp.sheet as THREE.Mesh).material as THREE.MeshToonMaterial).color.setHex(w.bed === 'scrap' ? 0x9a5a4a : 0xd6bc8a);
-    mp.clamps.visible = w.bed === 'clamped' || w.bed === 'running' || w.bed === 'done';
+    // the clamps that went on (all four once it's clamped), the finished boards piled at the end
+    const clampsOn = w.bed === 'clamped' ? 4 : w.bed === 'placed' || w.bed === 'running' || w.bed === 'scrap' ? (w.clamps ?? 4) : w.bed === 'done' ? 4 : 0;
+    mp.clamps.children.forEach((c, i) => { c.visible = i < clampsOn; });
+    mp.pile.children.forEach((b, i) => { b.visible = i < g.bedPile; });
     const prog = g.current && w.bed === 'running' ? g.current.progress / g.current.cutMinutes : w.bed === 'done' ? 1 : 0;
-    mp.cut.visible = prog > 0.02;
-    mp.cut.scale.x = Math.max(0.02, prog);
+    // a ruined sheet shows how: slid off square with a wobbling cut (clamps), or lifted at one end (the vacuum)
+    const bedJob = w.bed === 'scrap' && w.bedJobId !== null ? g.jobs.find(j => j.id === w.bedJobId) : undefined;
+    const how = bedJob?.ruinedBy;
+    mp.sheet.position.z = how === 'shift' ? 0.28 : 0;
+    mp.sheet.rotation.set(how === 'lift' ? 0.12 : 0, how === 'shift' ? 0.09 : 0, 0);
+    mp.cut.visible = prog > 0.02 || !!how;
+    mp.cut.scale.x = Math.max(0.02, how ? 0.55 : prog);
+    mp.cut.rotation.y = how === 'shift' ? Math.sin(this.time * 3) * 0.06 + 0.09 : 0;
     const bw = m.box.maxX - m.box.minX;
     const gx = w.bed === 'running' ? -bw / 2 + 0.4 + (bw - 0.8) * prog : 0;
     mp.gantry.position.x += (gx - mp.gantry.position.x) * Math.min(1, 6 * dt);
@@ -1025,7 +1040,10 @@ export class World3D {
     });
     o('finishedPallet').parts.stack.children.forEach((s, i) => { s.visible = i < w.finishedStack && w.carrying !== 'stack'; }); // in your arms on the way to the ute
     const binFill = o('offcutBin').parts.fill;
-    binFill.scale.y = Math.max(0.001, w.offcutBin);
+    binFill.scale.y = Math.max(0.001, g.offcutBin);
+    const heap = o('offcutBin').parts.heap;
+    heap.visible = g.offcutPile > 0;
+    heap.children.forEach((p, i) => { p.visible = i < g.offcutPile; });
     // extinguishers on their hooks
     for (const h of HOOKS) {
       o(h.id).group.visible = hookThere(g, h.hook);
@@ -1411,7 +1429,15 @@ export class World3D {
     const pan = (dx * right.x + dz * right.z) / dist;
     const volume = THREE.MathUtils.clamp(1 - dist / 32, 0.12, 1);
     this.ring.update(ringing, this.time, pan, volume);
+    // the compressor, hissing away: its pitch drops as water builds up in the tank
+    const h = WORLD.hiss, cp = this.built.objects.get('compressor')!.centre;
+    const cx = cp.x - this.pos.x, cz = cp.z - this.pos.z, cd = Math.hypot(cx, cz) || 1;
+    const freq = g.compressorDue ? h.due : h.high - h.perSheet * g.compressorSheets;
+    const live = g.phase === 'day' && !this.paused && !this.hud.summaryShowing;
+    this.ring.hiss(freq, live ? h.volume * THREE.MathUtils.clamp(1 - cd / h.reach, 0.1, 1) : 0, (cx * right.x + cz * right.z) / cd);
   }
+  /** For tests: the compressor's hiss now. */
+  get hissNow() { return this.ring.hissNow; }
   get sound() { return this.ring.state; }
 
   // ---------- pause and save ----------

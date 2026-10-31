@@ -334,9 +334,14 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
     g.add(boxAt(w, h * 0.8, d, o.colour));                                   // frame
     g.add(boxAt(w - 0.15, 0.05, d - 0.15, 0x2c2c2e, 0, h * 0.8));            // spoilboard bed
     const sheet = boxAt(w - 0.4, 0.03, d - 0.4, sheetColour, 0, h * 0.8 + 0.05); sheet.visible = false; g.add(sheet);
+    // four clamps, two down each long side: each shows as it goes on
     const clamps = new THREE.Group();
-    for (const sx of [-1, 1]) clamps.add(boxAt(0.12, 0.08, d - 0.5, 0x333333, sx * (w / 2 - 0.3), h * 0.8 + 0.05));
-    clamps.visible = false; g.add(clamps);
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) clamps.add(boxAt(0.22, 0.1, 0.18, 0xd0402a, sx * (w / 2 - 0.3), h * 0.8 + 0.05, sz * (d / 2 - 0.45)));
+    g.add(clamps);
+    // finished boards piled at the bed's far end, waiting to be carried to the finished pallet
+    const pile = new THREE.Group();
+    for (let i = 0; i < 3; i++) { const b = boxAt(0.9, 0.035, d - 0.5, i % 2 ? 0xe9d6ac : 0xd8c49a, w / 2 - 0.55, h * 0.8 + 0.06 + i * 0.04); b.visible = false; pile.add(b); }
+    g.add(pile);
     const cut = boxAt(w - 0.6, 0.032, d - 0.6, 0x9a8460, 0, h * 0.8 + 0.06); cut.visible = false; g.add(cut);
     const gantry = new THREE.Group();
     gantry.add(boxAt(0.2, 0.55, d + 0.1, 0xd48a3c, 0, h * 0.8 + 0.4));      // beam
@@ -345,7 +350,7 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
     g.add(gantry);
     const light = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff3b1f }));
     light.position.set(w / 2 - 0.15, h * 0.8 + 0.15, -d / 2 + 0.15); light.visible = false; g.add(light);
-    return { sheet, clamps, cut, gantry, light };
+    return { sheet, clamps, cut, gantry, light, pile };
   },
   plyPallet: (g, w, d, h, o) => {
     // three stacks side by side, one per stock line; their height is how much is left
@@ -367,7 +372,19 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
       g.add(boxAt(bw, h, bd, o.colour, x, 0, z));
     }
     const fill = boxAt(w - 0.16, h * 0.95, d - 0.16, 0xb59a6a); fill.scale.y = 0.001; g.add(fill);
-    return { fill };
+    // spilled: a heap of offcuts on the floor round it (one part per load to the skip)
+    const heap = new THREE.Group();
+    for (let load = 0; load < 2; load++) {
+      const part = new THREE.Group();
+      for (let i = 0; i < 7; i++) {
+        const a = (i / 7 + load * 0.5) * Math.PI * 2, r = w / 2 + 0.25 + (i % 3) * 0.12;
+        const b = boxAt(0.3 + (i % 2) * 0.15, 0.04, 0.12, i % 2 ? 0xc9a874 : 0xa88458, Math.cos(a) * r, 0.02 * (i % 3), Math.sin(a) * r);
+        b.rotation.y = a * 1.7; part.add(b);
+      }
+      heap.add(part);
+    }
+    heap.visible = false; g.add(heap);
+    return { fill, heap };
   },
   bitRack: (g, w, d, h, o) => {
     g.add(boxAt(w, h, 0.12, o.colour, 0, 0, -d / 2 + 0.06));

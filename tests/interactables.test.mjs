@@ -51,18 +51,18 @@ const CASES = {
   async finishedPallet(game) {
     await game.eval((g, w) => { w.carrying = 'cut'; });
     await walkTo(game, 'finishedPallet');
-    assert.equal((await tapLabel(game, 'Stack it')).said, 'Cut sheet stacked for pickup');
+    assert.equal((await tapLabel(game, 'Stack it')).said, 'Cut sheets stacked for pickup');
     assert.deepEqual(await game.eval((g, w) => [w.carrying, w.finishedStack, w.utePresent]), [null, 1, true]);
   },
 
   async offcutBin(game) {
-    await game.eval((g, w) => { w.carrying = 'scrap'; w.offcutBin = 0.25; });
+    await game.eval((g, w) => { w.carrying = 'scrap'; g.offcutBin = 0.6; });
     await walkTo(game, 'offcutBin');
     assert.equal((await tapLabel(game, 'Bin the scrap')).said, 'Scrap binned');
     assert.equal(await game.eval((g, w) => w.carrying), null);
-    // that filled it past bagging level
+    // over half full: worth bagging
     assert.equal((await tapLabel(game, 'Bag the offcuts')).said, 'Offcuts bagged');
-    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.offcutBin]), ['offcuts', 0]);
+    assert.deepEqual(await game.eval((g, w) => [w.carrying, g.offcutBin]), ['offcuts', 0]);
   },
 
   async skip(game) {
@@ -87,8 +87,10 @@ const CASES = {
   },
 
   async compressor(game) {
+    await game.eval((g, w, s, n) => { g.compressorSheets = n; }, C.chore.compressor.sheetsPerDrain);
     await walkTo(game, 'compressor');
-    assert.equal((await tapLabel(game, 'Check compressor')).said, "Compressor checked — pressure's fine");
+    assert.equal((await tapLabel(game, 'Drain the tank')).said, 'Compressor drained'); // a two-second hold
+    assert.equal(await game.eval(g => g.compressorSheets), 0);
   },
 
   async exhaust(game) {
