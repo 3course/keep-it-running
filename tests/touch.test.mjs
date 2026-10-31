@@ -1,7 +1,8 @@
-// Touch: a visiting mate, answered with a finger. They come up to you with something to say; before the fridge opens
-// (2pm) a yes is "Have a yarn", from 2pm a beer ask is "Grab <Name> a beer ($8)" — a beer for them out of your fridge
-// and a longer chat — within the day's caps. "Flat out, sorry" sends them wandering; they come back after a cooldown.
-// They stay the whole visit whatever you say. Every run is a new game on a fixed seed, with a mate who's just walked in.
+// Touch: a visiting mate, answered with a finger. They come up to you with something to say, and you've four answers:
+// "Yeah, what's up?" (a yarn: their line, your two replies and a way out), "Give us a hand?", a beer ("Beer after two?"
+// before the fridge opens, "Grab you a beer?" after, within the day's caps) and "Flat out, sorry" (they wander off and
+// come back after a cooldown). They stay the whole visit whatever you say. Every run is a new game on a fixed seed, with
+// a mate who's just walked in. (Helping and handing over a beer: tests/visitor-help.test.mjs.)
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { advance, freshGame, freshMate, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
@@ -12,6 +13,7 @@ const V = env.config.visitors, F = env.config.distractions.friend, BEER = env.co
 
 const FLAT_OUT = '"Flat out, sorry"';
 const hhmm = ([h, m]) => `${h}:${String(m).padStart(2, '0')}`;
+const YARN = '"Yeah, what\'s up?"', HAND = '"Give us a hand?"', BEER_LATER = '"Beer after two?"', BEER_NOW = '"Grab you a beer?"';
 const yes = shown => shown.filter(t => t !== FLAT_OUT);
 
 /** New game, you at the smoko chairs, the clock at `time`, `beers` already given out today, and a mate who's just walked in. */
@@ -43,52 +45,44 @@ async function untilTheyComeBack(game, max = 30) {
   return null;
 }
 
-describe('before 2pm: "Have a yarn"', () => {
+describe('before 2pm: a yarn, a hand, "Beer after two?"', () => {
   for (const time of [[9, 0], [13, 59]]) {
     it(`at ${hhmm(time)}`, async () => {
       const { game, mate } = await mateDropsIn(time);
       try {
-        assert.equal(mate.ask.kind, 'cuppa', 'a cuppa or a yarn, not a beer');
-        await asked(game, mate, 'Have a yarn');
-        assert.ok(!(await labels(game)).some(t => /beer/i.test(t)), 'no beer before the fridge opens');
+        await asked(game, mate, YARN);
+        const shown = await labels(game);
+        for (const l of [YARN, HAND, BEER_LATER, FLAT_OUT]) assert.ok(shown.includes(l), `${l} in ${JSON.stringify(shown)}`);
+        assert.ok(!shown.includes(BEER_NOW), 'no beer before the fridge opens');
 
         const cash = await game.eval(g => g.cash);
-        assert.equal((await tapLabel(game, 'Have a yarn')).said, `Yarning with ${mate.name}`);
-        const now = await mateNow(game);
-        assert.equal(now.engaged, true, 'yarning now');
-        assert.equal(now.beers, 0, 'no beer for them');
+        assert.equal((await tapLabel(game, YARN)).said, `Yarning with ${mate.name}`);
+        assert.equal((await mateNow(game)).engaged, true, 'yarning now');
+        // the knock-off way: their line over their head, two replies of yours and a way out
+        await game.page.waitForFunction(() => document.querySelectorAll('#kir-hud .replies.visit button').length === 3, null, { timeout: 15_000 });
+        const opts = await game.eval((g, w, s) => s.mateVisit.talk.options);
+        assert.equal(opts[2], 'Better get back to it');
         assert.equal(await game.eval(g => g.cash), cash, 'a yarn is free');
-        await game.page.waitForFunction(() => !window.kirScene.labelScreens().some(l => l.text === 'Have a yarn'));
-        assert.deepEqual(yes(await labels(game)), [], 'mid-yarn: only "Flat out" left');
+        assert.deepEqual(await labels(game), [], 'mid-yarn: the replies are the answer, not labels');
       } finally { await game.close(); }
     });
   }
 });
 
-describe('after 2pm: "Grab <Name> a beer"', () => {
+describe('after 2pm: "Grab you a beer?"', () => {
   const times = [[14, 0], [15, 30], [16, 15]];
   for (const [i, m] of env.mates.entries()) {
     const time = times[i % times.length];
-    it(`${m.name} at ${hhmm(time)}, and they don't leave after it`, async () => {
+    it(`${m.name} at ${hhmm(time)}: the offer, and you go and get it`, async () => {
       const { game, mate } = await mateDropsIn(time, { mate: m.id });
       try {
         assert.equal(mate.name, m.name);
-        assert.equal(mate.ask.kind, 'beer');
-        const label = `Grab ${m.name} a beer ($${BEER.cost})`;
-        await asked(game, mate, label);
-        assert.ok(!(await labels(game)).includes('Have a yarn'), 'they asked for a beer');
-
+        await asked(game, mate, BEER_NOW);
+        assert.ok(!(await labels(game)).includes(BEER_LATER));
         const cash = await game.eval(g => g.cash);
-        assert.equal((await tapLabel(game, label)).said, `Having a beer with ${m.name}`);
-        const now = await mateNow(game);
-        assert.equal(now.beers, 1, 'they got their beer');
-        assert.equal(now.chat, F.beerChatMinutes, 'and a beer-length yarn');
-        assert.equal(await game.eval(g => g.cash), cash - BEER.cost, 'out of your fridge');
-
-        await advance(game, F.beerChatMinutes);
-        const after = await mateNow(game);
-        assert.ok(after && after.id === mate.id, 'still here after the beer');
-        assert.equal(after.engaged, false, 'done yarning: wandering again');
+        await tapLabel(game, BEER_NOW);
+        assert.equal(await game.eval(g => g.cash), cash, 'nothing spent till you fetch it');
+        assert.match(await game.eval((g, w, s) => s.hud.pad.textContent), new RegExp(`Grab ${m.name} a beer from the fridge`));
       } finally { await game.close(); }
     });
   }
@@ -98,8 +92,7 @@ describe('visits', () => {
   it(`a mate stays the full ${V.visitMinutes} minutes, whatever you say`, async () => {
     const { game, mate } = await mateDropsIn([10, 0]);
     try {
-      await asked(game, mate, 'Have a yarn');
-      await tapLabel(game, 'Have a yarn');
+      await asked(game, mate, YARN);
       for (let m = 1; m < V.visitMinutes; m++) {
         await advance(game, 1);
         const now = await mateNow(game);
@@ -117,23 +110,25 @@ describe('visits', () => {
   it(`"Flat out, sorry": they wander off and come back after ${V.waveOffCooldown} minutes`, async () => {
     const { game, mate } = await mateDropsIn([10, 0]);
     try {
-      await asked(game, mate, 'Have a yarn');
+      await asked(game, mate, YARN);
       assert.equal((await tapLabel(game, FLAT_OUT)).said, `Sent ${mate.name} off for a bit`);
       const now = await mateNow(game);
       assert.ok(now?.id === mate.id && !now.ask && !now.engaged, 'still here, off wandering');
-      await game.page.waitForFunction(() => !window.kirScene.labelScreens().some(l => l.text === 'Have a yarn'));
+      await game.page.waitForFunction(y => !window.kirScene.labelScreens().some(l => l.text === y), YARN);
       assert.equal(await untilTheyComeBack(game), V.waveOffCooldown, 'back once the wave-off cooldown is up');
-      await asked(game, mate, 'Have a yarn'); // walked back over
-      assert.equal((await tapLabel(game, 'Have a yarn')).said, `Yarning with ${mate.name}`);
+      await asked(game, mate, YARN); // walked back over
+      assert.equal((await tapLabel(game, YARN)).said, `Yarning with ${mate.name}`);
     } finally { await game.close(); }
   });
 
   it(`after a yarn they leave you alone for at least ${V.cooldownMin} minutes`, async () => {
     const { game, mate } = await mateDropsIn([10, 0]);
     try {
-      await asked(game, mate, 'Have a yarn');
-      await tapLabel(game, 'Have a yarn');
-      await advance(game, V.yarnMinutes);
+      await asked(game, mate, YARN);
+      await tapLabel(game, YARN);
+      // call it: "Better get back to it"
+      await game.page.waitForFunction(() => document.querySelectorAll('#kir-hud .replies.visit button').length === 3, null, { timeout: 15_000 });
+      await game.page.evaluate(() => [...document.querySelectorAll('#kir-hud .replies.visit button')].at(-1).dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
       assert.equal((await mateNow(game)).engaged, false, 'the yarn is over');
       const gap = await untilTheyComeBack(game);
       assert.ok(gap >= V.cooldownMin && gap <= V.cooldownMax, `back after ${gap} minutes`);
@@ -145,7 +140,7 @@ describe('visits', () => {
     const { game, mate } = await mateDropsIn([15, 0], { mate: m.id, beers: { [m.id]: V.beersPerVisitor } });
     try {
       assert.equal(mate.ask.kind, 'cuppa');
-      await asked(game, mate, 'Have a yarn');
+      await asked(game, mate, YARN);
       assert.ok(!(await labels(game)).some(t => /beer/i.test(t)), 'no beer offered');
     } finally { await game.close(); }
   });
@@ -155,7 +150,7 @@ describe('visits', () => {
     const { game, mate } = await mateDropsIn([15, 0], { mate: c.id, beers: { [a.id]: V.beersPerVisitor, [b.id]: V.beersPerDay - V.beersPerVisitor } });
     try {
       assert.equal(mate.ask.kind, 'cuppa', `${c.name} hasn't had one, but the day's cap is reached`);
-      await asked(game, mate, 'Have a yarn');
+      await asked(game, mate, YARN);
       assert.ok(!(await labels(game)).some(t => /beer/i.test(t)), 'no beer offered');
     } finally { await game.close(); }
   });

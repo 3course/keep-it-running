@@ -205,6 +205,10 @@ export const CONFIG = {
     cooldownMin: 3,            // game minutes before they come up again after a yarn or a beer…
     cooldownMax: 8,
     waveOffCooldown: 12,       // …and after "flat out, sorry"
+    // "Give us a hand?": he does 1–4 of whatever's pending (seeded; more after a yarn, or if he's had a good visit)
+    helpMin: 1, helpMax: 4,
+    helpMinutesPerTask: 12,    // the visit stretches to fit the jobs he's taken on
+    returnHour: 14,            // "Beer after two?" and he's not stopping: he's back when the fridge opens
     beersPerVisitor: 2,        // beers a mate asks for in a day; past it, and past beersPerDay, they ask for a yarn instead
     beersPerDay: 4,            // all mates together
     wanderMin: 4,              // minutes at one spot before moving on to another

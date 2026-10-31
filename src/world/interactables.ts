@@ -56,6 +56,12 @@ export const uiHooks = {
   /** Dennis's ledger, on the office wall. */
   ledger: () => {},
   orderCard: (_d: Distraction, _offer: OrderPreview, _take: Action, _decline: Action) => {},
+  /** A visiting mate (src/world3d/mateVisit.ts): a yarn, a hand, a beer, the beer after two, handing one over. */
+  mateChat: (_id: number) => {},
+  mateHelp: (_id: number) => {},
+  mateBeer: (_id: number) => {},
+  mateAfterTwo: (_id: number) => {},
+  mateGive: (_id: number): boolean => false,
 };
 
 /** The fault, where it is: work out what it is and pick a fix there; then each step where that step happens. */
@@ -207,13 +213,13 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       const doorUp = w.rollerUpUntil !== null;
       if (truck?.stage === 'waiting' && g.canAct) {
         if (!doorUp) a.push({ label: 'Open the roller door', key: 'ply-sign', done: 'Roller door up', run: () => { w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
-        else a.push({ label: 'Sign for the ply', key: 'ply-sign', gesture: { kind: 'sign', icon: '🧾' }, done: 'Signed for the ply', run: () => { if (!g.signDelivery(truck.id, true)) return "Couldn't sign"; } });
+        else a.push({ label: 'Sign for the ply', key: 'ply-sign', gesture: signGesture(g), done: 'Signed for the ply', run: () => { if (!g.signDelivery(truck.id, true)) return "Couldn't sign"; } });
       }
       if (truck?.stage === 'unloading' && empty) {
         a.push({ label: `Grab a bundle (${truck.bundles.length} left)`, twoHands: true, key: 'ply-unload', done: 'Grabbed a bundle of ply', run: () => { w.carrying = 'bundle'; } });
       }
       const courier = g.distractions.find(d => d.kind === 'courier');
-      if (courier && g.canAct) a.push({ label: 'Sign for delivery', gesture: { kind: 'sign', icon: '🧾' }, done: 'Signed for the delivery', run: () => { if (g.respond(courier.id, 'sign')) w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
+      if (courier && g.canAct) a.push({ label: 'Sign for delivery', gesture: signGesture(g), done: 'Signed for the delivery', run: () => { if (g.respond(courier.id, 'sign')) w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
       // a pickup: the door goes up so the stack can go out to the ute
       if (w.utePresent && w.finishedStack > 0 && !truck && !doorUp) a.push({ label: 'Open the roller door', key: 'pickup', done: 'Roller door up', run: () => {
         w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes;
@@ -316,24 +322,30 @@ ${work}`;
 }
 
 /**
- * A visiting mate, when you're next to them: they've come up with something to say (a yes, and "flat out"), or
- * they're yarning with you ("flat out" ends it). Nothing while they're off wandering. A yes to a beer they asked
- * for is a beer for them, within the day's caps; anything else is a yarn.
+ * A visiting mate, when you're next to them. When they've come up to you: "Yeah, what's up?" (a yarn), "Give us a
+ * hand?", a beer ("Grab you a beer?" once the fridge is open and the caps allow; "Beer after two?" before), or "Flat
+ * out, sorry". With a full can in your hand: "Give <name> the beer". Nothing while they're off wandering or helping.
  */
 export function visitorActions(g: Game, d: Distraction): Action[] {
   if (g.phase !== 'day') return [];
   const who = g.mateName(d);
   const flatOut: Action = { label: '"Flat out, sorry"', auto: false, done: `Sent ${who} off for a bit`, run: () => { g.respond(d.id, 'disengage'); } };
-  if (d.engaged) return [flatOut];
-  if (!d.ask) return [];
-  const yes: Action = d.ask.kind === 'beer' && g.visitorMayHaveBeer(d)
-    ? { label: `Grab ${who} a beer (${money(CONFIG.beer.cost)})`, auto: false, done: `Having a beer with ${who}`, run: () => { g.respond(d.id, 'chat'); } }
-    : { label: 'Have a yarn', done: `Yarning with ${who}`, run: () => { g.respond(d.id, 'chat'); } };
-  return [yes, flatOut];
+  const can = g.heldCan;
+  const give: Action[] = can && can.fill >= 1 && g.visitorMayHaveBeer(d)
+    ? [{ label: `Give ${who} the beer`, auto: false, done: `A beer for ${who}`, run: () => { if (!uiHooks.mateGive(d.id)) return "They're right, thanks"; } }] : [];
+  if (d.helping) return give;
+  if (d.engaged) return [...give, flatOut];
+  if (!d.ask) return give;
+  const chat: Action = { label: '"Yeah, what\'s up?"', auto: false, done: `Yarning with ${who}`, run: () => { uiHooks.mateChat(d.id); } };
+  const hand: Action = { label: '"Give us a hand?"', auto: false, done: `${who}'s giving you a hand`, run: () => { uiHooks.mateHelp(d.id); } };
+  const beer: Action[] = !g.fridgeOpen ? [{ label: '"Beer after two?"', auto: false, done: `Asked ${who} to hang about till two`, run: () => { uiHooks.mateAfterTwo(d.id); } }]
+    : g.visitorMayHaveBeer(d) ? [{ label: '"Grab you a beer?"', auto: false, done: `Getting ${who} a beer`, run: () => { uiHooks.mateBeer(d.id); } }] : [];
+  return [...give, chat, hand, ...beer, flatOut];
 }
 
 /** What a visiting mate's up to, shown over them when you're close (what they've come to say is in their speech bubble). */
 export function visitorStatus(g: Game, d: Distraction): string | null {
+  if (d.helping) return `${g.mateName(d)}: giving you a hand (${(d.helped ?? 0) + 1} of ${d.helping})`;
   return d.engaged ? `${g.mateName(d)}: yarning, ${d.chat}m to go` : null;
 }
 
@@ -341,7 +353,8 @@ export function visitorStatus(g: Game, d: Distraction): string | null {
 export function uteActions(g: Game, w: WorldState): Action[] {
   if (g.phase !== 'day' || w.carrying !== 'stack' || !w.utePresent) return [];
   const n = Math.min(w.finishedStack, g.sheetsHere) || g.sheetsHere;
-  return [{ label: `Hand it over (${n})`, gesture: { kind: 'taps', icon: '🤝', n: 1 }, done: `${n} sheet${n > 1 ? 's' : ''} picked up`, run: () => {
+  // one tap: they take it and pay (no handshake step)
+  return [{ label: `Hand it over (${n})`, done: `${n} sheet${n > 1 ? 's' : ''} picked up`, run: () => {
     const k = g.handOver();
     w.finishedStack = Math.max(0, w.finishedStack - k); w.carrying = null; // anyone else's sheets go back on the pallet
   } }];
@@ -361,4 +374,10 @@ export function inspectorStatus(g: Game): string | null {
     return `Council: walking the round, stay with them (${left}s)`;
   }
   return null;
+}
+
+/** Signing for a delivery: trace the signature, at least a couple of seconds; beer wobbles the pen (WORLD.sign). */
+function signGesture(g: Game): GestureSpec {
+  const S = WORLD.sign;
+  return { kind: 'sign', icon: '🧾', minSeconds: S.minSeconds, waitSeconds: S.footTapAfterSeconds, wobble: Math.min(1, g.alcohol * S.wobblePerCan) };
 }

@@ -130,6 +130,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (w.utePresent && w.carrying === 'stack') add(true, 'pickup', `Take the stack out to the ute (${g.sheetsHere})`, 'rollerDoor');
   else if (w.utePresent) add(true, 'pickup', `Ute's here for a pickup (${g.sheetsHere})`, 'finishedPallet');
   if (g.palletFull) add(true, 'palletfull', "Finished pallet's full: the bed can't be cleared till someone picks up", 'finishedPallet');
+  // a visiting mate giving you a hand, or waiting on the beer you said you'd grab them
+  if (w.mateHelp) add(false, 'matehelp', `${w.mateHelp.who}: ${w.mateHelp.word} (${w.mateHelp.n} of ${w.mateHelp.of})`);
+  if (w.mateBeerFor) add(true, 'matebeer', g.heldCan ? `Give ${w.mateBeerFor} the beer` : `Grab ${w.mateBeerFor} a beer from the fridge`, 'fridge');
   // who's coming, and when (you texted them as the sheet came off; some text back running late)
   for (const p of g.pickups.filter(x => x.status === 'waiting')) {
     const who = w.pickupNames?.[p.id] ?? p.order;

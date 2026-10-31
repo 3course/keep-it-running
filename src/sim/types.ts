@@ -118,6 +118,11 @@ export interface Distraction {
   approaches?: number;    // times they've come up to you this visit
   /** Where they're mooching about: an area, a 0..1 pick of a spot in it (the view turns it into a place), minutes left there. */
   wander?: { area: VisitorArea; spot: number; left: number };
+  /** How the visit's going (a chat, a beer each lift it): more help if you ask. */
+  mood?: number;
+  chatted?: boolean;      // you've had a proper yarn this visit
+  helping?: number;       // tasks he's said he'll do ("Give us a hand?"); 0/undefined: not helping
+  helped?: number;        // tasks done of those
 }
 
 export type VisitorArea = (typeof CONFIG.visitors.areas)[number];

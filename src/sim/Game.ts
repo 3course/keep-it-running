@@ -70,6 +70,8 @@ export class Game {
   walkIns: WalkIn[] = [];
   /** The world serves walk-ins by hand; the sim (and Game-only tests) take every one as it comes. */
   servesWalkIns = false;
+  /** A mate who said he'd be back when the fridge opens ("Beer after two?"): who, and from when (minute of day). */
+  mateReturn: { mate: string; minute: number } | null = null;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
   powerTripped = false;
 
@@ -913,13 +915,13 @@ export class Game {
     this.spawnDistraction(pick.kind);
   }
 
-  private spawnDistraction(kind: DistractionKind) {
+  private spawnDistraction(kind: DistractionKind, mateId?: string) {
     const d = CONFIG.distractions;
     const id = this.nextDistractionId++;
     let dist: Distraction;
     switch (kind) {
       case 'friend': {
-        const mate = this.rng.pick(MATES.filter(m => m.id !== this.lastMate));
+        const mate = (mateId && MATES.find(m => m.id === mateId)) || this.rng.pick(MATES.filter(m => m.id !== this.lastMate));
         this.lastMate = mate.id;
         const v = CONFIG.visitors;
         const dur = Math.round(v.visitMinutes * (this.beersToday > 0 ? CONFIG.beer.friendDurationMult : 1));
@@ -1003,6 +1005,9 @@ export class Game {
 
   private tickDistractions() {
     const d = CONFIG.distractions;
+    // the mate who said he'd be back after two
+    const back = this.mateReturn;
+    if (back && this.minute >= back.minute && !this.distractions.some(x => x.kind === 'friend')) { this.mateReturn = null; this.spawnDistraction('friend', back.mate); }
     for (const dist of [...this.distractions]) {
       if (dist.kind === 'friend') this.tickVisitor(dist);
       dist.remaining -= 1;
@@ -1559,6 +1564,107 @@ export class Game {
 
   // ---------- visitors ----------
 
+  private friend(id: number): Distraction | undefined { return this.distractions.find(d => d.id === id && d.kind === 'friend'); }
+
+  /** "Yeah, what's up?": a proper yarn (the view runs the conversation). Costs your attention for the yarn. */
+  yarn(id: number): boolean {
+    const d = this.friend(id);
+    if (!d || this.phase !== 'day') return false;
+    this.startYarn(d, CONFIG.visitors.yarnMinutes);
+    d.chatted = true; d.mood = (d.mood ?? 0) + 1;
+    return true;
+  }
+
+  /** The view's still mid-conversation: the yarn goes on (it's not over till one of you says so). */
+  holdYarn(id: number) {
+    const d = this.friend(id);
+    if (!d) return;
+    d.ask = null; d.engaged = true; d.chat = Math.max(d.chat ?? 0, 1);
+  }
+
+  /** The yarn's run its course (or you've called it): he's happy, and wanders off for a bit. */
+  endYarn(id: number) {
+    const d = this.friend(id);
+    if (!d || !d.engaged) return;
+    d.engaged = false; d.chat = 0;
+    d.cooldown = this.visitorRng.int(CONFIG.visitors.cooldownMin, CONFIG.visitors.cooldownMax);
+    this.addRapport(CONFIG.distractions.friend.chatRapportGain);
+  }
+
+  /** "Give us a hand?": he takes on 1–4 of whatever's pending (more after a yarn, or a good visit). Returns how many. */
+  askHelp(id: number): number {
+    const d = this.friend(id), v = CONFIG.visitors;
+    if (!d || this.phase !== 'day') return 0;
+    const n = Math.max(v.helpMin, Math.min(v.helpMax, this.visitorRng.int(v.helpMin, v.helpMin + 1) + (d.chatted ? 1 : 0) + ((d.mood ?? 0) >= 2 ? 1 : 0)));
+    d.helping = n; d.helped = 0; d.ask = null; d.engaged = false; d.chat = 0;
+    d.remaining = Math.max(d.remaining, n * v.helpMinutesPerTask + 10);
+    return n;
+  }
+
+  /** He's done one of them (the view walked it and did it). True when that's all he said he'd do. */
+  helperDid(id: number): boolean {
+    const d = this.friend(id);
+    if (!d || !d.helping) return false;
+    d.helped = (d.helped ?? 0) + 1;
+    if (d.helped < d.helping) return false;
+    d.helping = 0; d.mood = (d.mood ?? 0) + 1;
+    d.cooldown = this.visitorRng.int(CONFIG.visitors.cooldownMin, CONFIG.visitors.cooldownMax);
+    this.addRapport(CONFIG.distractions.friend.chatRapportGain);
+    return true;
+  }
+
+  /** He's run out of things to do: done helping, whatever's left of what he offered. */
+  helperStop(id: number) {
+    const d = this.friend(id);
+    if (!d || !d.helping) return;
+    d.helping = 0;
+    d.cooldown = this.visitorRng.int(CONFIG.visitors.cooldownMin, CONFIG.visitors.cooldownMax);
+  }
+
+  /** A pending job done by a mate giving you a hand (no time off your clock; he walked it). */
+  helperTask(kind: 'stack' | 'offcuts' | 'unload'): boolean {
+    if (this.phase !== 'day') return false;
+    if (kind === 'stack') {
+      const room = CONFIG.pickup.palletCapacity - this.pallet, n = Math.min(room, this.bedPile);
+      if (n <= 0) return false;
+      this.pallet += n; this.bedPile -= n;
+      return true;
+    }
+    if (kind === 'offcuts') { if (this.offcutBin <= 0 || this.offcutPile > 0) return false; this.offcutBin = 0; return true; }
+    const truck = this.truckOnApron;
+    return !!truck && truck.stage === 'unloading' && this.unloadBundle(truck.id, true);
+  }
+
+  /** The can in your hand, handed to the mate: his now (it goes down as one of his, not yours). */
+  giveBeer(id: number): boolean {
+    const d = this.friend(id), can = this.heldCan;
+    if (!d || !can || can.fill < 1 || !this.visitorMayHaveBeer(d)) return false;
+    this.cans = this.cans.filter(c => c !== can);
+    this.beersToday = Math.max(0, this.beersToday - 1); this.today.beers = Math.max(0, this.today.beers - 1);
+    this.today.beer -= CONFIG.beer.cost; this.today.mateBeer = (this.today.mateBeer ?? 0) + CONFIG.beer.cost; // his, not yours
+    d.beers = (d.beers ?? 0) + 1;
+    if (d.mate) this.visitorBeers[d.mate] = (this.visitorBeers[d.mate] ?? 0) + 1;
+    d.mood = (d.mood ?? 0) + 1; d.ask = null;
+    if (!d.helping) this.startYarn(d, CONFIG.distractions.friend.beerChatMinutes);
+    this.say(`A beer for ${this.mateName(d)}. "Legend."`, 'good');
+    return true;
+  }
+
+  /** "Beer after two?" before the fridge opens: a happy mate hangs about and helps till then; otherwise he's back at two. */
+  beerAfterTwo(id: number): 'help' | 'later' {
+    const d = this.friend(id);
+    if (!d) return 'later';
+    if (d.chatted || (d.mood ?? 0) >= 1 || this.visitorRng.chance(0.5)) {
+      // he'll stay: long enough to see two o'clock, helping meanwhile
+      d.remaining = Math.max(d.remaining, CONFIG.visitors.returnHour * 60 - this.minute + 10);
+      return 'help';
+    }
+    this.removeDistraction(d.id);
+    this.mateReturn = { mate: d.mate ?? '', minute: CONFIG.visitors.returnHour * 60 };
+    this.say(`${this.mateName(d)}: "No worries. I'll come back after two."`);
+    return 'later';
+  }
+
   /** Today's beers from your fridge for all the mates who've dropped in. */
   get visitorBeersToday(): number { return Object.values(this.visitorBeers).reduce((s, n) => s + n, 0); }
 
@@ -1573,6 +1679,7 @@ export class Game {
     const v = CONFIG.visitors;
     d.cooldown ??= 0; d.chat ??= 0; d.told ??= []; d.approaches ??= 0;
     if (!d.wander || --d.wander.left <= 0) d.wander = this.newWander();
+    if ((d.helping ?? 0) > 0) return; // busy giving you a hand: he doesn't come up to chat
     if (d.ask) {
       // unanswered: they start a yarn anyway (no beer unless you say so)
       if (--d.ask.left <= 0) { this.startYarn(d, v.yarnMinutes); this.say('"...so anyway, did I tell you about the boat?"'); }

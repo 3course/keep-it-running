@@ -32,6 +32,10 @@ export interface WorldState {
   utePresent: boolean;
   offcutBin: number;             // 0..1
   oldBagWaiting: boolean;        // a full bag lifted out of the extractor, still to go to the skip
+  /** A visiting mate giving you a hand: who, doing what, which of how many (the notepad line). */
+  mateHelp?: { who: string; word: string; n: number; of: number } | null;
+  /** A visiting mate you've said you'll grab a beer for. */
+  mateBeerFor?: string | null;
   watchingSwap: string | null;   // consumable Game is swapping, so we notice when it finishes
   toiletUntil: number | null;    // absolute game minute
   rollerUpUntil: number | null;  // absolute game minute

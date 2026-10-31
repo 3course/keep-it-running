@@ -43,6 +43,7 @@ import type { Job } from '../sim/types.js';
 import { KnockOff } from './knockoff.js';
 import { Tracing } from './tracing.js';
 import { PeopleDay } from './peopleDay.js';
+import { MateVisit, mateCan } from './mateVisit.js';
 import { Gratitude } from './gratitude.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
@@ -188,6 +189,8 @@ export class World3D {
   tracing!: Tracing;
   /** The part-timer, customers at pickup, gifts at the door (public for tests). */
   peopleDay!: PeopleDay;
+  /** A visiting mate past "flat out": the yarn, the hand, the beer (src/world3d/mateVisit.ts). */
+  mateVisit!: MateVisit;
   /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
   gratitude!: Gratitude;
   /** The cafe before work (public for tests). */
@@ -568,6 +571,7 @@ export class World3D {
     this.knockoff.update(dt, this.paused);
     this.tracing.update(this.paused ? 0 : dt);
     this.peopleDay.update(dt, this.paused || this.knockoff.inScene || this.layoutEditor.active);
+    this.mateVisit.update(dt, this.paused || this.knockoff.inScene || this.layoutEditor.active);
     this.layoutEditor.update();
     this.dennisView.update(this.paused || this.knockoff.inScene ? 0 : dt);
     this.offerLayout();
@@ -931,6 +935,16 @@ export class World3D {
     this.dennisView = new DennisView({ scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, project: v => this.project(v), save: () => this.save() });
     uiHooks.dennis = () => this.dennisView.pitch();
     uiHooks.ledger = () => this.dennisView.showLedger();
+    this.mateVisit?.dispose();
+    this.mateVisit = new MateVisit({
+      g: this.g, w: this.w, parent: this.hud.labels.parentElement!, walker: this.visitor, save: () => this.save(),
+      mateAt: () => this.project(this.built.mate.position.clone().setY(2.0)), youAt: () => this.project(new THREE.Vector3(this.pos.x, 2.0, this.pos.z)),
+    });
+    uiHooks.mateChat = id => this.mateVisit.startChat(id);
+    uiHooks.mateHelp = id => this.mateVisit.startHelp(id);
+    uiHooks.mateBeer = id => this.mateVisit.waitForBeer(id);
+    uiHooks.mateAfterTwo = id => this.mateVisit.afterTwo(id);
+    uiHooks.mateGive = id => this.mateVisit.give(id);
     this.peopleDay?.dispose();
     this.peopleDay = new PeopleDay({
       scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, walkable: this.walkable,
@@ -997,7 +1011,8 @@ export class World3D {
     // the roller door stays up while you're carrying ply in from the truck
     if (g.truckOnApron?.stage === 'unloading') w.rollerUpUntil = Math.max(w.rollerUpUntil ?? 0, t + 2);
     // …and while you carry a pickup out to the ute
-    if (w.carrying === 'stack' && w.utePresent && w.rollerUpUntil !== null) w.rollerUpUntil = Math.max(w.rollerUpUntil, t + 2);
+    // (it goes up on its own when you've the stack in your arms and a ute's waiting: no separate step)
+    if (w.carrying === 'stack' && w.utePresent) w.rollerUpUntil = Math.max(w.rollerUpUntil ?? 0, t + 2);
     if ((w.shrugs ?? 0) !== this.shrugsSeen) { this.shrugsSeen = w.shrugs ?? 0; this.player.shrug(); this.say('None left'); }
     if (g.sips !== this.sipsSeen) { this.sipsSeen = g.sips; this.player.sip(); }
     if (w.tour && !w.tour.cutStarted && w.bed === 'running') { w.tour.cutStarted = true; this.save(); } // the day proper starts now
@@ -1324,7 +1339,7 @@ export class World3D {
     // the visiting mate, when they're beside you
     const mate = live ? g.distractions.find(d => d.kind === 'friend') : undefined;
     if (mate && Math.hypot(this.visitor.x - this.pos.x, this.visitor.z - this.pos.z) <= WORLD.visitorTalkRange) {
-      entries.push({ id: `visitor-${mate.id}`, anchor: new THREE.Vector3(this.visitor.x, 1.75, this.visitor.z), acts: visitorActions(g, mate), status: visitorStatus(g, mate) });
+      entries.push({ id: `visitor-${mate.id}`, anchor: new THREE.Vector3(this.visitor.x, 1.75, this.visitor.z), acts: this.mateVisit.holding ? [] : visitorActions(g, mate), status: visitorStatus(g, mate) });
     }
     // the council inspector, when you're beside them
     if (live && this.inspector.visible && Math.hypot(this.inspector.x - this.pos.x, this.inspector.z - this.pos.z) <= WORLD.visitorTalkRange) {
@@ -1539,6 +1554,9 @@ export class World3D {
       const talking = (!!mate.ask || mate.engaged) && !v.walking;
       this.built.mate.rotation.y = talking ? Math.atan2(-(this.pos.x - v.x), -(this.pos.z - v.z)) + Math.sin(this.time * 2) * 0.15 : v.facing;
       // each mate always wears the same shirt
+      let can = this.built.mate.getObjectByName('mateCan');
+      if (!can) { can = mateCan(); this.built.mate.add(can); }
+      can.visible = (mate.beers ?? 0) > 0;
       const shirt = mateById(mate.mate)?.shirt;
       const body = this.built.mate.children[0] as THREE.Mesh;
       if (shirt !== undefined && (body.material as THREE.MeshToonMaterial).color.getHex() !== shirt) body.material = toon(shirt);

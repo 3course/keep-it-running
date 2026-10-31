@@ -182,8 +182,8 @@ const CASES = {
   async visitor(game) {
     await setTime(game, 10);
     const mate = await freshMate(game);
-    await waitForLabel(game, 'Have a yarn', 20_000);
-    assert.equal((await tapLabel(game, 'Have a yarn')).said, `Yarning with ${mate.name}`);
+    await waitForLabel(game, '"Yeah, what\'s up?"', 20_000);
+    assert.equal((await tapLabel(game, '"Yeah, what\'s up?"')).said, `Yarning with ${mate.name}`);
     assert.equal((await mateNow(game)).engaged, true);
   },
 

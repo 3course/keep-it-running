@@ -144,13 +144,18 @@ export async function doGesture(game, { choice = 0, early = false } = {}) {
     const a = p[0], b = gst.goal, n = 12, k = early ? 0.5 : 1.05;
     await stroke(Array.from({ length: n + 1 }, (_, i) => ({ x: a.x + (b.x - a.x) * k * i / n, y: a.y + (b.y - a.y) * k * i / n })));
   } else if (gst.kind === 'sign') {
-    const d = p[0], pts = [];
-    // three passes back and forth along the line, wobbling like handwriting
-    for (let j = 0; j < 3; j++) for (let i = 0; i <= 10; i++) {
-      const u = j % 2 ? 1 - i / 10 : i / 10;
-      pts.push({ x: d.x - d.w * 0.4 + d.w * 0.8 * u, y: d.y + Math.sin(i * 1.7 + j) * d.h * 0.15 });
+    // follow the faint signature on the docket, at a hand's pace (it won't finish faster than its minimum anyway);
+    // `early`: lift off halfway (a pause, not a finish)
+    const d = p[0], guide = await game.page.evaluate(() => JSON.parse(document.querySelector('#kir-hud .gesture .docket').dataset.guide));
+    const pts = [];
+    for (let i = 0; i < guide.length - 1; i++) for (let s = 0; s < 3; s++) {
+      const [x0, y0] = guide[i], [x1, y1] = guide[i + 1], t = s / 3;
+      pts.push({ x: d.x - d.w / 2 + (x0 + (x1 - x0) * t) * d.w, y: d.y - d.h / 2 + (y0 + (y1 - y0) * t) * d.h });
     }
-    await stroke(pts);
+    pts.push({ x: d.x - d.w / 2 + guide.at(-1)[0] * d.w, y: d.y - d.h / 2 + guide.at(-1)[1] * d.h });
+    await stroke(early ? pts.slice(0, Math.floor(pts.length / 2)) : pts);
+    // the minimum time: keep the pen on the end till it's done
+    if (!early) for (let k = 0; k < 40 && (await game.page.evaluate(() => !!document.querySelector('#kir-hud .gesture[data-kind="sign"]'))); k++) await stroke([pts.at(-1), pts.at(-1), pts.at(-1)]);
   } else if (gst.kind === 'pick') {
     await game.page.touchscreen.tap(p[choice].x, p[choice].y);
   }

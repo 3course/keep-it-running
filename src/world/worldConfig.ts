@@ -36,6 +36,8 @@ export const WORLD = {
 
   visitorSpeed: 1.6,                   // m/s: a visiting mate ambles
   visitorTalkRange: 2.0,               // m: close enough to answer a mate who's come up to you
+  // signing for a delivery: a trace of a faint signature (src/ui/gesture.ts)
+  sign: { minSeconds: 2.5, footTapAfterSeconds: 5, wobblePerCan: 0.5 },
   inspectorSpeed: 1.2,                 // m/s: the council inspector, clipboard in hand
   inspectorStayClose: 3.0,             // m: the walk-round only counts while you're this close to them
   inspectorLinger: 14,                 // s they spend looking at each stop on the round

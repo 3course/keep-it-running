@@ -5,7 +5,7 @@
 // the ply docket and the pickup out to the ute. Money and the sim are untouched: Game's fault steps run as before.
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { advance, answerCard, doGesture, freshGame, gestureNow, holdLabel, labels, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, answerCard, doGesture, frames, freshGame, gestureNow, holdLabel, labels, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -190,6 +190,34 @@ describe('the rest, by hand', () => {
     } finally { await game.close(); }
   });
 
+  it('signing for a delivery: trace the signature; not before its minimum, lifting off pauses, the driver taps his foot', async () => {
+    const game = await freshGame(env);
+    try {
+      // open the signature card (short foot-tap wait so the test needn't stand about)
+      await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); window.signedAt = null; window.openedAt = performance.now();
+        s.gesture.open({ kind: 'sign', icon: '🧾', minSeconds: 2.5, waitSeconds: 1 }, () => { window.signedAt = performance.now(); }, () => false); });
+      const card = () => game.page.evaluate(() => { const c = document.querySelector('#kir-hud .gesture[data-kind="sign"]'); return c ? { p: Number(getComputedStyle(c.querySelector('.progress')).getPropertyValue('--p') || 0), foot: c.querySelector('.waiting').classList.contains('on') } : null; });
+      await frames(game, 3);
+      // a quick scribble straight across: no signature, nothing signed
+      const d = (await gestureNow(game)).parts[0];
+      const cdp = await game.context.newCDPSession(game.page);
+      const t = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
+      await t('touchStart', d.x - d.w * 0.45, d.y); for (let i = 0; i <= 8; i++) await t('touchMove', d.x - d.w * 0.45 + d.w * 0.9 * i / 8, d.y + d.h * 0.4); await t('touchEnd');
+      assert.ok((await card()).p < 0.2, 'a scribble across the docket is not a signature');
+      // half the trace, then lift: paused, not finished, and the progress stays
+      await doGesture(game, { early: true });
+      const half = await card();
+      assert.ok(half && half.p > 0.2 && half.p < 0.985, `paused at ${half?.p}`);
+      assert.equal(await game.page.evaluate(() => window.signedAt), null, 'lifting early does not sign');
+      assert.ok(half.foot, 'the driver is tapping his foot');
+      // finish it: never sooner than the minimum after the pen first went down
+      await doGesture(game);
+      const took = await game.page.evaluate(() => (window.signedAt - window.openedAt) / 1000);
+      assert.ok(took >= 2.5, `signed after ${took.toFixed(2)} s`);
+      await cdp.detach();
+    } finally { await game.close(); }
+  });
+
   it('pickup: carry the finished stack out to the ute and hand it over', async () => {
     const game = await freshGame(env);
     try {
@@ -199,12 +227,14 @@ describe('the rest, by hand', () => {
       await walkTo(game, 'finishedPallet');
       await tapLabel(game, 'Pick up the stack (3)');
       assert.equal(await game.eval((g, w) => w.carrying), 'stack');
-      await walkTo(game, 'rollerDoor');
-      await tapLabel(game, 'Open the roller door');
-      // out onto the apron, beside the ute
+      // the roller door goes up on its own (stack in your arms, a ute waiting): straight out onto the apron
       await game.eval((g, w, s) => { const u = s.built.vehicles.ute.position; s.walkToPoint(u.x - 1.4, u.z); });
       await waitForLabel(game, 'Hand it over (3)', 15_000);
-      assert.equal((await tapLabel(game, 'Hand it over (3)')).said, '3 sheets picked up');
+      // one tap, no handshake: pressing the label once hands it over and pays, with no gesture card in between
+      const before = await game.eval(g => g.cash);
+      assert.ok(await game.eval((g, w, s) => s.pressLabel('Hand it over (3)')));
+      assert.equal(await gestureNow(game), null, 'no handshake step');
+      assert.equal(await game.eval(g => g.cash), before + 600, 'paid on the one tap');
       await game.page.waitForFunction(() => !window.kirScene.w.utePresent);
       assert.deepEqual(await game.eval((g, w) => [w.finishedStack, w.carrying, g.pallet, g.pickupsHere.length]), [0, null, 0, 0]);
     } finally { await game.close(); }

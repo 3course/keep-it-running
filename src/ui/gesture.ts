@@ -4,7 +4,8 @@
 //   hold   press and keep the thumb down until the ring fills (lifting early starts it again)
 //   taps   tap each target (clips, clamps, the collet), in any order
 //   drag   drag the handle along the track, all the way (letting go short snaps it back)
-//   sign   scribble a signature across the docket
+//   sign   trace the faint signature on the docket with a finger: it takes a couple of seconds at least, lifting off
+//          pauses (you carry on where you stopped), a line under it fills as you go, and beer puts a wobble in the ink
 //   pick   tap the right one of a few (the bit for the sheet on the bed)
 //
 // A fumble (beer) spoils a finished gesture: the card shakes and it has to be done again.
@@ -13,7 +14,7 @@ export type GestureSpec =
   | { kind: 'hold'; icon: string; seconds: number }
   | { kind: 'taps'; icon: string; n: number }
   | { kind: 'drag'; icon: string; dir: 'up' | 'down' | 'left' | 'right' }
-  | { kind: 'sign'; icon: string }
+  | { kind: 'sign'; icon: string; minSeconds?: number; waitSeconds?: number; wobble?: number } // wobble 0..1 (beer)
   | { kind: 'pick'; icon: string; options: { colour: string; mark: string }[]; match?: string }; // match: a swatch of what to match
 
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
@@ -47,6 +48,11 @@ const CSS = `
 #kir-hud .gesture .docket::after { content: '✕'; position: absolute; left: 8%; bottom: 22%; font: ${F(20)} serif; color: #8a7a62; }
 #kir-hud .gesture .docket .line { position: absolute; left: 6%; right: 6%; bottom: 22%; border-bottom: 2px solid #8a7a62; }
 #kir-hud .gesture canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#kir-hud .gesture .progress { position: absolute; left: ${F(8)}; right: ${F(8)}; bottom: ${F(-6)}; height: ${F(5)}; background: #d9cdb8; border-radius: 3px; overflow: hidden; }
+#kir-hud .gesture .progress i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: #3f9a4a; }
+#kir-hud .gesture .waiting { font: ${F(15)} sans-serif; color: #6a5a46; display: none; }
+#kir-hud .gesture .waiting.on { display: inline; animation: kir-g-tap .5s steps(2) infinite; }
+@keyframes kir-g-tap { 50% { transform: translateY(-2px) rotate(-8deg); } }
 #kir-hud .gesture .opts { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-around; }
 #kir-hud .gesture .opt { width: ${F(76)}; height: ${F(112)}; border: 3px solid #14110f; border-radius: 10px; display: grid; place-items: center;
   font-size: ${F(30)}; box-shadow: 0 4px 0 rgba(20,17,15,.3); }
@@ -213,40 +219,61 @@ export class GesturePad {
         break;
       }
       case 'sign': {
+        // the docket, a faint signature to follow, the ink, and a progress line under it
         const docket = document.createElement('div'); docket.className = 'docket'; docket.dataset.g = 'sign';
         const line = document.createElement('div'); line.className = 'line'; docket.appendChild(line);
         const cv = document.createElement('canvas'); docket.appendChild(cv);
-        area.append(docket, ghost);
+        const bar = document.createElement('div'); bar.className = 'progress'; bar.appendChild(document.createElement('i'));
+        area.append(docket, bar, ghost);
+        const waiting = document.createElement('span'); waiting.className = 'waiting'; waiting.textContent = "🦶 the driver's tapping his foot";
+        this.el?.querySelector('.icon')?.appendChild(waiting);
+        const guide = signatureGuide();
+        docket.dataset.guide = JSON.stringify(guide.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]));
+        const minMs = (spec.minSeconds ?? 2.5) * 1000, waitMs = (spec.waitSeconds ?? 5) * 1000, wob = spec.wobble ?? 0;
         const ctx = cv.getContext('2d')!;
-        let last: { x: number; y: number } | null = null, ink = 0, minX = Infinity, maxX = -Infinity, turns = 0, dir = 0;
-        this.reset = () => { ctx.clearRect(0, 0, cv.width, cv.height); ink = 0; minX = Infinity; maxX = -Infinity; turns = 0; dir = 0; };
-        const pt = (e: PointerEvent) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top, w: r.width }; };
-        docket.addEventListener('pointerdown', e => {
-          e.preventDefault(); docket.setPointerCapture?.(e.pointerId);
-          const r = cv.getBoundingClientRect(); cv.width = r.width; cv.height = r.height;
-          ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#1d3a8a';
-          last = pt(e);
-        });
-        docket.addEventListener('pointermove', e => {
-          if (!last) return;
-          const p = pt(e);
-          ctx.beginPath(); ctx.moveTo(last.x, last.y); ctx.lineTo(p.x, p.y); ctx.stroke();
-          const dx = p.x - last.x;
-          ink += Math.hypot(dx, p.y - last.y); minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
-          if (Math.abs(dx) > 2) { const d = Math.sign(dx); if (dir && d !== dir) turns++; dir = d; }
-          last = p;
-          // a squiggle: across most of the line and back a couple of times
-          if (ink > p.w * 1.3 && maxX - minX > p.w * 0.45 && turns >= 2) { last = null; this.complete(); }
-        });
-        const lift = () => { last = null; };
-        docket.addEventListener('pointerup', lift); docket.addEventListener('pointercancel', lift);
+        let size = { w: 1, h: 1 }, k = 0, down = false, lastT = 0, inkLast: { x: number; y: number } | null = null, wt = 0;
         const t0 = performance.now();
-        const tick = (now: number) => { // the ghost scribbles along the line
-          const p = ((now - t0) / 1600) % 1;
-          ghost.style.left = `${20 + 60 * p}%`; ghost.style.top = `${55 + 12 * Math.sin(p * Math.PI * 6)}%`;
-          ghost.style.opacity = last || ink > 0 ? '0' : '0.6';
+        const fit = () => { const r = cv.getBoundingClientRect(); if (r.width && (cv.width !== Math.round(r.width) || cv.height !== Math.round(r.height))) { cv.width = Math.round(r.width); cv.height = Math.round(r.height); } size = { w: cv.width || 1, h: cv.height || 1 }; };
+        const at = (u: number) => { const n = guide.length - 1, f = Math.max(0, Math.min(n, u * n)), i0 = Math.floor(f), i1 = Math.min(n, i0 + 1), t = f - i0; return [guide[i0][0] + (guide[i1][0] - guide[i0][0]) * t, guide[i0][1] + (guide[i1][1] - guide[i0][1]) * t]; };
+        const draw = () => {
+          ctx.clearRect(0, 0, size.w, size.h);
+          // the guide: faint, dashed, the bit still to go
+          ctx.setLineDash([4, 5]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(29,58,138,.22)'; ctx.beginPath();
+          guide.forEach(([x, y], i) => (i ? ctx.lineTo(x * size.w, y * size.h) : ctx.moveTo(x * size.w, y * size.h))); ctx.stroke(); ctx.setLineDash([]);
+          bar.style.setProperty('--p', k.toFixed(3));
+        };
+        const ink = (x: number, y: number) => {
+          // beer: a slow drift and a little shake on the pen (the after-hours trace's wobble)
+          if (wob > 0) { wt += 0.35; const a = size.h * 0.12 * wob; x += Math.sin(wt * 1.3) * a + (Math.random() - 0.5) * a * 0.5; y += Math.cos(wt * 0.9) * a + (Math.random() - 0.5) * a * 0.5; }
+          ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#1d3a8a';
+          if (inkLast) { ctx.beginPath(); ctx.moveTo(inkLast.x, inkLast.y); ctx.lineTo(x, y); ctx.stroke(); }
+          inkLast = { x, y };
+        };
+        this.reset = () => { k = 0; inkLast = null; fit(); draw(); };
+        const pt = (e: PointerEvent) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / (r.width || 1), y: (e.clientY - r.top) / (r.height || 1) }; };
+        const follow = (p: { x: number; y: number }, now: number) => {
+          // move along the guide only while the finger's on the next stretch of it, and no faster than minSeconds allows
+          const cap = Math.max(0, now - lastT) / minMs; lastT = now;
+          let best = k;
+          for (let u = k; u <= Math.min(1, k + 0.12); u += 0.004) { const [gx, gy] = at(u); if (Math.hypot((p.x - gx) * 2.2, p.y - gy) < 0.2) best = u; }
+          k = Math.min(1, k + Math.min(best - k, cap));
+          ink(p.x * size.w, p.y * size.h);
+          draw();
+          if (k >= 0.985) { down = false; this.complete(); }
+        };
+        docket.addEventListener('pointerdown', e => { e.preventDefault(); docket.setPointerCapture?.(e.pointerId); fit(); down = true; lastT = performance.now(); inkLast = null; follow(pt(e), lastT); });
+        docket.addEventListener('pointermove', e => { if (down) follow(pt(e), performance.now()); });
+        const lift = () => { down = false; inkLast = null; }; // a pause, not the end: carry on from where you stopped
+        docket.addEventListener('pointerup', lift); docket.addEventListener('pointercancel', lift);
+        const tick = (now: number) => {
+          // the ghost shows where to go next; after a while the driver starts tapping his foot
+          const [gx, gy] = at(Math.min(1, k + 0.04));
+          ghost.style.left = `${(8 + 84 * gx).toFixed(1)}%`; ghost.style.top = `${(5 + 90 * gy).toFixed(1)}%`;
+          ghost.style.opacity = down ? '0' : String(0.35 + 0.35 * Math.abs(Math.sin(now / 350)));
+          if (now - t0 > waitMs) waiting.classList.add('on');
           this.raf = requestAnimationFrame(tick);
         };
+        requestAnimationFrame(() => { fit(); draw(); });
         this.raf = requestAnimationFrame(tick);
         break;
       }
@@ -264,4 +291,26 @@ export class GesturePad {
       }
     }
   }
+}
+
+/** A made-up signature to trace (0..1 across the docket): a capital loop, a run of joined humps, a flourish under. */
+export function signatureGuide(): [number, number][] {
+  const pts: [number, number][] = [];
+  const N = 90;
+  for (let i = 0; i <= N; i++) {
+    const t = i / N;
+    let x: number, y: number;
+    if (t < 0.22) { // the capital: a tall loop
+      const a = (t / 0.22) * Math.PI * 2;
+      x = 0.14 + 0.06 * Math.sin(a) + 0.05 * (t / 0.22); y = 0.48 - 0.26 * Math.sin(a / 2) + 0.06 * Math.cos(a);
+    } else if (t < 0.8) { // the rest of the name: joined humps along the line
+      const u = (t - 0.22) / 0.58;
+      x = 0.25 + 0.6 * u; y = 0.6 - 0.16 * Math.abs(Math.sin(u * Math.PI * 4.5));
+    } else { // a flourish back under it
+      const u = (t - 0.8) / 0.2;
+      x = 0.85 - 0.55 * u; y = 0.66 + 0.1 * Math.sin(u * Math.PI);
+    }
+    pts.push([x, y]);
+  }
+  return pts;
 }

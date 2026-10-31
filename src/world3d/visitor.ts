@@ -34,7 +34,30 @@ export class VisitorWalker {
   private readonly keepClear = keepClearCells();
   private readonly spots = new Map<string, P[]>();
 
+  /** Giving you a hand: somewhere to walk to for a job (overrides wandering and coming up to you). */
+  errand: { goal: P; key: string } | null = null;
+  /** Slower with each beer, and a touch slower when he's helping. */
+  speedMult = 1;
+
   constructor(private walkable: Walkable) {}
+
+  /** There on the errand: stopped at its goal. */
+  get onErrand() { return !!this.errand && !this.path && this.goalKey === this.errand.key; }
+
+  /** The nearest cell he could stand on next to a rect (an object's footprint). */
+  standNear(rect: { x: number; y: number; w: number; h: number }): P | null {
+    // a job's done right up against the thing (the "keep clear" spots are where he'd idle, not where he'd work)
+    const reach = this.reachable(), c = { x: rect.x + rect.w / 2, y: rect.y + rect.h / 2 };
+    let best: P | null = null, bd = Infinity;
+    for (let ring = 1; ring <= 3 && !best; ring++) {
+      for (let y = rect.y - ring; y < rect.y + rect.h + ring; y++) for (let x = rect.x - ring; x < rect.x + rect.w + ring; x++) {
+        if (!reach.has(y * COLS + x) || !this.walkable(x, y)) continue;
+        const d = Math.hypot(x + 0.5 - c.x, y + 0.5 - c.y) * 10 + Math.hypot(x - this.cell.x, y - this.cell.y);
+        if (d < bd) { bd = d; best = { x, y }; }
+      }
+    }
+    return best;
+  }
 
   get cell(): P { return { x: Math.floor(this.x / C), y: Math.floor(this.z / C) }; }
   get walking() { return !!this.path; }
@@ -56,6 +79,13 @@ export class VisitorWalker {
       this.id = d.id;
       const p = centre(VISITOR_ARRIVAL);
       this.x = p.x; this.z = p.z; this.path = null; this.goal = null; this.goalKey = '';
+    }
+    if (this.errand) {
+      // off doing a job for you: straight there
+      this.wantKey = this.errand.key;
+      if (this.goalKey !== this.errand.key) this.walkTo(this.errand.goal, this.errand.key);
+      this.follow(dt);
+      return;
     }
     const talking = !!d.ask || d.engaged;
     this.wantKey = talking ? 'you' : `wander:${d.wander?.area}:${d.wander?.spot}`;
@@ -153,7 +183,7 @@ export class VisitorWalker {
 
   private follow(dt: number) {
     if (!this.path) return;
-    let step = WORLD.visitorSpeed * dt;
+    let step = WORLD.visitorSpeed * this.speedMult * dt;
     while (this.path && step > 0) {
       const wp = centre(this.path[this.idx]);
       const dx = wp.x - this.x, dz = wp.z - this.z, d = Math.hypot(dx, dz);
