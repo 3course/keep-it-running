@@ -237,6 +237,7 @@ export const CONFIG = {
 
   // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
   beer: {
+    canRefund: 0.10,               // container deposit back per empty (knock-off cans, taken back in bags)
     cost: 8,
     fridgeUnlockHour: 14,
     drinkMinutes: 30,              // a can lasts this long in your hand

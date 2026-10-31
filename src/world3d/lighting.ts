@@ -34,6 +34,9 @@ export class ShedLighting {
   private hemiBase: THREE.Color;
   private sunBase: number;
   private red = new THREE.Color(0xff5a3c);
+  private pools: THREE.Mesh[] = [];
+  /** Knock-off (0 day .. 1 night): the fluoros stay off and the door's light goes with the sky. The scene does the sky. */
+  night = 0;
 
   /**
    * level 1 (mid): tubes, the shaft on the floor, the fire flicker. level 2 (high): plus the pools under the tubes
@@ -62,7 +65,7 @@ export class ShedLighting {
       if (level === 2) {
         const pool = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 2.2).rotateX(-Math.PI / 2), poolMat);
         pool.position.set(x, 0.015, z); pool.renderOrder = 1;
-        scene.add(pool);
+        scene.add(pool); this.pools.push(pool);
       }
     }
     // the shaft: daylight in through the door, fading as it reaches into the shed, a little wider at the far end
@@ -102,6 +105,15 @@ export class ShedLighting {
       const ahead = ((f.g.position.x - you.x) * this.fwd.x + (f.g.position.z - you.z) * this.fwd.z) / fl; // + beyond you
       const a = THREE.MathUtils.clamp(0.15 + (ahead + 0.5) / 2, 0.15, 1);
       for (const m of f.mats) m.opacity = a;
+    }
+    // knock-off: the tubes are off (dark glass), no pools, and the shaft is the last of the evening
+    const off = this.night > 0;
+    for (const f of this.fittings) f.mats[1].color.setHex(off ? 0x5a5f66 : 0xf6fdff);
+    for (const p of this.pools) p.visible = !off;
+    if (off) {
+      (this.shaftFloor.material as THREE.MeshBasicMaterial).opacity = 0.5 * doorOpen * (1 - this.night);
+      if (this.shaftAir) (this.shaftAir.material as THREE.MeshBasicMaterial).opacity = 0.2 * doorOpen * (1 - this.night);
+      return;
     }
     // a sliver under a shut door; full when it's up
     const shaft = 0.12 + 0.88 * doorOpen;

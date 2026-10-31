@@ -230,6 +230,9 @@ export interface DayStats {
   sheetsLifted: number;    // ruined: the compressor wasn't drained
   choreBoards: number;     // what those ruined boards cost
   binOverflows: number;    // times the offcut bin spilled onto the floor
+  // after 5 (the view's knock-off beers, src/people): never touched by the balance sim
+  afterHours: number;      // boards used cutting things for fun after knock-off
+  canRefund: number;       // container deposit back on bags of empties (income, not revenue)
 }
 
 export interface LogEntry {

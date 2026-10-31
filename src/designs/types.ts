@@ -29,6 +29,12 @@ export interface Design {
   inner: InnerPath[];
   /** The customer's scribbled note on the sketch. */
   note: string;
+  /** Cut after hours for fun (a mate's idea at knock-off), never a paying job. */
+  afterHours?: boolean;
+  /** What they say at pickup when they see it (on top of the kind's lines). Templates: {name}. */
+  pickup?: string[];
+  /** The thank-you they bring round the next day, if they do. */
+  thanks?: { kind: 'beer' | 'slice' | 'card' | 'drawing' | 'plant' | 'coffees'; line: string };
 }
 
 export const KIND_FOR_JOB: Record<JobTypeId, DesignKind> = { formwork: 'formwork', joinery: 'mdf', signage: 'acrylic' };

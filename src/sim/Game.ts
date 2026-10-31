@@ -24,7 +24,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0,
   };
 }
 
@@ -1645,6 +1645,33 @@ export class Game {
     if (this.phase !== 'endOfDayPrompt') return;
     this.say('Knocked off at 5.');
     this.endDay();
+  }
+
+  // ---------- after knock-off (the view's beers scene) ----------
+
+  /** Beers at knock-off from the bought stock (gifted slabs are free and don't come through here). */
+  knockOffBeers(n: number) {
+    if (n <= 0) return;
+    this.spend(CONFIG.beer.cost * n, 'beer');
+  }
+
+  /** A sheet off the pallet for something cut after hours (the board was paid for when it was ordered). */
+  afterHoursSheet(type: JobTypeId): boolean {
+    if (this.stock[type] <= 0) return false;
+    const unit = this.stockValue[type] / this.stock[type];
+    this.stock[type] -= 1;
+    this.stockValue[type] = Math.max(0, this.stockValue[type] - unit);
+    this.today.afterHours ??= 0; // a day saved before the field existed
+    this.book(unit, 'afterHours');
+    return true;
+  }
+
+  /** A bag of empties taken back for the container deposit. */
+  refundCans(cans: number) {
+    if (cans <= 0) return;
+    const back = Math.round(cans * CONFIG.beer.canRefund * 100) / 100;
+    this.cash += back;
+    this.today.canRefund = (this.today.canRefund ?? 0) + back;
   }
 
   startOvertime() {

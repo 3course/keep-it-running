@@ -9,7 +9,7 @@ export * from './types.js';
 export * from './path.js';
 
 export const designById = (id: string): Design | undefined => DESIGNS.find(d => d.id === id);
-export const designsOfKind = (k: DesignKind) => DESIGNS.filter(d => d.kind === k);
+export const designsOfKind = (k: DesignKind) => DESIGNS.filter(d => d.kind === k && !d.afterHours);
 
 function hash(s: string) {
   let h = 2166136261;
