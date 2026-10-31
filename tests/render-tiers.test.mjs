@@ -1,7 +1,8 @@
 // Render tiers: each tier's internal resolution and the detail it draws. High (desktop/iOS) renders at 2× the base
 // 1/3 scale, mid (capable Android) at 1.5×, low (?safe=1) and bare (?safe=2) at 1× with none of the extra detail;
 // ?res=N overrides the multiplier. Detail on mid/high: textured sheets, sawdust that follows the extractor bag and
-// clears when it's changed, and particles (fire embers, sparks when a bit lets go, a dust puff when a cut starts).
+// clears when it's changed, particles (fire embers, sparks when a bit lets go, a dust puff when a cut starts), and
+// faked lighting (tube fittings, a shaft through the roller door, the shed going red while flames show).
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
 import { startBrowser, PHONE } from './browser.mjs';
@@ -22,7 +23,7 @@ async function open(query = '', userAgent) {
     const s = window.kirScene, c = s.renderer.domElement;
     return {
       tier: window.kirGpu.tier, tierRes: s.tier.resMult, res: s.resMult, canvas: [c.width, c.height],
-      textures: !!s.looks, sawdust: s.sawdust ? s.sawdust.count : null, particles: s.particles ? s.particles.live : null,
+      textures: !!s.looks, sawdust: s.sawdust ? s.sawdust.count : null, particles: s.particles ? s.particles.live : null, lighting: !!s.lighting,
     };
   });
   return { page, view, async close() { await context.close(); assert.deepEqual(errors, [], 'no page errors'); } };
@@ -48,6 +49,7 @@ describe('render tiers', () => {
       assert.equal(v.textures, detail, 'textured sheets');
       assert.equal(v.sawdust !== null, detail, 'sawdust');
       assert.equal(v.particles !== null, detail, 'particles');
+      assert.equal(v.lighting, detail, 'tubes, door shaft, fire flicker');
       await t.close();
     });
   }
@@ -78,6 +80,8 @@ describe('render tiers', () => {
     await t.page.evaluate(() => { window.kir.fire = { id: 99, stage: 'duct', minutes: 10, sprayed: 0, heat: 0 }; });
     await t.page.waitForTimeout(800);
     assert.ok((await t.view()).particles.glow > 0, 'embers while the duct burns');
+    const red = await t.page.evaluate(() => { let h; window.kirScene.scene.traverse(o => { if (o.isHemisphereLight) h = o; }); return h.color.r - h.color.g; });
+    assert.ok(red > 0.1, `the shed's light goes red (${red.toFixed(2)})`);
     await t.page.evaluate(() => { window.kir.fire = null; });
     await t.page.waitForTimeout(2500);
     assert.equal((await t.view()).particles.glow, 0, 'embers die out once it is out');

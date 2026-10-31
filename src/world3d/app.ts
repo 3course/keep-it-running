@@ -21,6 +21,7 @@ import { buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { Particles } from './particles.js';
+import { ShedLighting } from './lighting.js';
 import { VisitorWalker } from './visitor.js';
 import { InspectorWalker } from './inspector.js';
 import { PlayerView } from './player.js';
@@ -44,6 +45,7 @@ export class World3D {
   private player!: PlayerView;
   private effects!: Effects;
   particles: Particles | null = null;    // mid/high tiers (public for tests)
+  lighting: ShedLighting | null = null;
   private lastFault: string | null = null;
   private wasCutting = false;
   private spindleAt = new THREE.Vector3();
@@ -432,7 +434,8 @@ export class World3D {
     this.sawdust = this.tier.detail.decals ? new Sawdust(this.scene) : null;
 
     // light from the upper left, soft warm fill
-    this.scene.add(new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4));
+    const hemi = new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4);
+    this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
     this.sun.castShadow = this.tier.shadows;
     this.sun.shadow.mapSize.set(this.tier.shadowMapSize, this.tier.shadowMapSize);
@@ -440,6 +443,8 @@ export class World3D {
     sc.left = -14; sc.right = 14; sc.top = 14; sc.bottom = -14; sc.near = 1; sc.far = 50;
     this.sun.shadow.bias = -0.0015;
     this.scene.add(this.sun, this.sun.target);
+    const lit = this.tier.detail.lighting, door = this.built.objects.get('rollerDoor')!.def.rect;
+    this.lighting = lit ? new ShedLighting(this.scene, lit, { x: door.x * WORLD.cell, z0: door.y * WORLD.cell, z1: (door.y + door.h) * WORLD.cell }, hemi, this.sun) : null;
 
     this.player = new PlayerView(this.scene);
     this.player.yaw = Math.atan2(-this.w.fx, -this.w.fy);
@@ -995,6 +1000,7 @@ export class World3D {
     const flames: 0 | 1 | 2 = fire ? (fire.stage === 'duct' ? 2 : fire.lesson || fire.minutes >= CONFIG.fire.smokeOnlyMinutes ? 1 : 0) : 0;
     const nozzle = g.spraying ? new THREE.Vector3(this.pos.x + w.fx * 0.3, 0.7, this.pos.z + w.fy * 0.3) : null;
     this.effects.update(dt, smoke, flames, nozzle);
+    this.lighting?.update(dt, (o('rollerDoor').parts.door.userData.open as number | undefined) ?? 0, flames, this.camera, this.pos);
     if (this.particles) {
       // sparks when a bit-related fault starts (the bit's chipping or let go), a puff when a cut starts
       const faultId = g.fault?.def.id ?? null;
