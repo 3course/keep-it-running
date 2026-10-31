@@ -5,6 +5,37 @@ import type { DayStats } from '../sim/types.js';
 import { startOver } from '../world/save.js';
 import { copyText } from './clipboard.js';
 import { perf } from '../world3d/perf.js';
+import type { Design } from '../designs/types.js';
+import { sketchSvg, SKETCH_CSS } from '../designs/sketch.js';
+
+/** One thing made today, for the gallery: the design, how many sheets of it, and its "after" picture (null: none). */
+export interface MadeEntry { design: Design; count: number; after: string | null }
+
+const GALLERY_CSS = `
+#kir-hud .summary .gallery { display: grid; gap: 10px; }
+#kir-hud .summary .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: stretch; }
+#kir-hud .summary .pair .before, #kir-hud .summary .pair .after { position: relative; border-radius: 4px; overflow: hidden; aspect-ratio: 4 / 3; display: flex; align-items: center; justify-content: center; }
+#kir-hud .summary .pair .before svg { width: 100%; height: 100%; display: block; }
+#kir-hud .summary .pair .after { background: radial-gradient(circle at 50% 40%, #5a4632, #241f1a 75%); }
+#kir-hud .summary .pair .after img { width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
+#kir-hud .summary .pair .cap { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; }
+#kir-hud .summary .pair .tagline { position: absolute; left: 4px; bottom: 3px; font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(20,17,15,.75); color: #efe6d8; text-transform: uppercase; letter-spacing: 1px; }
+${SKETCH_CSS.replace('.sketch', '#kir-hud .summary .sketch')}
+`;
+
+/** "Made today": each design cut today, its sketch beside the finished piece. */
+function galleryHtml(made: MadeEntry[]): string {
+  if (!made.length) return '';
+  if (!document.getElementById('kir-gallery-css')) {
+    const st = document.createElement('style'); st.id = 'kir-gallery-css'; st.textContent = GALLERY_CSS; document.head.appendChild(st);
+  }
+  return `<section class="made"><h2>Made today</h2><div class="gallery">${made.map(m => `
+    <div class="pair" data-design="${m.design.id}">
+      <div class="cap"><span><b>${escapeHtml(m.design.name)}</b>${m.count > 1 ? ` ×${m.count}` : ''}</span><span class="dim small">${escapeHtml(m.design.customer)}</span></div>
+      <div class="before">${sketchSvg(m.design, { width: 200, height: 150, note: false })}<span class="tagline">Before</span></div>
+      <div class="after">${m.after ? `<img alt="${escapeHtml(m.design.name)}, finished" src="${m.after}">` : '<span class="dim small">(no picture)</span>'}<span class="tagline">After</span></div>
+    </div>`).join('')}</div></section>`;
+}
 
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
@@ -71,7 +102,7 @@ function dayVerdict(d: DayStats): string {
 }
 
 /** Fill `el` with the end-of-day screen. onNext runs after Game.nextDay(); onChange after a purchase. */
-export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void, onResetHints?: () => void) {
+export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void, onResetHints?: () => void, made: MadeEntry[] = []) {
   const d = g.today;
   const last = d.day >= CONFIG.week.days;
   const floor: [string, string][] = [
@@ -88,6 +119,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
     <section><h2>Shop floor</h2>${floor.map(([k, v]) => `<div class="row"><span class="dim">${k}</span><span>${v}</span></div>`).join('')}
       <p class="verdict">${dayVerdict(d)}</p></section>
+    ${galleryHtml(made)}
     <section><h2>Upgrade shop</h2>${CONFIG.upgrades.map(u => {
       const owned = g.upgrades.has(u.id as UpgradeId);
       return `<div class="upg"><div><b class="${owned ? 'good' : ''}">${u.name}</b><br><small>${u.desc}</small></div>
@@ -100,7 +132,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     <a class="startover ${g.cash < 0 ? 'debt' : ''}">${g.cash < 0 ? "Drowning in debt? Start over with a clean slate" : 'Start over'}</a>`;
   wireStartOver(el, g);
   el.querySelectorAll<HTMLButtonElement>('button[data-upg]').forEach(b => b.addEventListener('click', () => {
-    if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints); }
+    if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints, made); }
   }));
   const reset = el.querySelector<HTMLAnchorElement>('.reset');
   if (reset && onResetHints) reset.addEventListener('click', () => { onResetHints(); reset.textContent = 'Hints will show again.'; });

@@ -29,6 +29,13 @@ import { Outline } from './outline.js';
 import { VisitorWalker } from './visitor.js';
 import { InspectorWalker } from './inspector.js';
 import { PlayerView } from './player.js';
+import { CutPathView } from './cutPath.js';
+import { Reveal } from './reveal.js';
+import { bedScale } from './piece.js';
+import { JobCard } from '../ui/jobCard.js';
+import { designById, designForJob, type Design } from '../designs/index.js';
+import type { MadeEntry } from '../ui/summary.js';
+import type { Job } from '../sim/types.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
 import { perf } from './perf.js';
@@ -139,6 +146,15 @@ export class World3D {
   /** The council inspector's walking (a rare event). Public for tests. */
   readonly inspector: InspectorWalker;
   private rareSeen: { key: string; at: number } | null = null; // last rare-event phase seen, and when its cue last played
+  // designs (src/designs): the toolpath on the bed, the reveal when a sheet comes off, the card when a job lands
+  /** The job's real toolpath on the sheet; the router head follows it. Public for tests. */
+  cutView!: CutPathView;
+  /** The finished-piece reveal (public for tests). */
+  reveal!: Reveal;
+  /** The new-job card with the customer's sketch (public for tests). */
+  jobCard!: JobCard;
+  private cutShown = { job: -1, t: 0 }; // how far through the toolpath the head's shown (it only goes forward)
+  private skipEl!: HTMLDivElement;
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
@@ -185,7 +201,14 @@ export class World3D {
     });
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
     this.orderCard = new OrderCard(this.hud.labels.parentElement!);
-    uiHooks.orderCard = (d, offer, take, decline) => this.orderCard.show(this.g, d, offer, !!decline.highlight, () => this.runAction(take), () => this.runAction(decline));
+    // the order card already showed the sketch: the job card stays quiet when those sheets land
+    uiHooks.orderCard = (d, offer, take, decline) => this.orderCard.show(this.g, d, offer, !!decline.highlight, () => { this.jobCard.quiet(); this.runAction(take); }, () => this.runAction(decline));
+    this.jobCard = new JobCard(this.hud.labels.parentElement!);
+    if (resumePaused) this.jobCard.prime(g); // a resumed game: those jobs arrived last session
+    this.skipEl = document.createElement('div'); this.skipEl.className = 'revealskip'; this.skipEl.textContent = 'Tap to skip';
+    Object.assign(this.skipEl.style, { position: 'absolute', left: '50%', bottom: 'calc(110px + env(safe-area-inset-bottom, 0px))', transform: 'translateX(-50%)',
+      padding: '4px 12px', borderRadius: '14px', background: 'rgba(20,17,15,.6)', color: '#efe6d8', font: '14px sans-serif', pointerEvents: 'none', display: 'none', zIndex: '6' });
+    this.hud.labels.parentElement!.appendChild(this.skipEl);
     this.aimEl = document.createElement('div'); this.aimEl.className = 'aim';
     this.sprayRing = document.createElement('div'); this.sprayRing.className = 'sprayring';
     this.hud.labels.append(this.aimEl, this.sprayRing);
@@ -242,6 +265,7 @@ export class World3D {
   private bindInput(canvas: HTMLCanvasElement) {
     canvas.addEventListener('pointerdown', e => {
       this.ring.unlock(); // audio may only start after a gesture
+      if (this.reveal.active) { this.reveal.skip(); this.skipEl.style.display = 'none'; e.preventDefault(); return; } // a tap skips the reveal, and only that
       if (this.paused || this.g.phase !== 'day') return;
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
@@ -290,6 +314,7 @@ export class World3D {
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) this.hints.mark('drag');
       if (k === '`') { this.debug.visible = !this.debug.visible; this.debugLabels.forEach(d => { d.el.style.display = this.debug.visible ? 'block' : 'none'; }); }
       if (k === ' ') { this.setPaused(!this.paused); e.preventDefault(); }
+      if (this.reveal.active && (k === 'escape' || k === 'enter' || k === 'e')) { this.reveal.skip(); this.skipEl.style.display = 'none'; return; }
       if (k === 'e' && !e.repeat) this.ePressed = true;
       this.keys.add(k);
     });
@@ -443,6 +468,7 @@ export class World3D {
     this.updateTrail(dt);
     this.updateViewOffset();
     this.updateCamera(dt);
+    if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'
@@ -455,6 +481,7 @@ export class World3D {
     this.updateBubble(dt);
     this.updateMateBubble();
     this.updateRing();
+    this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active);
     if (!this.hud.summaryShowing) {
       this.hud.update(g, todoItems(g, w), w.done);
       // the first fault: follow the pointer to where it is (cleared on getting there); the first gesture card (cleared doing one)
@@ -500,6 +527,13 @@ export class World3D {
     const lvl = this.tier.detail.particles;
     this.particles = lvl ? new Particles(this.scene, new THREE.Vector3(ex.centre.x, ex.def.height + 0.15, ex.centre.z), lvl) : null;
     this.lastFault = this.g.fault?.def.id ?? null; this.wasCutting = this.g.machine === 'cutting';
+    // the job's toolpath on the sheet, and the reveal: no extra light or particles on the tiers without them (low, ?safe)
+    const sheet = this.built.objects.get('machine')!.parts.sheet as THREE.Mesh;
+    const sp = (sheet.geometry as THREE.BoxGeometry).parameters;
+    this.cutView = new CutPathView(sheet, sp.width, sp.depth, sp.height / 2);
+    this.cutShown = { job: -1, t: 0 };
+    this.reveal?.dispose();
+    this.reveal = new Reveal(this.scene, { rich: this.tier.detail.textures, light: this.tier.pointLights, particles: this.tier.detail.particles > 0 });
     this.buildDebug();
     this.buildFlashRing();
     this.trail = new Trail(this.scene);
@@ -563,7 +597,36 @@ export class World3D {
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
     const week = () => renderWeekSummary(this.hud.showSummary(), g, done);
     if (g.phase === 'weekSummary') { week(); return; }
-    renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset());
+    renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday());
+  }
+
+  /** Today's finished pieces for the summary's gallery: one entry per design, in the order first made, with its "after". */
+  madeToday(): MadeEntry[] {
+    const out = new Map<string, MadeEntry>();
+    for (const m of this.w.made ?? []) {
+      const d = designById(m.design);
+      if (!d) continue;
+      const e = out.get(d.id);
+      if (e) e.count++;
+      else out.set(d.id, { design: d, count: 1, after: this.reveal.thumbnail(this.renderer, d) });
+    }
+    return [...out.values()];
+  }
+
+  /** A sheet's come off the machine: it goes in today's gallery, and (in the day, unpaused) the reveal plays. */
+  private pieceDone(job: Job) {
+    const d = designForJob(job), w = this.w;
+    (w.made ??= []).push({ job: job.id, design: d.id });
+    if (this.paused || this.g.phase !== 'day') return;
+    this.startReveal(d);
+  }
+
+  /** Play the reveal for `d` off the bed (public so tests can run one). */
+  startReveal(d: Design) {
+    const sheet = this.built.objects.get('machine')!.parts.sheet as THREE.Mesh;
+    const sp = (sheet.geometry as THREE.BoxGeometry).parameters;
+    this.reveal.start(d, sheet, sp.height / 2, bedScale(d, sp.width, sp.depth), this.camera);
+    this.skipEl.style.display = 'block';
   }
 
   /** Keep the physical shed in step with what the economy just did. */
@@ -572,7 +635,7 @@ export class World3D {
     if (w.bed === 'running') {
       const job = g.jobs.find(j => j.id === w.bedJobId);
       if (!job) w.bed = 'scrap';
-      else if (job.status === 'done') { w.bed = CONFIG.chores ? 'empty' : 'done'; w.clamps = 0; } // its boards join the pile at the bed's end
+      else if (job.status === 'done') { this.pieceDone(job); w.bed = CONFIG.chores ? 'empty' : 'done'; w.clamps = 0; } // its boards join the pile at the bed's end
       else if (job.status === 'scrapped' && !g.fault) w.bed = 'scrap';
     }
     w.offcutBin = g.offcutBin; // the bin's Game's now (CONFIG.chore.offcuts)
@@ -997,7 +1060,7 @@ export class World3D {
     // machine bed
     const m = o('machine'), mp = m.parts;
     const onBed = w.bed !== 'empty';
-    mp.sheet.visible = onBed;
+    mp.sheet.visible = onBed || this.reveal.active; // the cut sheet stays put while the piece lifts out of it
     if (this.looks) {
       // the sheet on the bed looks like what it is: formply, MDF or acrylic (or ruined)
       const job = g.current ?? (g.inHand !== null ? g.jobs.find(j => j.id === g.inHand) : undefined) ?? g.nextUp();
@@ -1007,19 +1070,22 @@ export class World3D {
     const clampsOn = w.bed === 'clamped' ? 4 : w.bed === 'placed' || w.bed === 'running' || w.bed === 'scrap' ? (w.clamps ?? 4) : w.bed === 'done' ? 4 : 0;
     mp.clamps.children.forEach((c, i) => { c.visible = i < clampsOn; });
     mp.pile.children.forEach((b, i) => { b.visible = i < g.bedPile; });
-    const prog = g.current && w.bed === 'running' ? g.current.progress / g.current.cutMinutes : w.bed === 'done' ? 1 : 0;
     // a ruined sheet shows how: slid off square with a wobbling cut (clamps), or lifted at one end (the vacuum)
     const bedJob = w.bed === 'scrap' && w.bedJobId !== null ? g.jobs.find(j => j.id === w.bedJobId) : undefined;
     const how = bedJob?.ruinedBy;
     mp.sheet.position.z = how === 'shift' ? 0.28 : 0;
     mp.sheet.rotation.set(how === 'lift' ? 0.12 : 0, how === 'shift' ? 0.09 : 0, 0);
-    mp.cut.visible = prog > 0.02 || !!how;
-    mp.cut.scale.x = Math.max(0.02, how ? 0.55 : prog);
-    mp.cut.rotation.y = how === 'shift' ? Math.sin(this.time * 3) * 0.06 + 0.09 : 0;
-    const bw = m.box.maxX - m.box.minX;
-    const gx = w.bed === 'running' ? -bw / 2 + 0.4 + (bw - 0.8) * prog : 0;
-    mp.gantry.position.x += (gx - mp.gantry.position.x) * Math.min(1, 6 * dt);
-    if (g.machine === 'cutting') mp.gantry.position.z = Math.sin(this.time * 6) * 0.25;
+    // the job's toolpath, cut as far as it's got; the head follows it (the old progress bar is retired)
+    mp.cut.visible = false;
+    const pathT = this.updateCutPath(dt);
+    const head = mp.gantry.children[1];
+    const running = pathT !== null && w.bed === 'running';
+    const k = Math.min(1, (running ? 14 : 4) * dt);
+    // parked off the end of the bed while the piece lifts out, so it isn't in the shot
+    const gx = running ? this.cutView.head.x : this.reveal.active ? this.cutView.bedW / 2 + 0.05 : 0;
+    mp.gantry.position.x += (gx - mp.gantry.position.x) * (this.reveal.active ? Math.min(1, 10 * dt) : k);
+    mp.gantry.position.z = 0;
+    head.position.z += ((running ? this.cutView.head.y + mp.sheet.position.z : 0) - head.position.z) * k;
     mp.light.visible = !!g.fault && Math.sin(this.time * 9) > 0;
 
     // extractor bag swells; dust on the floor once it's past the fire threshold
@@ -1140,6 +1206,22 @@ export class World3D {
     this.hud.setCanChip(held && g.phase === 'day' ? (held.fill > 0 ? 'Put the beer down' : 'Put the empty down') : null);
     this.player.setVisible(w.toiletUntil === null);
     this.player.update(dt, this.pos.x, this.pos.z, this.vel.x, this.vel.z);
+  }
+
+  /** The toolpath for the sheet on the bed, cut up to where the job's got (smooth between game minutes). Null: no path showing. */
+  private updateCutPath(_dt: number): number | null {
+    const g = this.g, w = this.w;
+    if (this.reveal.active) { this.cutView.update(1); return 1; }
+    const job = (w.bed === 'running' || w.bed === 'done' || w.bed === 'scrap') && w.bedJobId !== null ? g.jobs.find(j => j.id === w.bedJobId) : undefined;
+    this.cutView.set(job ? designForJob(job) : null);
+    if (!job) return null;
+    let t = w.bed === 'done' || job.status === 'done' ? 1 : job.progress / job.cutMinutes;
+    // between ticks, carry on at a minute per minute while it's cutting
+    if (w.bed === 'running' && g.machine === 'cutting' && !this.paused) t = Math.min((job.progress + 1) / job.cutMinutes, t + Math.min(1, this.acc / CONFIG.clock.realMsPerGameMinute) / job.cutMinutes);
+    if (this.cutShown.job === job.id) t = Math.max(this.cutShown.t, t);
+    this.cutShown = { job: job.id, t };
+    this.cutView.update(t);
+    return t;
   }
 
   private buildDebug() {

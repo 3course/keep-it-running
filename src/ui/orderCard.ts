@@ -4,6 +4,8 @@
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import type { Distraction, OrderPreview } from '../sim/types.js';
+import { designForJob } from '../designs/index.js';
+import { sketchSvg, SKETCH_CSS } from '../designs/sketch.js';
 
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
@@ -20,6 +22,9 @@ const CSS = `
 #kir-hud .ordercard button.no { background: #d9cdb8; }
 #kir-hud .ordercard button.no.hot { background: #e8644a; color: #fff8ec; animation: kir-hot 1.2s ease-in-out infinite; }
 #kir-hud .ordercard button.yes { background: #8fd37a; }
+#kir-hud .ordercard .sk { margin: 0 0 ${F(8)}; border: 2px solid #14110f; border-radius: 4px; overflow: hidden; transform: rotate(-0.8deg); }
+#kir-hud .ordercard .sk svg { display: block; width: 100%; height: auto; }
+${SKETCH_CSS.replace('.sketch', '#kir-hud .ordercard .sketch')}
 `;
 
 /** The board colours on the card, like the sheets themselves (CONFIG.jobs.types order). */
@@ -49,6 +54,7 @@ export class OrderCard {
     el.className = 'ordercard';
     el.innerHTML = `
       <div class="who">📞 ${d.customer ?? 'A customer'}${d.big ? ' · BIG JOB' : ''}</div>
+      <div class="sk" data-design="${designForJob(j).id}">${sketchSvg(designForJob(j), { width: 300, height: 200 })}</div>
       <div class="board"><span class="sw" style="background:${SWATCH[t.id]}"></span>${t.name} × ${n}</div>
       <div class="terms">$${lo === hi ? lo : `${lo}–${hi}`} each · <b>$${total}</b><br>due <b class="${rush ? 'rush' : ''}">${rush ? 'RUSH ' : ''}${g.dueLabel(j)}</b></div>
       <div class="row"><button class="no${highlightNo ? ' hot' : ''}" data-act="decline" aria-label="Turn it down">✕</button>

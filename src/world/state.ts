@@ -39,6 +39,8 @@ export interface WorldState {
   canSpots?: Record<number, { x: number; z: number }>; // where each can that's been put down is (metres)
   /** First day only: the walk-round before the first cut. The clock waits until that cut starts. */
   tour?: { visited: ObjectId[]; cutStarted: boolean } | null;
+  /** Today's finished sheets and the design each was (src/designs), oldest first: the day summary's "Made today". */
+  made?: { job: number; design: string }[];
 }
 
 export const absMinute = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
@@ -84,7 +86,7 @@ export function startNewDay(w: WorldState, g: Game) {
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
   w.carrying = null; w.extinguisherFrom = null; w.hooks = { wall: true, shed: true, exhaust: true };
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
-  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {};
+  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = [];
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it
   // a sheet cutting at knock-off was scrapped by Game; it's still lying on the bed
   if (w.bed === 'running') w.bed = 'scrap';
