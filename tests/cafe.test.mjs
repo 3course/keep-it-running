@@ -44,7 +44,7 @@ describe('the cafe', () => {
     const look = await game.page.evaluate(() => document.querySelector('#kir-hud .talk.day[data-who="mai"]').textContent);
     assert.ok(look.replace(/^Mai/, '').trim().length < 40, `just a look: ${look}`);
     await game.eval((g, w, s) => { s.cafe.leave(); w.people.lastNight = null; g.dayIndex = 20; w.lease.startDayIndex = 1; s.cafe.enter(); });
-    await game.page.waitForTimeout(1200);
+    await game.page.waitForFunction(() => document.querySelector('#kir-hud .talk.day[data-who="mai"]')?.style.display === 'block', null, { timeout: 10_000 });
     const q = await game.page.evaluate(() => document.querySelector('#kir-hud .talk.day[data-who="mai"]').textContent);
     assert.ok(q.length > 10, `staying on? ${q}`);
     await game.close();
