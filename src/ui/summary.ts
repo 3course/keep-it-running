@@ -9,7 +9,13 @@ import type { Design } from '../designs/types.js';
 import { sketchSvg, SKETCH_CSS } from '../designs/sketch.js';
 
 /** One thing made today, for the gallery: the design, how many sheets of it, and its "after" picture (null: none). */
-export interface MadeEntry { design: Design; count: number; after: string | null }
+export interface MadeEntry { design: Design; count: number; after: string | null; tag?: string }
+
+/** The people side of the day, for the summary: last night and what got cut after hours. */
+export interface DayPeople {
+  lastNight: { who: string; beers: number; quote: string; quoteBy: string } | null;
+  afterHours: MadeEntry[];
+}
 
 const GALLERY_CSS = `
 #kir-hud .summary .gallery { display: grid; gap: 10px; }
@@ -24,14 +30,14 @@ ${SKETCH_CSS.replace('.sketch', '#kir-hud .summary .sketch')}
 `;
 
 /** "Made today": each design cut today, its sketch beside the finished piece. */
-function galleryHtml(made: MadeEntry[]): string {
+function galleryHtml(made: MadeEntry[], title = 'Made today', extra = ''): string {
   if (!made.length) return '';
   if (!document.getElementById('kir-gallery-css')) {
     const st = document.createElement('style'); st.id = 'kir-gallery-css'; st.textContent = GALLERY_CSS; document.head.appendChild(st);
   }
-  return `<section class="made"><h2>Made today</h2><div class="gallery">${made.map(m => `
+  return `<section class="made${title === 'Made today' ? '' : ' afterhours'}"><h2>${title}</h2>${extra}<div class="gallery">${made.map(m => `
     <div class="pair" data-design="${m.design.id}">
-      <div class="cap"><span><b>${escapeHtml(m.design.name)}</b>${m.count > 1 ? ` ×${m.count}` : ''}</span><span class="dim small">${escapeHtml(m.design.customer)}</span></div>
+      <div class="cap"><span><b>${escapeHtml(m.design.name)}</b>${m.count > 1 ? ` ×${m.count}` : ''}</span><span class="dim small">${escapeHtml(m.tag ?? m.design.customer)}</span></div>
       <div class="before">${sketchSvg(m.design, { width: 200, height: 150, note: false })}<span class="tagline">Before</span></div>
       <div class="after">${m.after ? `<img alt="${escapeHtml(m.design.name)}, finished" src="${m.after}">` : '<span class="dim small">(no picture)</span>'}<span class="tagline">After</span></div>
     </div>`).join('')}</div></section>`;
@@ -76,8 +82,10 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
     + row('&nbsp;&nbsp;Boards used', money(-d.materials), 'dim') + row('&nbsp;&nbsp;Delivery fees', money(-d.deliveryFees), 'dim')
     + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
     + row('&nbsp;&nbsp;Other costs', money(-other), 'dim') + overdraft
+    + ((d.afterHours ?? 0) > 0 ? row('&nbsp;&nbsp;After hours (boards)', money(-d.afterHours), 'dim') : '')
     + row('Operating profit', money(d.revenue - d.costs), d.revenue - d.costs >= 0 ? 'good' : 'bad')
-    + row('Operating margin', pct(margin), mcls) + lost + row('Capex (upgrades)', money(-d.upgrades), 'dim')
+    + row('Operating margin', pct(margin), mcls) + lost
+    + ((d.canRefund ?? 0) > 0 ? row('Can refund (10c a can)', `+$${d.canRefund.toFixed(2)}`, 'good can-refund') : '') + row('Capex (upgrades)', money(-d.upgrades), 'dim')
     + row('Ply on hand', `${money(ply.value)} (${ply.sheets} sheet${ply.sheets === 1 ? '' : 's'})`, 'money')
     + `<p class="dim small">Other: parts ${money(d.consumables)}, fixes ${money(d.fixes)}, beer ${money(d.beer)}, mate had a beer ${money(d.mateBeer)}, fees ${money(d.fees)}. Ply on hand is stock you've paid for, not a cost yet.</p>`;
 }
@@ -102,7 +110,7 @@ function dayVerdict(d: DayStats): string {
 }
 
 /** Fill `el` with the end-of-day screen. onNext runs after Game.nextDay(); onChange after a purchase. */
-export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void, onResetHints?: () => void, made: MadeEntry[] = []) {
+export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void, onResetHints?: () => void, made: MadeEntry[] = [], ppl?: DayPeople) {
   const d = g.today;
   const last = d.day >= CONFIG.week.days;
   const floor: [string, string][] = [
@@ -116,10 +124,12 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     <h1>End of day ${d.day}</h1>
     <p class="sub">Cash ${money(g.cash)} · Rapport ${g.rapport}</p>
     ${g.story ? `<p class="story"><b>Story of the day:</b> ${escapeHtml(g.story)}</p>` : ''}
+    ${ppl?.lastNight ? `<p class="story lastnight"><b>Last night:</b> ${escapeHtml(ppl.lastNight.who)}, ${ppl.lastNight.beers} beer${ppl.lastNight.beers === 1 ? '' : 's'} each. “${escapeHtml(ppl.lastNight.quote)}” — ${escapeHtml(ppl.lastNight.quoteBy)}</p>` : ''}
     <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
     <section><h2>Shop floor</h2>${floor.map(([k, v]) => `<div class="row"><span class="dim">${k}</span><span>${v}</span></div>`).join('')}
       <p class="verdict">${dayVerdict(d)}</p></section>
     ${galleryHtml(made)}
+    ${galleryHtml(ppl?.afterHours ?? [], 'After hours', (d.afterHours ?? 0) > 0 ? `<p class="dim small">Boards used: ${money(d.afterHours)}. Worth it.</p>` : '<p class="dim small">Cut from offcuts. Free, and better for it.</p>')}
     <section><h2>Upgrade shop</h2>${CONFIG.upgrades.map(u => {
       const owned = g.upgrades.has(u.id as UpgradeId);
       return `<div class="upg"><div><b class="${owned ? 'good' : ''}">${u.name}</b><br><small>${u.desc}</small></div>
@@ -132,7 +142,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     <a class="startover ${g.cash < 0 ? 'debt' : ''}">${g.cash < 0 ? "Drowning in debt? Start over with a clean slate" : 'Start over'}</a>`;
   wireStartOver(el, g);
   el.querySelectorAll<HTMLButtonElement>('button[data-upg]').forEach(b => b.addEventListener('click', () => {
-    if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints, made); }
+    if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints, made, ppl); }
   }));
   const reset = el.querySelector<HTMLAnchorElement>('.reset');
   if (reset && onResetHints) reset.addEventListener('click', () => { onResetHints(); reset.textContent = 'Hints will show again.'; });

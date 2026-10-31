@@ -30,13 +30,14 @@ export class CutPathView {
 
   get current() { return this.design; }
 
-  set(d: Design | null) {
+  /** Show `d`'s path (cut nothing yet). `scale`: metres per mm (default: the bed's job scale). */
+  set(d: Design | null, scale?: number) {
     if (d === this.design) return;
     this.design = d;
     if (this.lines) { this.group.remove(this.lines); this.lines.geometry.dispose(); (this.lines.material as THREE.Material).dispose(); this.lines = null; }
     this.tp = null; this.orig = null; this.live = -1;
     if (!d) return;
-    const s = this.scale = bedScale(d, this.bedW, this.bedD);
+    const s = this.scale = scale ?? bedScale(d, this.bedW, this.bedD);
     const tl = this.tl = toLocal(d, s);
     const tp = this.tp = toolpath(d);
     const pos: number[] = [], col: number[] = [];

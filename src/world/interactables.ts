@@ -12,6 +12,8 @@ import { faultAt, fixActions, fixStep, putBackActions } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { absMinute, HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
+import { canOnBed } from './cans.js';
+import { PEOPLE } from '../people/config.js';
 
 export interface Action {
   label: string;
@@ -91,7 +93,13 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       const a: Action[] = [];
       const clamps = CONFIG.chore.clamp.clamps, on = w.clamps ?? 0;
       // a bed piled with finished boards takes no sheet (machine's status says so)
-      if (w.bed === 'empty' && w.carrying === 'sheet' && !g.bedFull) a.push({ label: 'Load sheet', done: 'Sheet on the bed', run: () => { w.bed = 'placed'; w.carrying = null; w.clamps = 0; } });
+      // the morning after: a can left on the bed comes off before any sheet goes on
+      const bedCan = w.people?.cans.find(c => c.spot === 'bed');
+      if (bedCan && (empty || (w.carrying === 'cans' && (w.canCount ?? 0) < PEOPLE.cans.carry))) a.push({ label: 'Grab the can off the bed', key: 'bedcan', done: 'Can off the router bed', run: () => {
+        w.people!.cans = w.people!.cans.filter(c => c !== bedCan);
+        w.carrying = 'cans'; w.canCount = (w.canCount ?? 0) + 1;
+      } });
+      if (w.bed === 'empty' && w.carrying === 'sheet' && !g.bedFull && !canOnBed(w.people)) a.push({ label: 'Load sheet', done: 'Sheet on the bed', run: () => { w.bed = 'placed'; w.carrying = null; w.clamps = 0; } });
       // four clamps, a tap each; stop short and the sheet may shift mid-cut
       if (w.bed === 'placed') a.push({ label: 'Clamp', key: 'clamp', gesture: { kind: 'taps', icon: '🗜️', n: clamps - on }, onTap: n => { w.clamps = on + n; },
         done: 'Sheet clamped', run: () => { w.clamps = clamps; w.bed = 'clamped'; } });
@@ -268,6 +276,7 @@ export function statusFor(id: ObjectId, g: Game, w: WorldState): string | null {
       if (g.machine === 'fire') return "The cut's stopped.";
       if (g.machine === 'paused') return 'Paused for a swap.';
       if (g.current && g.machine === 'cutting') return `${g.current.name}\n${g.current.material} · ${g.current.progress}/${g.current.cutMinutes} min`;
+      if (canOnBed(w.people) && w.bed === 'empty') return "There's an empty on the bed from last night.";
       if (w.bed === 'clamped') return 'Clamped. Ready to start.';
       if (w.bed === 'placed') return `Sheet on the bed. Clamps ${w.clamps ?? 0}/${CONFIG.chore.clamp.clamps}.`;
       if (g.bedFull) return "Bed's full of finished boards. Carry them off.";

@@ -8,7 +8,7 @@ import { boxAt, toon } from './build.js';
 
 const CARRY_COLOUR: Record<Carry, number> = {
   sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460, bundle: 0xc9a46a, debris: 0x7f858b, // debris: busted roller-door slats
-  bit: 0xc8c8c8, newBag: 0xf4efe0, stack: 0xe9d6ac,
+  bit: 0xc8c8c8, newBag: 0xf4efe0, stack: 0xe9d6ac, cans: 0xb8bec4,
 };
 
 export class PlayerView {

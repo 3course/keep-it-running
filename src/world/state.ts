@@ -6,7 +6,8 @@ import type { PeopleState } from '../people/state.js';
 
 /** What the player can be carrying. One thing at a time. */
 export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle' | 'debris'
-  | 'bit' | 'newBag' | 'stack'; // a bit (or collet) from the rack, a new extractor bag, the finished stack for the ute
+  | 'bit' | 'newBag' | 'stack' // a bit (or collet) from the rack, a new extractor bag, the finished stack for the ute
+  | 'cans';                     // the morning after: empties on their way to the refund bag (w.canCount of them)
 
 /**
  * The physical shed: the things the economy (Game) doesn't model — where you are, what's in your hands,
@@ -21,6 +22,7 @@ export interface WorldState {
   bitFor?: JobTypeId | null; // the board the bit in your hand suits (fixing a dull bit)
   clamps?: number;               // clamps on the sheet on the bed (CONFIG.chore.clamp)
   carryCount?: number;           // finished boards in your arms (carried off the bed together)
+  canCount?: number;             // empties in your arms, the morning after (carrying 'cans')
   extinguisherFrom: Hook | null;   // which hook the carried extinguisher came off
   hooks: { wall: boolean; shed: boolean; exhaust?: boolean }; // extinguishers hanging up (exhaust: once bought)
   /** The bed: empty → sheet placed → clamped → Game loads and cuts → done (or scrap) → unloaded. */
@@ -42,6 +44,8 @@ export interface WorldState {
   tour?: { visited: ObjectId[]; cutStarted: boolean } | null;
   /** Today's finished sheets and the design each was (src/designs), oldest first: the day summary's "Made today". */
   made?: { job: number; design: string }[];
+  /** How many of today's `made` have gone out in a customer's ute (their reactions are for those). */
+  pickedUp?: number;
   /** The people side (src/people/state.ts): the part-timer, knock-off nights, gifts, keepsakes, the morning's cans. */
   people?: PeopleState;
 }
@@ -89,7 +93,7 @@ export function startNewDay(w: WorldState, g: Game) {
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
   w.carrying = null; w.extinguisherFrom = null; w.hooks = { wall: true, shed: true, exhaust: true };
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
-  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = [];
+  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0;
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it
   // a sheet cutting at knock-off was scrapped by Game; it's still lying on the bed
   if (w.bed === 'running') w.bed = 'scrap';

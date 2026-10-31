@@ -11,6 +11,7 @@ const CSS = `
 #kir-hud .talk.you { background: #fff1c9; }
 #kir-hud .talk.phone { background: #dff1ff; border-style: dashed; }
 #kir-hud .talk.dim { opacity: .55; }
+#kir-hud .talk .pic { display: block; width: ${F(150)}; height: auto; margin: 2px auto 4px; border-radius: 6px; background: radial-gradient(circle at 50% 40%, #5a4632, #241f1a 75%); }
 #kir-hud .replies { position: absolute; left: 50%; bottom: calc(${F(18)} + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(92%, ${F(380)});
   display: flex; flex-direction: column; gap: ${F(8)}; z-index: 7; pointer-events: auto; }
 #kir-hud .replies button { position: relative; text-align: left; font: ${F(17)}/1.25 'Courier New', monospace; color: #14110f; background: #fff1c9;
@@ -30,12 +31,12 @@ export class Talk {
   /** Taps anywhere (not on a reply) hurry the current line along. */
   onTap: (() => void) | null = null;
 
-  constructor(private parent: HTMLElement) {
+  constructor(private parent: HTMLElement, readonly cls = '') {
     if (!document.getElementById('kir-talk-css')) {
       const s = document.createElement('style'); s.id = 'kir-talk-css'; s.textContent = CSS; document.head.appendChild(s);
     }
     this.replies = document.createElement('div');
-    this.replies.className = 'replies';
+    this.replies.className = `replies ${this.cls}`;
     this.replies.style.display = 'none';
     for (const t of ['pointerdown', 'pointerup', 'click'] as const) this.replies.addEventListener(t, e => e.stopPropagation());
     parent.appendChild(this.replies);
@@ -43,15 +44,15 @@ export class Talk {
   }
 
   /** Put `text` over `who` (an id; one bubble each). `name`: shown small above it. */
-  say(who: string, name: string, text: string, kind: '' | 'you' | 'phone' = '') {
+  say(who: string, name: string, text: string, kind: '' | 'you' | 'phone' = '', img?: string | null) {
     let b = this.bubbles.get(who);
-    if (!b) { b = document.createElement('div'); b.className = 'talk'; this.parent.appendChild(b); this.bubbles.set(who, b); }
-    b.className = `talk ${kind}`;
+    if (!b) { b = document.createElement('div'); this.parent.appendChild(b); this.bubbles.set(who, b); }
+    b.className = `talk ${kind} ${this.cls}`;
     b.dataset.who = who;
-    b.innerHTML = `<span class="nm">${esc(name)}</span>${esc(text)}`;
+    b.innerHTML = `<span class="nm">${esc(name)}</span>${img ? `<img class="pic" alt="" src="${img}">` : ''}${esc(text)}`;
     b.style.display = 'block';
-    // one voice at a time: the others' bubbles go
-    for (const [k, o] of this.bubbles) if (k !== who) o.style.display = 'none';
+    // one voice at a time: the others' bubbles go (by day, people talk over each other: leave them)
+    if (!this.cls) for (const [k, o] of this.bubbles) if (k !== who) o.style.display = 'none';
   }
 
   /** Follow a speaker on screen (CSS px of the top of their head). Off screen: hide. */

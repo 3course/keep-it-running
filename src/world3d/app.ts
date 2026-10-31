@@ -34,9 +34,15 @@ import { Reveal } from './reveal.js';
 import { bedScale } from './piece.js';
 import { JobCard } from '../ui/jobCard.js';
 import { designById, designForJob, type Design } from '../designs/index.js';
-import type { MadeEntry } from '../ui/summary.js';
+import type { DayPeople, MadeEntry } from '../ui/summary.js';
+import { friendById } from '../people/friends.js';
+import type { FriendId } from '../people/dialogue/types.js';
 import type { Job } from '../sim/types.js';
 import { KnockOff } from './knockoff.js';
+import { Tracing } from './tracing.js';
+import { PeopleDay } from './peopleDay.js';
+import { Gratitude } from './gratitude.js';
+import { BAG_SPOT } from '../world/cans.js';
 import { Sfx } from './sfx.js';
 import type { DayFacts } from '../people/night.js';
 import { people } from '../people/state.js';
@@ -163,6 +169,14 @@ export class World3D {
   private skipEl!: HTMLDivElement;
   /** Knock-off beers at 5 (public for tests). */
   knockoff!: KnockOff;
+  /** After-hours tracing at the router (public for tests). */
+  tracing!: Tracing;
+  /** The part-timer, customers at pickup, gifts at the door (public for tests). */
+  peopleDay!: PeopleDay;
+  /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
+  gratitude!: Gratitude;
+  /** A morning can (or the refund bag) we're walking over to. */
+  private pendingMorning: { can: number } | { bag: true } | null = null;
   readonly sfx = new Sfx();
   private hemi!: THREE.HemisphereLight;
 
@@ -277,8 +291,9 @@ export class World3D {
     canvas.addEventListener('pointerdown', e => {
       this.ring.unlock(); // audio may only start after a gesture
       this.sfx.unlock();
-      if (this.knockoff.inScene) return; // the bubbles take the taps
       if (this.reveal.active) { this.reveal.skip(); this.skipEl.style.display = 'none'; e.preventDefault(); return; } // a tap skips the reveal, and only that
+      if (this.tracing.active) { canvas.setPointerCapture(e.pointerId); this.tracing.pointer('down', e); return; } // after-hours: your finger's the pencil
+      if (this.knockoff.inScene) return; // the bubbles take the taps
       if (this.paused || this.g.phase !== 'day') return;
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
@@ -288,6 +303,7 @@ export class World3D {
       this.ptr = { id: e.pointerId, x0: L.x, y0: L.y, t0: performance.now(), stickable: true, active: false };
     });
     canvas.addEventListener('pointermove', e => {
+      if (this.tracing.active) { this.tracing.pointer('move', e); return; }
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
       const L = this.hud.toLogical(e.clientX, e.clientY);
@@ -301,6 +317,7 @@ export class World3D {
       }
     });
     const up = (e: PointerEvent) => {
+      if (this.tracing.active) this.tracing.pointer('up', e);
       this.objectHold = false;
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
@@ -364,6 +381,12 @@ export class World3D {
   }
 
   private tap(lx: number, ly: number) {
+    this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
+    const morning = this.gratitude.hit(this.raycaster);
+    if (morning) {
+      const at = 'bag' in morning ? BAG_SPOT : people(this.w).cans.find(c => c.id === morning.can);
+      if (at) { this.player.hop(); this.walkToPoint(at.x, at.z); this.pendingMorning = morning; return; }
+    }
     const can = this.pickCan(lx, ly);
     if (can !== null) {
       const spot = this.w.canSpots![can];
@@ -481,11 +504,16 @@ export class World3D {
     this.updateTrail(dt);
     this.updateViewOffset();
     this.updateCamera(dt);
-    // the knock-off shot takes the camera; then the bubbles are placed by where it really is
+    // the knock-off shot takes the camera, then the bed for an after-hours trace, then a reveal; then the bubbles are
+    // placed by where it really is
     this.knockoff.applyCamera(this.camera, this.camLook, dt);
+    this.tracing.applyCamera(this.camera, dt);
+    if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
     this.camera.updateMatrixWorld();
     this.knockoff.update(dt, this.paused);
-    if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
+    this.tracing.update(this.paused ? 0 : dt);
+    this.peopleDay.update(dt, this.paused || this.knockoff.inScene);
+    this.gratitude.update(people(this.w), this.g.dayIndex);
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'
@@ -554,6 +582,7 @@ export class World3D {
     this.buildDebug();
     this.buildFlashRing();
     this.trail = new Trail(this.scene);
+    this.gratitude = new Gratitude(this.scene, this.tier.detail.textures);
     this.trailPath = null; this.guideFor = null;
     this.canMeshes.clear();
     this.labelSig = '';
@@ -615,7 +644,7 @@ export class World3D {
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
     const week = () => renderWeekSummary(this.hud.showSummary(), g, done);
     if (g.phase === 'weekSummary') { week(); return; }
-    renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday());
+    renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday(), this.dayPeople());
   }
 
   /** Today's finished pieces for the summary's gallery: one entry per design, in the order first made, with its "after". */
@@ -629,6 +658,19 @@ export class World3D {
       else out.set(d.id, { design: d, count: 1, after: this.reveal.thumbnail(this.renderer, d) });
     }
     return [...out.values()];
+  }
+
+  /** The people side of today's summary: last night (if there was one tonight) and what got cut after hours. */
+  dayPeople(): DayPeople {
+    const p = people(this.w), dayIndex = this.g.dayIndex, ln = p.lastNight;
+    const names = (ids: string[]) => ids.map(id => (id === 'you' ? 'You' : friendById(id as FriendId).name)).join(' and ');
+    return {
+      lastNight: ln && ln.dayIndex === dayIndex ? { who: `You and ${names(ln.who)}`, beers: ln.beers, quote: ln.quote, quoteBy: ln.quoteBy } : null,
+      afterHours: p.keepsakes.filter(k => k.dayIndex === dayIndex).map(k => ({
+        design: k.design, count: 1, after: this.reveal.thumbnail(this.renderer, k.design),
+        tag: `${k.suggestedBy === 'you' ? 'Your idea' : `${names([k.suggestedBy])}'s idea`}, ${k.beers} beer${k.beers === 1 ? '' : 's'} deep${k.accuracy < 0.6 ? ', gloriously wonky' : ''}`,
+      })),
+    };
   }
 
   /** A sheet's come off the machine: it goes in today's gallery, and (in the day, unpaused) the reveal plays. */
@@ -653,9 +695,23 @@ export class World3D {
       project: v => this.project(v), setHud: v => this.hud.setHudVisible(v), hidePlayer: () => {},
       lights: { hemi: this.hemi, sun: this.sun, lighting: this.lighting }, sfx: this.sfx,
       facts: () => this.dayFacts(),
-      cut: (design, by, beers, done) => this.afterHoursCut(design, by, beers, done),
+      cut: (design, by, beers, done) => this.tracing.start(design, by, beers, done),
       knockOff: () => { this.g.knockOff(); },
       save: () => this.save(),
+    });
+    const m = this.built.objects.get('machine')!, sheet = m.parts.sheet as THREE.Mesh;
+    const sp = (sheet.geometry as THREE.BoxGeometry).parameters;
+    this.tracing = new Tracing({
+      g: this.g, w: this.w, camera: this.camera, canvas: this.renderer.domElement, scene: this.scene, sheet,
+      bed: { w: sp.width, d: sp.depth, top: sp.height / 2 }, cutView: this.cutView, reveal: this.reveal, talk: this.knockoff.talk,
+      gather: on => this.knockoff.gather(on, m.group), sayAs: (who, text) => this.knockoff.sayAs(who, text), save: () => this.save(),
+      thumb: d => this.reveal.thumbnail(this.renderer, d),
+    });
+    this.peopleDay?.dispose();
+    this.peopleDay = new PeopleDay({
+      scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, walkable: this.walkable,
+      project: v => this.project(v), player: () => this.pos, sfx: this.sfx, thumb: d => this.reveal.thumbnail(this.renderer, d),
+      ute: () => (this.built.vehicles.ute.visible ? this.built.vehicles.ute.position : null), save: () => this.save(),
     });
   }
 
@@ -679,8 +735,6 @@ export class World3D {
     return p.fullTime || (PEOPLE.partTimer.days as readonly number[]).includes(this.g.day);
   }
 
-  /** The after-hours cut (tracing): placeholder until the tracing view exists. */
-  afterHoursCut(_design: string, _by: string, _beers: number, done: (accuracy: number) => void) { done(0.6); }
 
   /** Keep the physical shed in step with what the economy just did. */
   private syncWorld() {
@@ -822,6 +876,7 @@ export class World3D {
     if (r.hitZ) this.vel.z *= 0.3;
     this.pos.x = r.x; this.pos.z = r.z;
 
+    if (!frozen && this.pendingMorning) this.morningArrive();
     if (!frozen && this.pendingCan !== null) {
       const spot = this.w.canSpots?.[this.pendingCan];
       if (!spot) this.pendingCan = null;
@@ -870,7 +925,35 @@ export class World3D {
     return { x: dx / d * s, z: dz / d * s };
   }
 
-  private stopWalking() { this.path = null; this.pending = null; this.pendingCan = null; }
+  private stopWalking() { this.path = null; this.pending = null; this.pendingCan = null; this.pendingMorning = null; }
+
+  /** Beside a morning can (pick it up, a few at a time) or the refund bag (in they go; a full bag's the deposit back). */
+  private morningArrive() {
+    const m = this.pendingMorning!, p = people(this.w), w = this.w;
+    const at = 'bag' in m ? BAG_SPOT : p.cans.find(c => c.id === m.can);
+    if (!at) { this.pendingMorning = null; return; }
+    const reach = 'spot' in at && at.spot !== 'floor' ? 2.4 : WORLD.interactRange + 0.45; // up on things: reach over
+    if (Math.hypot(at.x - this.pos.x, at.z - this.pos.z) > reach) return;
+    this.stopWalking();
+    if ('bag' in m) {
+      if (w.carrying !== 'cans' || !w.canCount) { this.say('Cans for refund'); return; }
+      p.bagged += w.canCount;
+      logEvent(w, `${w.canCount} can${w.canCount > 1 ? 's' : ''} in the refund bag`);
+      w.carrying = null; w.canCount = 0;
+      while (p.bagged >= PEOPLE.cans.bag) {
+        p.bagged -= PEOPLE.cans.bag;
+        this.g.refundCans(PEOPLE.cans.bag);
+        logEvent(w, `Full bag of cans: $${(PEOPLE.cans.bag * CONFIG.beer.canRefund).toFixed(2)} back`);
+      }
+      this.player.hop();
+    } else {
+      if (w.carrying !== null && !(w.carrying === 'cans' && (w.canCount ?? 0) < PEOPLE.cans.carry)) { this.say('Hands full'); return; }
+      p.cans = p.cans.filter(c => c.id !== m.can);
+      w.carrying = 'cans'; w.canCount = (w.canCount ?? 0) + 1;
+      this.player.hop();
+    }
+    this.save();
+  }
   /** Top walking speed now: beer and a full bladder both slow you down. */
   private get maxSpeed() { return WORLD.maxSpeed * this.g.walkMult() * (this.inOffcuts() ? WORLD.offcutPileWalkMult : 1); }
   /** Wading through a spilled heap of offcuts round the bin. */
@@ -1023,7 +1106,9 @@ export class World3D {
     // the customer's ute, when you've carried the stack out to it
     const ute = this.built.vehicles.ute;
     if (live && ute.visible && w.carrying === 'stack' && Math.hypot(ute.position.x - this.pos.x, ute.position.z - this.pos.z) <= WORLD.uteReach) {
-      entries.push({ id: 'ute', anchor: new THREE.Vector3(ute.position.x, 1.9, ute.position.z), acts: uteActions(g, w), status: null });
+      // handing the stack over: the customer sees what they got
+      const acts = uteActions(g, w).map(a => ({ ...a, run: (c?: number) => { const n = w.finishedStack; const r = a.run?.(c); this.peopleDay.pickup(n); return r; } }));
+      entries.push({ id: 'ute', anchor: new THREE.Vector3(ute.position.x, 1.9, ute.position.z), acts, status: null });
     }
     const shown = entries.filter(e => e.acts.length || e.status);
     const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => [a.label, !!a.highlight]), e.status, g.spraying]));
@@ -1113,11 +1198,12 @@ export class World3D {
     // machine bed
     const m = o('machine'), mp = m.parts;
     const onBed = w.bed !== 'empty';
-    mp.sheet.visible = onBed || this.reveal.active; // the cut sheet stays put while the piece lifts out of it
+    mp.sheet.visible = onBed || this.reveal.active || this.tracing.showSheet; // the cut sheet stays put while the piece lifts out of it
     if (this.looks) {
       // the sheet on the bed looks like what it is: formply, MDF or acrylic (or ruined)
       const job = g.current ?? (g.inHand !== null ? g.jobs.find(j => j.id === g.inHand) : undefined) ?? g.nextUp();
-      (mp.sheet as THREE.Mesh).material = w.bed === 'scrap' ? this.looks.scrap : job ? this.looks.byType[job.type] : this.looks.plywood;
+      (mp.sheet as THREE.Mesh).material = this.tracing.active ? this.looks.byType[this.tracing.sheetType]
+        : w.bed === 'scrap' ? this.looks.scrap : job ? this.looks.byType[job.type] : this.looks.plywood;
     } else ((mp.sheet as THREE.Mesh).material as THREE.MeshToonMaterial).color.setHex(w.bed === 'scrap' ? 0x9a5a4a : 0xd6bc8a);
     // the clamps that went on (all four once it's clamped), the finished boards piled at the end
     const clampsOn = w.bed === 'clamped' ? 4 : w.bed === 'placed' || w.bed === 'running' || w.bed === 'scrap' ? (w.clamps ?? 4) : w.bed === 'done' ? 4 : 0;
@@ -1132,12 +1218,14 @@ export class World3D {
     mp.cut.visible = false;
     const pathT = this.updateCutPath(dt);
     const head = mp.gantry.children[1];
-    const running = pathT !== null && w.bed === 'running';
+    const running = pathT !== null && (w.bed === 'running' || this.tracing.cutting);
     const k = Math.min(1, (running ? 14 : 4) * dt);
     // parked off the end of the bed while the piece lifts out, so it isn't in the shot
     const gx = running ? this.cutView.head.x : this.reveal.active ? this.cutView.bedW / 2 + 0.05 : 0;
     mp.gantry.position.x += (gx - mp.gantry.position.x) * (this.reveal.active ? Math.min(1, 10 * dt) : k);
     mp.gantry.position.z = 0;
+    // tracing from above: the beam and legs would hide the sheet; the spindle head stays to follow the cut
+    mp.gantry.children.forEach((c, i) => { c.visible = i === 1 || !this.tracing.active; });
     head.position.z += ((running ? this.cutView.head.y + mp.sheet.position.z : 0) - head.position.z) * k;
     mp.light.visible = !!g.fault && Math.sin(this.time * 9) > 0;
 
@@ -1264,6 +1352,7 @@ export class World3D {
   /** The toolpath for the sheet on the bed, cut up to where the job's got (smooth between game minutes). Null: no path showing. */
   private updateCutPath(_dt: number): number | null {
     const g = this.g, w = this.w;
+    if (this.tracing.active) return this.tracing.cutting ? 1 : null; // the after-hours trace drives the path itself
     if (this.reveal.active) { this.cutView.update(1); return 1; }
     const job = (w.bed === 'running' || w.bed === 'done' || w.bed === 'scrap') && w.bedJobId !== null ? g.jobs.find(j => j.id === w.bedJobId) : undefined;
     this.cutView.set(job ? designForJob(job) : null);

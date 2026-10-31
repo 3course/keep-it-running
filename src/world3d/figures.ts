@@ -40,6 +40,8 @@ export class Figure {
   /** Seconds of talking left: the mouth moves. */
   talking = 0;
   walking = false;
+  /** Carrying something in both arms (boards). */
+  armsUp = false;
 
   constructor(look: FigureLook) {
     const skin = look.skin ?? 0xf0c9a0;
@@ -181,6 +183,7 @@ export class Figure {
     if (this.expr === 'animated') { armL = -0.6 - Math.abs(Math.sin(this.t * 5)) * 0.8; armLz = -0.5; }
     if (this.expr === 'thoughtful' && !this.idle) { armL = -1.9; armLz = 0.75; headYaw += 0.15; }   // hand to chin
     if (this.expr === 'misty') headPitch += 0.12;
+    if (this.armsUp) { armR = -1.3; armL = -1.3; armRz = 0.05; armLz = -0.05; }
     const s = Math.min(1, dt * 10);
     this.body.rotation.x += (lean - this.body.rotation.x) * s;
     this.head.rotation.y += (headYaw - this.head.rotation.y) * s;

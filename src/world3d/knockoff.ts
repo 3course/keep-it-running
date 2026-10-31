@@ -88,6 +88,8 @@ export class KnockOff {
   private base: { sky: THREE.Color | null; hemi: number; sun: number; hemiColour: THREE.Color } | null = null;
   private walkIn: { fig: Figure; t: number } | null = null;
   private endAt = 0;
+  /** The fluoro over the router flicks on for an after-hours cut. */
+  private workLight = false;
 
   constructor(private d: KnockOffDeps) {
     this.talk = new Talk(d.talkParent);
@@ -248,7 +250,7 @@ export class KnockOff {
     // the light going: fluoros off from the start, the sky darkening by turn, the fridge taking over by ~8
     const n = this.night;
     if (n) {
-      const want = Math.min(1, (n.turn + 1) / 8);
+      const want = Math.min(1, (n.turn + 1) / 8) * (this.workLight ? 0.45 : 1);
       this.dusk += (want - this.dusk) * Math.min(1, dt * 0.6);
       this.applyLight(this.dusk);
       // the street: a tram now and then, a dog somewhere
@@ -352,6 +354,38 @@ export class KnockOff {
     this.d.setHud(true);
     this.d.save();
     this.d.knockOff();
+  }
+
+  // ---------- after hours ----------
+
+  /** Everyone up off the crates and round the router's bed (or back down). `machine`: the machine's group. */
+  gather(atRouter: boolean, machine: THREE.Object3D) {
+    this.weightTo = atRouter ? 0 : 1;          // the trace has its own shot
+    this.workLight = atRouter;
+    const ids = [...this.figures.keys()];
+    if (atRouter) {
+      // along the near (south) edge of the bed, looking at it
+      const c = machine.localToWorld(new THREE.Vector3(0, 0, 0)), box = new THREE.Box3().setFromObject(machine);
+      ids.forEach((id, i) => {
+        const f = this.figures.get(id)!;
+        f.setSeated(false);
+        f.root.position.set(c.x - 0.7 + i * 0.7, 0, box.max.z + 0.35);
+        f.root.rotation.y = 0;
+      });
+    } else {
+      const spots: Record<string, THREE.Vector3> = { you: SPOT.you };
+      if (this.night) { spots[this.night.host] = SPOT.host; if (this.night.guest) spots[this.night.guest] = SPOT.guest; }
+      for (const id of ids) { const f = this.figures.get(id)!; f.setSeated(true); f.root.position.copy(spots[id] ?? SPOT.guest); }
+      this.frame(!!this.night?.guest);
+    }
+  }
+
+  /** A mate's line (the tracing's running commentary). */
+  sayAs(who: FriendId, text: string) {
+    const n = this.night;
+    this.talk.say(who, friendById(who).name, n ? slur(text, n.beers, `${n.turn}|${text.length}`) : text);
+    const f = this.figures.get(who);
+    if (f) { f.talking = 1.3; f.setExpr(/wonk|wobbl|champ/i.test(text) ? 'laughing' : 'animated'); }
   }
 
   // ---------- bits ----------

@@ -36,6 +36,12 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     else add(true, 'ply-unload', `Unload the ply (${truck.bundles.length} bundle${truck.bundles.length > 1 ? 's' : ''} left)`, 'rollerDoor');
   }
 
+  // the morning after: a can on the router bed holds up the first cut; the rest want bagging for the refund
+  const cans = w.people?.cans ?? [];
+  if (cans.some(c => c.spot === 'bed')) add(true, 'bedcan', 'Can on the router bed from last night', 'machine');
+  if (w.carrying === 'cans') add(true, 'cans-bag', `Cans in the refund bag by the roller door (${w.canCount ?? 0} in hand)`, 'fridge');
+  else if (cans.length) add(false, 'cans', `Last night's empties: ${cans.length} about the place (tap one)`, 'fridge');
+
   // first day: the walk-round comes first, in order
   if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);
 
