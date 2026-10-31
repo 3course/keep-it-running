@@ -44,4 +44,4 @@ export function scatterCans(p: PeopleState, beersDrunk: number, dayIndex: number
 }
 
 /** A can on the router bed: no sheet goes on until it's off. */
-export const canOnBed = (p: PeopleState | undefined) => !!p?.cans.some(c => c.spot === 'bed');
+export const canOnBed = (p: PeopleState | undefined) => !!p?.cans.some(c => c.spot === 'bed') || p?.oddObject === 'crateOnBed';

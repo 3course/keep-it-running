@@ -665,7 +665,7 @@ export class World3D {
     const p = people(this.w), dayIndex = this.g.dayIndex, ln = p.lastNight;
     const names = (ids: string[]) => ids.map(id => (id === 'you' ? 'You' : friendById(id as FriendId).name)).join(' and ');
     return {
-      lastNight: ln && ln.dayIndex === dayIndex ? { who: `You and ${names(ln.who)}`, beers: ln.beers, quote: ln.quote, quoteBy: ln.quoteBy } : null,
+      lastNight: ln && ln.dayIndex === dayIndex ? { who: `You and ${names(ln.who)}`, beers: ln.beers, quote: ln.quote, quoteBy: ln.quoteBy, dontAsk: !!ln.lsg } : null,
       afterHours: p.keepsakes.filter(k => k.dayIndex === dayIndex).map(k => ({
         design: k.design, count: 1, after: this.reveal.thumbnail(this.renderer, k.design),
         tag: `${k.suggestedBy === 'you' ? 'Your idea' : `${names([k.suggestedBy])}'s idea`}, ${k.beers} beer${k.beers === 1 ? '' : 's'} deep${k.accuracy < 0.6 ? ', gloriously wonky' : ''}`,
@@ -698,6 +698,8 @@ export class World3D {
       cut: (design, by, beers, done) => this.tracing.start(design, by, beers, done),
       knockOff: () => { this.g.knockOff(); },
       save: () => this.save(),
+      canvas: this.renderer.domElement, rich: this.tier.detail.particles > 0 && !!this.tier.detail.lighting,
+      designs: () => [...new Set((this.w.made ?? []).map(m => m.design))],
     });
     const m = this.built.objects.get('machine')!, sheet = m.parts.sheet as THREE.Mesh;
     const sp = (sheet.geometry as THREE.BoxGeometry).parameters;

@@ -71,6 +71,20 @@ export class Sfx {
     const g = r.ctx.createGain(); this.env(g, t, 0.25, 0.15, 1.1); n.connect(bp).connect(g).connect(r.out); n.start(t);
   }
 
+  /** A laugh: each person's own pitch and rhythm (a few short voiced syllables through a vowel filter). */
+  laugh(who: string) {
+    const r = this.ready(); if (!r) return;
+    const v = ({ eggby: { f: 120, n: 3, gap: 0.16 }, courtney: { f: 260, n: 6, gap: 0.09 }, tim: { f: 165, n: 4, gap: 0.12 } } as Record<string, { f: number; n: number; gap: number }>)[who] ?? { f: 200, n: 4, gap: 0.11 };
+    const t = r.ctx.currentTime;
+    for (let i = 0; i < v.n; i++) {
+      const at = t + i * v.gap, o = r.ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(v.f * (1.15 - i * 0.04 + Math.random() * 0.06), at); o.frequency.exponentialRampToValueAtTime(v.f * 0.85, at + v.gap * 0.8);
+      const bp = r.ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 900; bp.Q.value = 3;
+      const g = r.ctx.createGain(); this.env(g, at, 0.12, 0.01, v.gap * 0.7);
+      o.connect(bp).connect(g).connect(r.out); o.start(at); o.stop(at + v.gap);
+    }
+  }
+
   /** Someone's put music on: a loose, warm little loop (louder on group nights). */
   startMusic(loud = false) {
     const r = this.ready(); if (!r || this.music) return;

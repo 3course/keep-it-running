@@ -19,6 +19,7 @@ import { Figure, type FigureLook } from './figures.js';
 import type { ShedLighting } from './lighting.js';
 import type { Sfx } from './sfx.js';
 import { boxAt, toon } from './build.js';
+import { LsgVignette } from './lsg.js';
 
 /** How each mate looks up close (their shirt is the one they always wear: src/data/mates.ts). */
 const LOOKS: Record<FriendId, Omit<FigureLook, 'shirt'>> = {
@@ -56,9 +57,14 @@ export interface KnockOffDeps {
   cut: (design: string, by: FriendId, beers: number, done: (accuracy: number) => void) => void;
   knockOff: () => void;
   save: () => void;
+  canvas: HTMLCanvasElement;
+  /** Post-processing allowed (the rare late one's soft, saturated picture). */
+  rich: boolean;
+  /** Today's pieces (design ids). */
+  designs: () => string[];
 }
 
-type Mode = 'off' | 'door' | 'leaving' | 'night' | 'ending' | 'cutting';
+type Mode = 'off' | 'door' | 'leaving' | 'night' | 'ending' | 'cutting' | 'lsg';
 
 export class KnockOff {
   mode: Mode = 'off';
@@ -117,11 +123,17 @@ export class KnockOff {
     }
     this.set.visible = false;
     d.scene.add(this.set);
+    this.lsg = new LsgVignette({ scene: d.scene, canvas: d.canvas, parent: d.talkParent, talk: this.talk, sfx: d.sfx, rich: d.rich,
+      fridgeLight: this.fridgeLight, figures: this.figures, project: d.project, designs: d.designs });
   }
 
   get active() { return this.mode !== 'off'; }
   /** The scene owns the camera and the player (no walking, no labels). */
-  get inScene() { return this.mode === 'night' || this.mode === 'ending' || this.mode === 'cutting'; }
+  get inScene() { return this.mode === 'night' || this.mode === 'ending' || this.mode === 'cutting' || this.mode === 'lsg'; }
+  /** Tests: offer the rare late one as soon as it's allowed. */
+  forceLsg = false;
+  /** The rare late one (public for tests). */
+  lsg!: LsgVignette;
 
   // ---------- 5pm ----------
 
@@ -162,7 +174,7 @@ export class KnockOff {
     host.setSeated(true); host.root.position.copy(SPOT.host); host.setExpr('relaxed');
     const you = this.figure('you', YOU);
     you.root.position.copy(SPOT.you);
-    this.night = new Night({ dayIndex: g.dayIndex, host: id, facts: this.d.facts(), people: people(w) });
+    this.night = new Night({ dayIndex: g.dayIndex, host: id, facts: this.d.facts(), people: people(w), forceLsg: this.forceLsg });
     this.mode = 'night';
     this.base = { sky: (this.d.scene.background as THREE.Color | null)?.clone() ?? null, hemi: this.d.lights.hemi.intensity, sun: this.d.lights.sun.intensity, hemiColour: this.d.lights.hemi.color.clone() };
     this.frame(false);
@@ -199,6 +211,12 @@ export class KnockOff {
     }
     const t = this.turnShown!;
     if (t.event?.kind === 'cut') { this.startCut(t.event.design, t.event.by); return; }
+    if (t.event?.kind === 'lsg') {
+      this.mode = 'lsg';
+      this.talk.hush();
+      this.lsg.start(() => { this.mode = 'night'; n.lsgDone(); this.showTurn(n.turnNow); });
+      return;
+    }
     if (n.over) { this.mode = 'ending'; this.endAt = this.t + 1.4; return; }
     const opts = t.options.map(o => ({ text: slur(o.text, n.beers, `${this.d.g.dayIndex}|${n.turn}|o${o.text.length}`), cls: o.kind === 'call' ? 'call' : o.kind === 'wind' ? 'wind' : '' }));
     this.talk.ask(opts, i => { n.choose(i); this.showTurn(n.turnNow); });
@@ -259,6 +277,7 @@ export class KnockOff {
       if (this.ambient.dog <= 0) { this.d.sfx.dog(); this.ambient.dog = 28 + Math.random() * 30; }
     }
     (this.radio.material as THREE.MeshToonMaterial).emissive?.setHex(this.d.sfx.musicOn ? 0x553311 : 0);
+    if (this.mode === 'lsg') { this.lsg.update(dt); return; }
     if (this.mode === 'cutting') return;
     // lines
     if (this.mode === 'night' && !this.talk.asking) {
@@ -340,6 +359,7 @@ export class KnockOff {
     }
     if (!hadNight && this.friend) people(w).lastFriend = this.friend;
     this.d.sfx.stopMusic();
+    if (this.lsg.active) this.lsg.abort();
     this.restoreLight();
     this.talk.clear();
     for (const f of this.figures.values()) this.set.remove(f.root);

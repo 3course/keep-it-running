@@ -7,6 +7,8 @@ import { FRIENDS, friendById } from './friends.js';
 import { SCRIPTS, THREADS, TOPICS, BIG_IDEAS } from './dialogue/index.js';
 import type { BigIdeaId, Expr, Fact, FriendId, Line, Node, Reply, Thread, TopicId } from './dialogue/types.js';
 import type { PeopleState } from './state.js';
+import { CONFIG } from '../config.js';
+import { COME_DOWN, LSG_DECLINED, LSG_NO, LSG_OFFER, LSG_YES } from './dialogue/lsg.js';
 
 /** What happened today, for the templates. */
 export interface DayFacts {
@@ -20,17 +22,18 @@ export interface DayFacts {
   keepsake: string | null; // the last thing cut after hours
 }
 
-export interface NightContext { dayIndex: number; host: FriendId; facts: DayFacts; people: PeopleState }
+export interface NightContext { dayIndex: number; host: FriendId; facts: DayFacts; people: PeopleState; /** Tests: offer the rare one when eligible. */ forceLsg?: boolean }
 
 export type Who = FriendId | 'you';
 export interface Said { who: Who; name: string; text: string; expr: Expr; phone?: boolean }
-export type ReplyKind = 'reply' | 'call' | 'wind' | 'yes' | 'no';
+export type ReplyKind = 'reply' | 'call' | 'wind' | 'yes' | 'no' | 'lsg';
 export interface Option { text: string; kind: ReplyKind; call?: FriendId }
 export interface Turn {
   lines: Said[];
   options: Option[];
   /** Something for the view to do as this turn shows. */
-  event?: { kind: 'arrive'; who: FriendId } | { kind: 'music' } | { kind: 'cut'; design: string; by: FriendId } | { kind: 'end' } | { kind: 'crack' };
+  event?: { kind: 'arrive'; who: FriendId } | { kind: 'music' } | { kind: 'cut'; design: string; by: FriendId } | { kind: 'end' } | { kind: 'crack' }
+    | { kind: 'lsg'; by: FriendId };
 }
 
 export const TEMPLATE_KEYS = ['host', 'guest', 'eggby', 'courtney', 'tim', 'absent', 'jess', 'sheets', 'design', 'design2', 'customer', 'gift',
@@ -43,6 +46,8 @@ type State =
   | { kind: 'another'; then: Resume }
   | { kind: 'phone'; who: FriendId; then: Resume }
   | { kind: 'cut'; design: string; by: FriendId; then: Resume }
+  | { kind: 'lsgOffer'; by: FriendId; then: Resume }
+  | { kind: 'lsg' }
   | { kind: 'end' };
 type Resume = { thread: Thread; node: Node } | null;
 
@@ -55,9 +60,15 @@ export class Night {
   musicOn = false;
   /** Threads had tonight (ids). */
   readonly had: string[] = [];
-  topic: TopicId | null = null;
+  /** The night's arguments (up to two: one early, one once it's got deep). */
+  topics: TopicId[] = [];
+  get topic(): TopicId | null { return this.current_topic; }
+  private current_topic: TopicId | null = null;
   idea: BigIdeaId | null = null;
   cut = false;
+  /** The rare one: offered tonight, and taken. */
+  lsgOffered = false;
+  lsg = false;
   /** The best line of the night, for the day summary. */
   quote: { text: string; by: string } | null = null;
   private state: State;
@@ -114,6 +125,20 @@ export class Night {
       this.current = this.build();
       return;
     }
+    if (st.kind === 'lsgOffer') {
+      if (opt.kind === 'lsg') {
+        this.pre.push(this.say('you', LSG_YES));
+        this.lsg = true;
+        this.state = { kind: 'lsg' };
+        this.current = this.build({ kind: 'lsg', by: st.by });
+        return;
+      }
+      this.pre.push(this.say('you', LSG_NO));
+      this.pre.push(this.line(this.pick(LSG_DECLINED, 'lsgno'), st.by === this.host ? 'host' : 'guest'));
+      this.resume(st.then);
+      this.current = this.build(event);
+      return;
+    }
     if (st.kind === 'phone') {
       this.calling = { who: st.who, at: this.turn + PEOPLE.night.arriveAfter };
       this.resume(st.then);
@@ -157,6 +182,23 @@ export class Night {
     this.current = this.build(event);
   }
 
+  /** Could the rare one come up now? Roughly one eligible night in two (seeded), once. */
+  private lsgEligible(): boolean {
+    const p = this.ctx.people;
+    if (this.lsgOffered || !this.guest || this.beers < 4 || p.nights < 1) return false;
+    if (p.lsgDay != null && this.ctx.dayIndex - p.lsgDay < CONFIG.week.days) return false;
+    return this.ctx.forceLsg || hash(`${this.ctx.dayIndex}|lsgroll`) % 2 === 0;
+  }
+
+  /** The colours have drained back: a long pause, someone says it, everyone agrees, and it's goodnight. */
+  lsgDone() {
+    if (this.state.kind !== 'lsg') return;
+    for (const l of COME_DOWN) { const s = this.lineOrSkip(l); if (s) { this.pre.push(s); if (l.quote) this.quote = { text: s.text, by: s.name }; } }
+    for (const l of this.pick(SCRIPTS[this.host].windUp, 'wind')) this.pre.push(this.line(l));
+    this.state = { kind: 'end' };
+    this.current = this.build({ kind: 'end' });
+  }
+
   /** The after-hours cut's done: carry on. `accuracy` 0..1. */
   cutDone(accuracy: number) {
     if (this.state.kind !== 'cut') return;
@@ -173,6 +215,18 @@ export class Night {
 
   private resume(r: Resume) {
     if (r) { this.state = { kind: 'thread', ...r }; return; }
+    // the rare one: a group night, past beer 3, not the first night, not twice in a week
+    if (this.lsgEligible()) {
+      this.lsgOffered = true;
+      const by = hash(`${this.ctx.dayIndex}|lsg`) % 2 ? this.host : this.guest!;
+      this.state = { kind: 'lsgOffer', by, then: null };
+      return;
+    }
+    // a topic ending once the night's got deep: one line that turns it sincere, one that gets it back
+    const was = this.state.kind === 'thread' ? this.state.thread : null;
+    if (was?.kind === 'topic' && was.sincere && this.stage === 3) {
+      this.pre.push(this.line(was.sincere.turn), this.line(was.sincere.recover));
+    }
     const t = this.nextThread();
     if (!t) { this.state = { kind: 'thread', thread: FALLBACK, node: FALLBACK.nodes[0] }; return; }
     this.had.push(t.id);
@@ -194,12 +248,14 @@ export class Night {
         if (t) { this.idea = id; this.ideaWith = [...this.present]; return t; }
       }
     }
-    // one argument a night, the one least recently had
-    if (!this.topic && this.turn >= 2 && stage <= 2) {
-      const order = (Object.keys(TOPICS) as TopicId[]).sort((a, b) => p.topicHistory.lastIndexOf(a) - p.topicHistory.lastIndexOf(b));
+    // an argument early on, and another once it's got deep: the ones least recently had, never one from tonight
+    const wantTopic = this.topics.length === 0 ? this.turn >= 2 : this.topics.length === 1 && stage === 3 && this.turn >= n.deepFromTurn + 1;
+    if (wantTopic) {
+      const order = (Object.keys(TOPICS) as TopicId[]).filter(id => !this.topics.includes(id))
+        .sort((a, b) => p.topicHistory.lastIndexOf(a) - p.topicHistory.lastIndexOf(b));
       for (const id of order) {
-        const t = THREADS.find(x => x.kind === 'topic' && x.topic === id && ok(x));
-        if (t) { this.topic = id; return t; }
+        const t = THREADS.find(x => x.kind === 'topic' && x.topic === id && x.stage <= stage && ok(x));
+        if (t) { this.topics.push(id); this.current_topic = id; return t; }
       }
     }
     // an after-hours cut, once a night
@@ -258,10 +314,13 @@ export class Night {
     } else if (st.kind === 'phone') {
       for (const l of SCRIPTS[st.who].phone) { const s = this.line(l, st.who); s.phone = true; lines.push(s); }
       options.push({ text: 'Bring beers.', kind: 'reply' }, { text: 'Get down here, ya goose.', kind: 'reply' });
+    } else if (st.kind === 'lsgOffer') {
+      for (const l of LSG_OFFER[st.by]) lines.push(this.line(l, st.by === this.host ? 'host' : 'guest'));
+      options.push({ text: LSG_YES, kind: 'lsg' }, { text: LSG_NO, kind: 'reply' });
     } else if (st.kind === 'cut') {
       lines.push(this.say('host', this.pick(SCRIPTS[this.host].trace.start, 'tstart'), 'animated'));
     }
-    if (st.kind === 'thread' || st.kind === 'phone' || st.kind === 'another') options.push({ text: 'Wind it up.', kind: 'wind' });
+    if (st.kind === 'thread' || st.kind === 'phone' || st.kind === 'another' || st.kind === 'lsgOffer') options.push({ text: 'Wind it up.', kind: 'wind' });
     if (!this.quote && st.kind === 'end') { const l = lines.find(x => x.who !== 'you'); if (l) this.quote = { text: l.text, by: l.name }; }
     return { lines, options, event };
   }
@@ -319,8 +378,9 @@ export function endNight(n: Night, p: PeopleState, dayIndex: number) {
   p.nights++;
   p.lastFriend = n.host;
   p.usedThreads = [...p.usedThreads.filter(id => !n.had.includes(id)), ...n.had].slice(-200);
-  if (n.topic) p.topicHistory = [...p.topicHistory, n.topic].slice(-20);
+  if (n.topics.length) p.topicHistory = [...p.topicHistory, ...n.topics].slice(-40);
   if (n.idea) { p.ideaHistory = [...p.ideaHistory, n.idea].slice(-20); p.lastIdea = { id: n.idea, with: n.ideaPartners, dayIndex }; }
   const q = n.quote ?? { text: 'Good night, that.', by: friendById(n.host).name };
-  p.lastNight = { dayIndex, who: n.present, beers: n.beers, quote: q.text, quoteBy: q.by, group: !!n.guest };
+  p.lastNight = { dayIndex, who: n.present, beers: n.beers, quote: q.text, quoteBy: q.by, group: !!n.guest, lsg: n.lsg };
+  if (n.lsg) { p.lsgDay = dayIndex; p.oddObject = dayIndex % 2 ? 'crateOnBed' : 'extinguisherInFridge'; }
 }

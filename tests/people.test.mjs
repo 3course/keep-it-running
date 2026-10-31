@@ -118,6 +118,23 @@ describe('the morning after', () => {
   });
 });
 
+describe('the morning after the rare one', () => {
+  it('a milk crate on the router bed has to come off first; the extinguisher comes out of the fridge', async () => {
+    const game = await freshGame(env);
+    await game.eval(async (g, w) => { w.tour = null; w.people ??= (await import(new URL('src/people/state.ts', document.baseURI).href)).newPeople(); w.people.oddObject = 'crateOnBed'; if (g.takeSheet()) w.carrying = 'sheet'; });
+    await walkTo(game, 'machine');
+    assert.ok(!(await game.eval((g, w, s) => s.labelScreens().map(l => l.text))).includes('Load sheet'));
+    await game.eval((g, w) => { w.carrying = null; });
+    await tapLabel(game, 'Lift the milk crate off the bed');
+    assert.equal(await game.eval((g, w) => w.people.oddObject), null);
+    await game.eval((g, w) => { w.people.oddObject = 'extinguisherInFridge'; });
+    await walkTo(game, 'fridge');
+    await tapLabel(game, 'Get the extinguisher out of the fridge');
+    assert.equal(await game.eval((g, w) => w.people.oddObject), null);
+    await game.close();
+  });
+});
+
 describe('after hours', () => {
   it('a traced idea is cut from your path, kept in the shed, and in the summary under After hours', async () => {
     const game = await freshGame(env);

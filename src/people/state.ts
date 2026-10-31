@@ -27,7 +27,7 @@ export interface Keepsake {
 
 export interface MorningCan { id: number; spot: string; x: number; y: number; z: number }
 
-export interface LastNight { dayIndex: number; who: FriendId[]; beers: number; quote: string; quoteBy: string; group: boolean }
+export interface LastNight { dayIndex: number; who: FriendId[]; beers: number; quote: string; quoteBy: string; group: boolean; lsg?: boolean }
 
 export interface PeopleState {
   v: 1;
@@ -55,6 +55,10 @@ export interface PeopleState {
   // the morning after
   cans: MorningCan[];
   bagged: number;                 // cans in the refund bag by the door
+  /** The night someone had "LSG" in their wallet (it's at most once a week). */
+  lsgDay?: number | null;
+  /** The morning after that: one odd thing somewhere silly. */
+  oddObject?: 'crateOnBed' | 'extinguisherInFridge' | null;
 }
 
 export function newPeople(): PeopleState {

@@ -13,7 +13,7 @@ export interface MadeEntry { design: Design; count: number; after: string | null
 
 /** The people side of the day, for the summary: last night and what got cut after hours. */
 export interface DayPeople {
-  lastNight: { who: string; beers: number; quote: string; quoteBy: string } | null;
+  lastNight: { who: string; beers: number; quote: string; quoteBy: string; dontAsk?: boolean } | null;
   afterHours: MadeEntry[];
 }
 
@@ -124,7 +124,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     <h1>End of day ${d.day}</h1>
     <p class="sub">Cash ${money(g.cash)} · Rapport ${g.rapport}</p>
     ${g.story ? `<p class="story"><b>Story of the day:</b> ${escapeHtml(g.story)}</p>` : ''}
-    ${ppl?.lastNight ? `<p class="story lastnight"><b>Last night:</b> ${escapeHtml(ppl.lastNight.who)}, ${ppl.lastNight.beers} beer${ppl.lastNight.beers === 1 ? '' : 's'} each. “${escapeHtml(ppl.lastNight.quote)}” — ${escapeHtml(ppl.lastNight.quoteBy)}</p>` : ''}
+    ${ppl?.lastNight?.dontAsk ? `<p class="story lastnight"><b>Last night:</b> don't ask.</p>` : ppl?.lastNight ? `<p class="story lastnight"><b>Last night:</b> ${escapeHtml(ppl.lastNight.who)}, ${ppl.lastNight.beers} beer${ppl.lastNight.beers === 1 ? '' : 's'} each. “${escapeHtml(ppl.lastNight.quote)}” — ${escapeHtml(ppl.lastNight.quoteBy)}</p>` : ''}
     <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
     <section><h2>Shop floor</h2>${floor.map(([k, v]) => `<div class="row"><span class="dim">${k}</span><span>${v}</span></div>`).join('')}
       <p class="verdict">${dayVerdict(d)}</p></section>

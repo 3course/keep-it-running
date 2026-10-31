@@ -80,7 +80,10 @@ describe('dialogue data', () => {
     }
   });
 
-  it('topics: each is a 3–6 turn argument', () => {
+  it('topics: each is a 3–6 turn argument, with a stance for every friend and a sincere turn', () => {
+    for (const f of FRIENDS) for (const id of Object.keys(TOPICS)) assert.ok(f.stances[id]?.side, `${f.id} stance on ${id}`);
+    for (const t of THREADS.filter(t => t.kind === 'topic')) assert.ok(t.sincere?.turn && t.sincere?.recover, `${t.id}: sincere turn and recovery`);
+    assert.ok(THREADS.filter(t => t.kind === 'topic' && t.topic === 'parents').every(t => t.stage === 3), 'parents: late in the arc only');
     for (const id of Object.keys(TOPICS)) {
       const ts = THREADS.filter(t => t.kind === 'topic' && t.topic === id);
       assert.ok(ts.length >= 1, `topic ${id}`);
@@ -121,6 +124,8 @@ describe('nights, played through', () => {
           for (const o of t.options) assert.doesNotMatch(o.text, /\{\w+\}/, `loose template: ${o.text}`);
           // the after-hours cut takes over (tracing): no replies until it's done
           if (t.event?.kind === 'cut') { assert.equal(t.options.length, 0); n.cutDone(0.6); continue; }
+          // the rare late one takes over too; when it's done, the night winds itself up
+          if (t.event?.kind === 'lsg') { assert.equal(t.options.length, 0); assert.ok(n.guest && n.beers >= 4, 'group nights after beer 3 only'); n.lsgDone(); continue; }
           assert.ok(t.options.length >= 2 || n.over, 'options');
           maxStage = Math.max(maxStage, n.stage);
           // keep going till late, ring someone once, say yes to another one mostly
@@ -138,9 +143,45 @@ describe('nights, played through', () => {
         assert.equal(maxStage, 3, 'got to the big stuff');
         endNight(n, p, day * 2);
         assert.ok(p.lastNight.quote.length > 0);
-        if (n.topic) topics.push(n.topic);
+        topics.push(...n.topics);
       }
       assert.equal(new Set(topics).size, topics.length, `no argument twice in five nights: ${topics}`);
+      assert.ok(topics.length >= 5, `an argument (or two) every night: ${topics}`);
     });
   }
+});
+
+describe('the rare late one', () => {
+  const facts = { sheets: 3, late: 0, scrapped: 0, fires: 0, designs: [], customers: [], gift: null, jess: 'Jess', jessIn: false, fullTimeToday: false, keepsake: null };
+  /** Play a night, ringing someone and saying yes to every "another one", until it's offered (or 40 turns). */
+  function play(p, dayIndex, take) {
+    const n = new Night({ dayIndex, host: 'tim', facts, people: p, forceLsg: true });
+    for (let i = 0; i < 40 && !n.over; i++) {
+      const t = n.turnNow;
+      if (t.event?.kind === 'cut') { n.cutDone(0.5); continue; }
+      if (t.event?.kind === 'lsg') { n.lsgDone(); continue; }
+      const lsg = t.options.findIndex(o => o.kind === 'lsg');
+      if (lsg >= 0) { n.choose(take ? lsg : lsg + 1); continue; }
+      const yes = t.options.findIndex(o => o.kind === 'yes'), call = t.options.findIndex(o => o.kind === 'call');
+      n.choose(yes >= 0 ? yes : call >= 0 && !n.guest && !n.calling ? call : 0);
+    }
+    while (!n.over) { const w = n.turnNow.options.findIndex(o => o.kind === 'wind'); if (n.turnNow.event?.kind === 'lsg') n.lsgDone(); else n.choose(w >= 0 ? w : 0); }
+    endNight(n, p, dayIndex);
+    return n;
+  }
+  it('never the first night, only with a mate rung in, past beer 3; declining is just a line', () => {
+    const p = newPeople();
+    assert.equal(play(p, 1, true).lsgOffered, false, 'not the first night');
+    const n = play(p, 2, false);
+    assert.ok(n.lsgOffered && !n.lsg, 'offered, declined');
+    assert.equal(p.lastNight.lsg, false);
+  });
+  it('taken: a night to not ask about, an odd thing somewhere in the morning, and not again that week', () => {
+    const p = newPeople(); p.nights = 3;
+    const n = play(p, 10, true);
+    assert.ok(n.lsg); assert.equal(p.lastNight.lsg, true); assert.ok(p.oddObject);
+    assert.match(n.quote.text, /go home|good night/i);
+    assert.equal(play(p, 12, true).lsgOffered, false, 'not twice in a week');
+    assert.equal(play(p, 15, true).lsgOffered, true, 'a week on, maybe');
+  });
 });

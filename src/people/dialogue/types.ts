@@ -47,7 +47,8 @@ export type ThreadKind = 'shop' | 'life' | 'deep' | 'bigIdea' | 'topic' | 'cut' 
 /** Things that happened today, for shop talk that only makes sense if they did. */
 export type Fact = 'fire' | 'gift' | 'late' | 'pickup' | 'busy' | 'quiet' | 'scrap' | 'jess' | 'fullTime' | 'lastIdea' | 'keepsake';
 
-export type TopicId = 'festival' | 'craftBeer' | 'pubs' | 'suburbs' | 'housePrices';
+export type TopicId = 'festival' | 'craftBeer' | 'pubs' | 'suburbs' | 'housePrices'
+  | 'band' | 'cycling' | 'footy' | 'coffee' | 'bunnings' | 'kids' | 'ferment' | 'uteTarago' | 'aches' | 'wine' | 'radio' | 'parents';
 export type BigIdeaId = 'restaurant' | 'foodTruck' | 'podcast' | 'boat' | 'brewery' | 'castlemaine';
 
 export interface Thread {
@@ -62,6 +63,11 @@ export interface Thread {
   bigIdea?: BigIdeaId;
   /** kind 'cut': the design the friend's suggesting (src/designs, afterHours), or 'freehand'. */
   cut?: string;
+  /**
+   * Topics: when the night's already at the big stuff (stage 3), the thread ends on one line that turns it sincere
+   * ("I miss making something that wasn't for a customer") and one that recovers with a joke.
+   */
+  sincere?: { turn: Line; recover: Line };
   /** Only once the friend you called is here (group threads). */
   group?: boolean;
   /** nodes[0] is where it starts. */

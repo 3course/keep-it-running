@@ -43,7 +43,7 @@ export class Gratitude {
   /** Bring the shed in line with the people state. */
   update(p: PeopleState, dayIndex: number) {
     const sig = JSON.stringify([p.gifts.map(g => [g.kind, g.slot, g.dayIndex === dayIndex || isKeep(g)]), p.keepsakes.map(k => k.design.id), p.cans.map(c => c.id),
-      Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab), Math.floor(p.bagged / 2)]);
+      Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab), Math.floor(p.bagged / 2), p.oddObject ?? '']);
     if (sig === this.sig) return;
     this.sig = sig;
     this.clear();
@@ -52,6 +52,18 @@ export class Gratitude {
     this.buildGifts(p.gifts, dayIndex);
     this.buildSlabs(Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab));
     this.buildKeepsakes(p.keepsakes);
+    this.buildOdd(p.oddObject ?? null);
+  }
+
+  /** The morning after the rare late one: a milk crate on the router bed, or the extinguisher in the fridge. */
+  private buildOdd(odd: PeopleState['oddObject']) {
+    if (odd === 'crateOnBed') {
+      const c = boxAt(0.42, 0.36, 0.42, toon(0xe0b030), 7.3, 0.77, 12.1); c.rotation.y = 0.4; this.group.add(c);
+    } else if (odd === 'extinguisherInFridge') {
+      const ext = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.45, 10), toon(0xc0281e)); ext.position.set(13.92, 0.5, 18.0); ext.rotation.z = 0.5;
+      const door = boxAt(0.04, 0.8, 0.9, 0xe4e4e0, 13.7, 0.05, 18.35); door.rotation.y = -0.9; // left open
+      this.group.add(ext, door);
+    }
   }
 
   private clear() {

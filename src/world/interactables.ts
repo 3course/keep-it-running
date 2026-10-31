@@ -99,6 +99,8 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         w.people!.cans = w.people!.cans.filter(c => c !== bedCan);
         w.carrying = 'cans'; w.canCount = (w.canCount ?? 0) + 1;
       } });
+      // …and after the rare late one, a milk crate's somehow up there
+      if (w.people?.oddObject === 'crateOnBed' && empty) a.push({ label: 'Lift the milk crate off the bed', key: 'oddcrate', done: 'Milk crate off the bed. No idea.', run: () => { w.people!.oddObject = null; } });
       if (w.bed === 'empty' && w.carrying === 'sheet' && !g.bedFull && !canOnBed(w.people)) a.push({ label: 'Load sheet', done: 'Sheet on the bed', run: () => { w.bed = 'placed'; w.carrying = null; w.clamps = 0; } });
       // four clamps, a tap each; stop short and the sheet may shift mid-cut
       if (w.bed === 'placed') a.push({ label: 'Clamp', key: 'clamp', gesture: { kind: 'taps', icon: '🗜️', n: clamps - on }, onTap: n => { w.clamps = on + n; },
@@ -242,6 +244,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'desk':
       return g.canAct ? [{ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() }] : [];
     case 'fridge':
+      if (w.people?.oddObject === 'extinguisherInFridge' && empty) return [{ label: 'Get the extinguisher out of the fridge', key: 'oddext', done: 'Extinguisher back on the wall. Cold.', run: () => { w.people!.oddObject = null; } }];
       return g.fridgeOpen && g.canAct && !g.heldCan ? [{ label: `Beer (${money(CONFIG.beer.cost)})`, auto: false, done: 'Cracked a beer', run: () => { if (!g.buyBeer()) return 'Fridge is shut'; } }] : [];
     case 'toilet':
       // only once there's a reason to go
