@@ -190,6 +190,9 @@ export interface MilestoneState {
 }
 export type MilestoneId = 'sparkArrestor' | 'secondBitRack';
 
+/** Someone at the roller door with a small job (Game.walkIns). Which design it is is the world's business. */
+export interface WalkIn { id: number; minute: number; status: 'waiting' | 'served' | 'left'; paid: number }
+
 export interface DayStats {
   day: number;
   revenue: number;
@@ -229,6 +232,7 @@ export interface DayStats {
   sheetsShifted: number;   // ruined: clamps left off
   sheetsLifted: number;    // ruined: the compressor wasn't drained
   choreBoards: number;     // what those ruined boards cost
+  walkInCount: number;     // walk-ins served (paid at close)
   walkIns: number;         // the counter's walk-ins (the day's floor): not counted toward a best day
   binOverflows: number;    // times the offcut bin spilled onto the floor
   // after 5 (the view's knock-off beers, src/people): never touched by the balance sim

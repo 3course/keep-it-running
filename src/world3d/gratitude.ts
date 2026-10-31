@@ -75,11 +75,11 @@ export class Gratitude {
     leases.slice(-10).forEach((l, i) => {
       const c = document.createElement('canvas'); c.width = 48; c.height = 36;
       const x = c.getContext('2d')!;
-      x.fillStyle = l.ending === 'comfortable' ? '#e8c87a' : l.ending === 'scraped' ? '#c9d7a8' : '#b8c4d8'; x.fillRect(0, 0, 48, 36);
+      x.fillStyle = ({ flying: '#f0b85a', comfortable: '#e8c87a', made: '#dcd29a', scraped: '#c9d7a8', short: '#b8c4d8' } as Record<string, string>)[l.ending] ?? '#c9d7a8'; x.fillRect(0, 0, 48, 36);
       // the shed and everyone out front (a group shot), the lease's number underneath
       x.fillStyle = '#4f6e4c'; x.fillRect(6, 8, 36, 14); x.fillStyle = '#9ea4aa'; x.fillRect(28, 12, 10, 10);
       ['#3d6f9e', '#8e3b5a', '#4e8a46', '#e8892e', ...(l.jessFullTime ? ['#d9643a'] : [])].forEach((col, k) => { x.fillStyle = col; x.fillRect(5 + k * 7, 24, 4, 6); x.fillStyle = '#f0c9a0'; x.fillRect(5 + k * 7, 21, 4, 3); });
-      x.fillStyle = '#14110f'; x.font = '7px monospace'; x.fillText(`#${l.n} ${l.ending === 'short' ? 'next time' : 'made it'}`, 3, 35);
+      x.fillStyle = '#14110f'; x.font = '7px monospace'; x.fillText(`#${l.n} ${({ flying: 'flying', comfortable: 'comfy', short: 'next time' } as Record<string, string>)[l.ending] ?? 'made it'}`, 3, 35);
       const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
       const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.24), new THREE.MeshBasicMaterial({ map: t }));
       const px = 3.4 + i * 0.42, py = 2.1, pz = 19.535;

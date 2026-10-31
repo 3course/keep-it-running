@@ -4,7 +4,7 @@ import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import { dennisAnswer, dennisCallMult, dennisDecide, dennisFaultMult, dennisFireMult, dennisJoineryMult, dennisPowerTrip, dennisRentMult, dennisRouterDay,
   dennisStartDay, dennisTick, newDennis, type Bet, type DennisState } from './dennis.js';
-import type { LayoutEffects } from './types.js';
+import type { LayoutEffects, WalkIn } from './types.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
@@ -27,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
   };
 }
 
@@ -56,6 +56,10 @@ export class Game {
   /** The cafe: a large coffee speeds tasks until this minute; the sparky you shouted resets the breaker on the house. */
   coffeeUntil = 0;
   sparkyFavour = false;
+  /** Today's walk-ins at the roller door (CONFIG.economy.walkIn*): plain data. */
+  walkIns: WalkIn[] = [];
+  /** The world serves walk-ins by hand; the sim (and Game-only tests) take every one as it comes. */
+  servesWalkIns = false;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
   powerTripped = false;
 
@@ -374,7 +378,7 @@ export class Game {
     this.today.sheetsDemanded += fresh.length;
     this.lateDropToday = this.rng.chance(CONFIG.jobs.lateDrop.chance);
     this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0));
-    this.rare = null; this.notes = []; this.story = null;
+    this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
       dennisStartDay(this); // his own seeded rolls: off, nothing else changes
@@ -497,6 +501,7 @@ export class Game {
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.recoveryPerMinute);
 
     this.tickBeer();
+    this.tickWalkIns();
 
     // you, busy
     if (this.busy) {
@@ -1740,6 +1745,57 @@ export class Game {
     }
   }
 
+  // ---------- walk-ins (CONFIG.economy.walkIn*) ----------
+
+  /** On the hour: a walk-in at the roller door, if the day's tracking under the floor (or it's the regular's turn). */
+  private tickWalkIns() {
+    const E = CONFIG.economy, hours = E.walkInHours;
+    if (!(E.walkInFloor > 0 || E.walkInPerDay > 0)) return;
+    for (const w of this.walkIns) if (w.status === 'waiting' && this.minute >= w.minute + E.walkInWaitMinutes) { w.status = 'left'; this.say('The walk-in gave up waiting.', 'bad'); }
+    const slot = hours.findIndex(h => this.minute === h * 60);
+    if (slot < 0 || this.walkIns.length >= E.walkInMax) return;
+    const { startHour, endHour } = CONFIG.clock;
+    const under = this.today.revenue < E.walkInFloor * (this.minute / 60 - startHour) / (endHour - startHour);
+    const last = slot === hours.length - 1;
+    if (under || (last && this.walkIns.length === 0)) this.walkInArrives();
+  }
+
+  /** Someone at the roller door with a small job: "Can you do this today?" (public so tests can bring one). */
+  walkInArrives(): WalkIn {
+    const w: WalkIn = { id: this.dayIndex * 10 + this.walkIns.length + 1, minute: this.minute, status: 'waiting', paid: 0 };
+    this.walkIns.push(w);
+    if (!this.servesWalkIns) w.status = 'served';
+    else this.say('Someone at the roller door with a small job.');
+    return w;
+  }
+
+  /** You said yes: they'll be back to collect at close. */
+  serveWalkIn(id: number): boolean {
+    const w = this.walkIns.find(x => x.id === id);
+    if (!w || w.status !== 'waiting') return false;
+    w.status = 'served';
+    return true;
+  }
+
+  /** Not today. */
+  turnAwayWalkIn(id: number) {
+    const w = this.walkIns.find(x => x.id === id);
+    if (w && w.status === 'waiting') w.status = 'left';
+  }
+
+  /** At close: the floor's money (the regular's job, or a slow day topped up), shared by the walk-ins you served. */
+  private settleWalkIns() {
+    const E = CONFIG.economy;
+    for (const w of this.walkIns) if (w.status === 'waiting') w.status = 'left';
+    const served = this.walkIns.filter(w => w.status === 'served');
+    if (!served.length) return;
+    const due = Math.round(Math.max(E.walkInPerDay, E.walkInFloor - this.today.revenue));
+    if (due <= 0) return;
+    served.forEach((w, i) => { w.paid = Math.floor(due / served.length) + (i === 0 ? due % served.length : 0); });
+    this.today.walkIns += due; this.today.walkInCount += served.length;
+    this.earn(due, served.length > 1 ? `${served.length} walk-ins collected and paid` : 'the walk-in collected and paid');
+  }
+
   // ---------- the story of the day ----------
 
   /** Something worth telling: ranked (rare events first, then milestones), then by how much money it moved. */
@@ -1832,10 +1888,8 @@ export class Game {
     if (this.dockBlocked) { this.rare!.phase = 'done'; this.rare!.outcome = 'blocked'; this.say("Slats still in the doorway at knock-off. The landlord's handyman sorts it overnight."); }
     if (this.rare?.id === 'council' && this.rare.phase !== 'done' && this.rare.phase !== 'scheduled') this.finishCouncil(this.rare.touring === true);
     if (this.rare && this.rare.phase !== 'scheduled') this.rareLog.push({ day: this.dayIndex, id: this.rare.id, outcome: this.rare.outcome ?? 'unresolved' });
-    // the floor on the day: a walk-in at the counter, cut from an offcut
-    const walkIn = Math.max(CONFIG.economy.walkInPerDay, CONFIG.economy.walkInFloor - this.today.revenue);
-    if (walkIn > 0) this.today.walkIns += Math.round(walkIn);
-    if (walkIn > 0) this.earn(Math.round(walkIn), walkIn > CONFIG.economy.walkInPerDay ? 'a slow day: you took every walk-in going' : 'walk-in job at the counter');
+    // the floor on the day: the walk-ins you served come back to collect and square up
+    this.settleWalkIns();
     if (CONFIG.dennis.enabled) {
       const extra = dennisRouterDay(this);
       if (extra > 0) {

@@ -55,6 +55,18 @@ export const CAFE_LINES = {
       '…water too, I reckon.',
     ],
     stayingOn: {
+      flying: [
+        "Last day of the lease? You're grinning. You're definitely staying on. Big tip energy.",
+        "Wren says the shed's had a cracker month. I said: I know, I can tell by the order.",
+        "You look like someone who's sorted the rent and then some. Staying on? Obviously.",
+        "Big day! You've got the look. I'm putting your name on the stamp card in pen.",
+      ],
+      made: [
+        "Last day of the lease, yeah? You look calm. Calm's good. Staying on?",
+        "Rent sorted? You've got the done-the-sums face. The good one. Staying on, I reckon.",
+        "Staying on? Course. Who else would make Wren's specials board?",
+        "Last day! Coffee to celebrate, or coffee to get through it? Both, probably.",
+      ],
       comfortable: [
         'Last day of the lease, isn\'t it? You\'re staying on, though. You\'ve got that look.',
         "Wren reckons you're staying on. I told her: obviously. Look at the sign out front.",
@@ -73,7 +85,7 @@ export const CAFE_LINES = {
         "Rough month? You'll be right. This street's not giving up its sign-maker that easy.",
         'Staying on? Say yes. Wren said she\'d put in a word with your landlord. She means it.',
       ],
-    } as Record<Ending, string[]>,
+    } satisfies Record<Ending, string[]>,
   },
   sparky: {
     thanks: [

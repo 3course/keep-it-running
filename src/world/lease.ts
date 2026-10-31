@@ -23,9 +23,12 @@ export interface LeaseState {
   days: LeaseDay[];
   sold: { name: string; price: number; dayIndex: number }[]; // the Saturday market
   ending: Ending | null;
+  /** Last lease's shortfall that rode over (in rentDue already), and this one's (scraped it, short of the rent). */
+  carried?: number;
+  owed?: number;
 }
 
-export interface PastLease { n: number; seed: number; ending: Ending; cash: number; rentDue: number; piece: string | null; jessFullTime: boolean; gifts: number; when: string }
+export interface PastLease { n: number; seed: number; ending: Ending; cash: number; rentDue: number; owed?: number; piece: string | null; jessFullTime: boolean; gifts: number; when: string }
 
 const WOBBLES: WobbleKind[] = ['priceRise', 'quietCustomer', 'extractorDue', 'jessAnswer'];
 const PAST_KEY = 'kir-leases';
@@ -38,7 +41,9 @@ export function newLease(g: Game, n = nextLeaseNumber()): LeaseState {
   // week 3's wobble: which one, and which of the week's first three days
   const kind = WOBBLES[Math.floor(r(1) * WOBBLES.length)];
   const day = g.dayIndex + (L.wobbleWeek - 1) * days + Math.floor(r(2) * 3);
-  return { n, seed: g.seed, startDayIndex: g.dayIndex, rentDue: L.rentDue, letterRead: false, wobble: { kind, dayIndex: day, fired: false }, days: [], sold: [], ending: null };
+  // a near miss last time: the landlord let the rest ride, and here it is
+  const carried = pastLeases().find(x => x.n === n - 1)?.owed ?? 0;
+  return { n, seed: g.seed, startDayIndex: g.dayIndex, rentDue: L.rentDue + carried, carried, letterRead: false, wobble: { kind, dayIndex: day, fired: false }, days: [], sold: [], ending: null };
 }
 
 export const leaseLength = () => CONFIG.lease.weeks * CONFIG.week.days;
@@ -48,10 +53,7 @@ export const leaseOver = (l: LeaseState, g: Game) => leaseDay(l, g) > leaseLengt
 /** What'll be in the bank at the end of today, once the week's overheads are out on a Friday. */
 export const projectedCash = (g: Game) => g.cash - (g.day >= CONFIG.week.days ? CONFIG.economy.weeklyOverheads : 0);
 
-/** How it went: comfortably (25% over), scraped it, or short. */
-export function outcome(cash: number, rent: number): Ending {
-  return cash >= rent * 1.25 ? 'comfortable' : cash >= rent ? 'scraped' : 'short';
-}
+export { outcome, owedAfter } from './leaseEnding.js';
 
 /** The day's line in the lease's record (at the day summary). */
 export function recordDay(l: LeaseState, g: Game) {
@@ -87,7 +89,7 @@ export function runFacts(l: LeaseState, g: Game, p: PeopleState) {
   const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-AU')}`;
   const dayName = (d?: LeaseDay) => (d ? `day ${d.dayIndex - l.startDayIndex + 1}` : 'day one');
   return {
-    rent: money(l.rentDue), cash: money(projectedCash(g)), days: String(leaseLength()), landlord: '', lease: String(l.n),
+    rent: money(l.rentDue), cash: money(projectedCash(g)), owed: money(l.owed ?? 0), carried: money(l.carried ?? 0), days: String(leaseLength()), landlord: '', lease: String(l.n),
     gifts: String(p.gifts.length), best: dayName(best), bestAmount: money(best?.profit ?? 0), worst: dayName(worst), worstAmount: money(worst?.profit ?? 0),
     piece: fav ?? 'the trophy', won: String(L.won), total: String(L.settled), net: money(L.net), jess: PEOPLE.partTimer.name,
     mate: p.lastFriend ? friendById(p.lastFriend).name : 'Eggby', nights: String(p.nights), beers: String(p.lastNight?.beers ?? 0),

@@ -132,3 +132,30 @@ export const GIFT_LINES: Record<GiftKind, string[]> = {
     'Cake for the whole shed. Get in quick!',
   ],
 };
+
+/** A walk-in at the roller door with a small job (Game.walkIns): the ask, your answer, and how they take it. */
+export const WALK_IN = {
+  ask: [
+    'Can you do this today?',
+    "Can you do this today? It's only a small one.",
+    "Saw the door open. Can you do this today? I'll pay cash.",
+    'Can you do this today? Everyone else said next week.',
+  ],
+  yes: 'Sure. Leave it with me.',
+  no: 'Not today, sorry.',
+  thanks: [
+    "Legend. I'll be back at five to grab it. Thank you!",
+    "You're a lifesaver. Back at five, I'll square up then.",
+    "Oh, brilliant. Thank you. I'll grab it on the way home.",
+    "Thank you! I owe you one. Well, I owe you money. See you at five.",
+  ],
+  declined: [
+    'No worries. Another time.',
+    "All good. I'll try up the road.",
+    "Fair enough. You look flat out.",
+  ],
+  gaveUp: [
+    "I'll try somewhere else. No stress.",
+    'Looks like a busy one. Another day.',
+  ],
+};

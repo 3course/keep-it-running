@@ -75,7 +75,13 @@ export const CONFIG = {
     pullAfterDays: 3,       // an overdue job is pulled this many days past its due day
     scrapSalvage: 0.75,        // a ruined sheet's offcuts still sell for this share of its board cost
     walkInPerDay: 100,        // there's always one walk-in (cut-to-size from offcuts) at the counter…
-    walkInFloor: 2300,           // …and on a slow day you take every walk-in going: the day's takings are topped up to this
+    walkInFloor: 2300,        // …and on a slow day you take every walk-in going: the day's takings are topped up to this
+    // the walk-ins are people: one at walkInHours[0] if the takings are tracking under the floor (pro rata), another at
+    // walkInHours[1] if they still are, or the day's regular then if nobody's come. They square up when they collect at
+    // close: the floor's money, shared between the ones you served. Turn one away (or leave them waiting) and it's lost.
+    walkInHours: [13, 15],
+    walkInMax: 2,
+    walkInWaitMinutes: 60,    // they wait at the roller door this long for an answer
     fixCostMult: 0.4,         // parts and call-outs on a fix, as a share of their listed price
   },
 
@@ -257,6 +263,13 @@ export const CONFIG = {
   lease: {
     weeks: 4,
     rentDue: 7300,              // the landlord's letter: in the bank by the end of day 20 (npm run sim -- --lease: competent 100% with ~$8k spare, sloppy ~50%)
+    // the endings, by the spare at day 20 (cash less the rent): src/world/leaseEnding.ts
+    endings: {
+      graceShort: 1500,        // short by up to this: "scraped it" — the landlord takes what's there, the rest rides to the next lease
+      scrapedUnder: 1500,      // over by less than this: still "scraped it"
+      comfortableFrom: 7600,   // under this: "made it" (this and flyingFrom sit at the competent script's thirds: npm run sim -- --lease 200)
+      flyingFrom: 9100,        // this or more: "flying"
+    },
     wobbleWeek: 3,              // the week a wobble comes (drawn from the pool, not scripted)
     priceRise: 1.15,            // the wobble: ply up this much for the rest of the lease
     quietCalls: 0.6, quietDays: 3, // the wobble: a big customer goes quiet — this share of order calls for these days

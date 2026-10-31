@@ -11,7 +11,9 @@ import { designById } from '../designs/index.js';
 import type { Design } from '../designs/types.js';
 import { PEOPLE } from '../people/config.js';
 import { JESS } from '../people/lines/jess.js';
-import { GIFT_LINES, PICKUP } from '../people/lines/customers.js';
+import { GIFT_LINES, PICKUP, WALK_IN } from '../people/lines/customers.js';
+import { DESIGNS } from '../designs/index.js';
+import { sketchSvg } from '../designs/sketch.js';
 import { people, type GiftKind, type PeopleState } from '../people/state.js';
 import { friendById, pickFriend } from '../people/friends.js';
 import { COLS, ROWS, MACHINE_SPOT, objectById, type ObjectId } from '../world/layout.js';
@@ -61,6 +63,10 @@ export class PeopleDay {
   jess: Walker | null = null;
   private visitor: (Walker & { leaveAt: number; name: string }) | null = null;
   private cakeMate: (Walker & { leaveAt: number }) | null = null;
+  /** A walk-in at the roller door (Game.walkIns): who, their job, and whether they're still waiting on you. */
+  walkIn: (Walker & { id: number; design: Design; name: string; leaveIn: number | null }) | null = null;
+  private walkInsSeen = new Set<number>();
+  private walkInAsking = false;
   private task: 'stack' | 'offcuts' | 'ask' | 'leave' | null = null;
   private carrying = 0;            // boards she's carrying to the finished pallet
   private nextChat = 0;
@@ -100,6 +106,7 @@ export class PeopleDay {
     if (this.jess) this.updateJess(dt);
     this.updateVisitor(dt);
     this.updateCake(dt);
+    this.updateWalkIn(dt);
     // trust from the day: sheets out on time (while she's in), a safe floor at knock-off
     if (this.jess || this.jessDay) {
       const ok = g.today.sheetsDone - g.today.sheetsLate;
@@ -121,6 +128,7 @@ export class PeopleDay {
     this.place('jess', this.jess?.fig);
     this.place('cust', this.visitor?.fig);
     this.place('mate', this.cakeMate?.fig);
+    this.place('walkin', this.walkIn?.fig);
     const ute = this.d.ute();
     if (ute) { const s = this.d.project(ute.clone().add(new THREE.Vector3(0, 1.4, 0))); this.talk.place('ute', s.x, s.y, !s.behind); }
     // the fridge in sight of the router after 2 (the layout): "grab one?" now and then
@@ -343,6 +351,83 @@ export class PeopleDay {
     this.d.save();
   }
 
+  // ---------- walk-ins ----------
+
+  /** Which small job a walk-in brings: a design off the catalogue, by the day and the walk-in. */
+  static walkInDesign(seed: number, id: number): Design {
+    const pool = DESIGNS.filter(d => !d.afterHours);
+    return pool[(((seed ^ 0x5bd1e995) + id * 2654435761) >>> 0) % pool.length];
+  }
+
+  private updateWalkIn(dt: number) {
+    const g = this.d.g, wi = this.walkIn;
+    if (!wi && g.phase === 'day') {
+      const w = (g.walkIns ?? []).find(x => x.status === 'waiting' && !this.walkInsSeen.has(x.id));
+      if (w) {
+        this.walkInsSeen.add(w.id);
+        const d = PeopleDay.walkInDesign(g.seed, w.id), name = d.customer.replace(/[,(].*$/, '').trim();
+        const fig = new Figure({ shirt: [0x7a6ab0, 0xb0886a, 0x6ab09a, 0xa0a05a][w.id % 4], hair: (['cap', 'pony', 'short', 'bun'] as const)[(w.id + name.length) % 4] });
+        fig.setSeated(false); fig.can.visible = false; fig.setExpr('thoughtful');
+        const at = centre({ x: 27, y: 33 });
+        fig.root.position.set(at.x, 0, at.z); fig.root.rotation.y = Math.PI / 2;
+        this.d.scene.add(fig.root);
+        this.walkIn = { fig, x: at.x, z: at.z, path: [], speed: 1.2, id: w.id, design: d, name, leaveIn: null };
+        this.askWalkIn();
+        logEvent(this.d.w, `${name} walked in with a small job`);
+      }
+    }
+    if (!this.walkIn) return;
+    const v = this.walkIn, state = g.walkIns.find(x => x.id === v.id);
+    v.fig.update(dt);
+    if (v.leaveIn === null && (!state || state.status === 'left' || g.phase !== 'day')) {
+      if (state?.status === 'left' && g.phase === 'day') this.say('walkin', pick(WALK_IN.gaveUp, v.id), 3, 'relaxed', v.name);
+      this.endWalkIn(3);
+    }
+    if (v.leaveIn !== null) {
+      v.leaveIn -= dt;
+      if (v.leaveIn <= 0 || g.phase !== 'day') this.removeWalkIn();
+      return;
+    }
+    // your answer, once you're over there (walk off and the question waits for you)
+    const near = this.dist(v) < 3.5;
+    if (near && !this.talk.asking) {
+      this.walkInAsking = true;
+      this.talk.ask([{ text: WALK_IN.yes }, { text: WALK_IN.no }], i => { this.walkInAsking = false; this.answerWalkIn(i === 0); });
+    } else if (!near && this.walkInAsking) { this.talk.hideReplies(); this.walkInAsking = false; }
+    if (!this.bubbleT.has('walkin')) this.askWalkIn(); // the question stays up while they wait
+  }
+
+  private askWalkIn() {
+    const v = this.walkIn!;
+    const img = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sketchSvg(v.design, { width: 150, height: 110, note: false, dims: false }));
+    this.say('walkin', pick(WALK_IN.ask, v.id), 8, 'thoughtful', v.name, img);
+  }
+
+  /** Yes (they're back at five to collect and pay) or not today. Public so tests can answer. */
+  answerWalkIn(yes: boolean) {
+    const v = this.walkIn, g = this.d.g;
+    if (!v || v.leaveIn !== null) return;
+    this.say('you', yes ? WALK_IN.yes : WALK_IN.no, 2.5);
+    if (yes) {
+      g.serveWalkIn(v.id);
+      window.setTimeout(() => this.say('walkin', pick(WALK_IN.thanks, v.id + g.dayIndex), 4, 'laughing', v.name), 900);
+      logEvent(this.d.w, `Took ${v.name}'s ${v.design.name.toLowerCase()}`);
+    } else {
+      g.turnAwayWalkIn(v.id);
+      window.setTimeout(() => this.say('walkin', pick(WALK_IN.declined, v.id), 3, 'relaxed', v.name), 900);
+    }
+    if (this.walkInAsking) { this.talk.hideReplies(); this.walkInAsking = false; }
+    this.endWalkIn(5);
+    this.d.save();
+  }
+
+  private endWalkIn(secs: number) { if (this.walkIn) this.walkIn.leaveIn = secs; }
+  private removeWalkIn() {
+    if (this.walkInAsking) { this.talk.hideReplies(); this.walkInAsking = false; }
+    if (this.walkIn) this.d.scene.remove(this.walkIn.fig.root);
+    this.walkIn = null; this.talk.hush('walkin');
+  }
+
   private updateVisitor(dt: number) {
     const g = this.d.g, p = this.p;
     if (!this.visitor && g.phase === 'day') {
@@ -378,7 +463,7 @@ export class PeopleDay {
     const label = name ?? (who === 'jess' ? J.name : who === 'you' ? 'You' : who === 'mate' ? 'Mate' : '');
     this.talk.say(who, label, text, who === 'you' ? 'you' : '', img);
     this.bubbleT.set(who, secs + text.length * 0.03);
-    const f = who === 'jess' ? this.jess?.fig : who === 'cust' ? this.visitor?.fig : who === 'mate' ? this.cakeMate?.fig : undefined;
+    const f = who === 'jess' ? this.jess?.fig : who === 'cust' ? this.visitor?.fig : who === 'mate' ? this.cakeMate?.fig : who === 'walkin' ? this.walkIn?.fig : undefined;
     if (f) { f.setExpr(expr); f.talking = 1.2; }
   }
 
@@ -414,6 +499,7 @@ export class PeopleDay {
     this.removeJess();
     if (this.visitor) this.d.scene.remove(this.visitor.fig.root);
     if (this.cakeMate) this.d.scene.remove(this.cakeMate.fig.root);
+    this.removeWalkIn();
     this.talk.clear();
   }
 }

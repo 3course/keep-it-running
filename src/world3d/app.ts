@@ -46,7 +46,7 @@ import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
 import { DennisView } from './dennisView.js';
 import { Cafe } from './cafe.js';
-import { fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
+import { fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
@@ -230,6 +230,7 @@ export class World3D {
     applyPlan(this.plan);
     this.g.layout = effectsOf(measure(this.plan));
     this.g.worldWalks = true;
+    this.g.servesWalkIns = true; // walk-ins wait at the roller door for your answer
     this.solid = solidCells(); // solid objects and the big clutter
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);
@@ -271,7 +272,9 @@ export class World3D {
       const l = this.w.lease;
       if (!l.letterRead && leaseDay(l, g) === 1) {
         const f = { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord };
-        showLetter(this.hud.labels.parentElement!, `From ${LEASE_LINES.landlord}`, LEASE_LINES.letter.map(x => fillRun(x, f)), () => { l.letterRead = true; this.save(); });
+        const letter = [...LEASE_LINES.letter];
+        if (l.carried) letter.splice(2, 0, LEASE_LINES.letterCarried);
+        showLetter(this.hud.labels.parentElement!, `From ${LEASE_LINES.landlord}`, letter.map(x => fillRun(x, { ...f, carried: `$${(l.carried ?? 0).toLocaleString('en-AU')}` })), () => { l.letterRead = true; this.save(); });
       }
     }
     this.aimEl = document.createElement('div'); this.aimEl.className = 'aim';
@@ -737,8 +740,8 @@ export class World3D {
     if (!l.ending || base.day !== base.of) return base;
     const p = people(this.w), f = runFacts(l, g, p), L = g.dennis.bets.filter(b => b.status === 'won' || b.status === 'lost');
     return { ...base, ending: {
-      headline: LEASE_LINES.endings[l.ending].headline,
-      lines: [`Rent ${f.rent} · in the bank ${f.cash}.`, `Best day: ${f.best} (${f.bestAmount}). Worst: ${f.worst} (${f.worstAmount}).`,
+      headline: (l.owed ? LEASE_LINES.endings[l.ending].headlineRide : undefined) ?? LEASE_LINES.endings[l.ending].headline,
+      lines: [`Rent ${f.rent} · in the bank ${f.cash}.${l.owed ? ` $${l.owed.toLocaleString('en-AU')} rides to the next lease.` : ''}`, `Best day: ${f.best} (${f.bestAmount}). Worst: ${f.worst} (${f.worstAmount}).`,
         `${PEOPLE.partTimer.name}: ${p.fullTime ? 'full time' : 'part time'}. Gifts on the walls: ${f.gifts}. Favourite piece: ${f.piece}.`,
         L.length ? `${CONFIG.dennis.name}: ${f.won} of ${f.total} came good (${f.net}).` : `${CONFIG.dennis.name} never got a yes.`],
       again: () => startOver(g.cash, g.dayIndex),
@@ -761,18 +764,24 @@ export class World3D {
   reckoning(): Reckoning | null {
     const l = this.w.lease, g = this.g;
     if (!l || leaseDay(l, g) !== leaseLength()) return null;
-    const p = people(this.w), cash = projectedCash(g), ending = outcome(cash, l.rentDue);
-    const f = { ...runFacts(l, g, p), landlord: LEASE_LINES.landlord };
+    const p = people(this.w), cash = projectedCash(g), ending = outcome(cash, l.rentDue), owed = owedAfter(cash, l.rentDue);
+    const f = { ...runFacts(l, g, p), landlord: LEASE_LINES.landlord, owed: `$${owed.toLocaleString('en-AU')}` };
     const E = LEASE_LINES.endings[ending], pick = (xs: string[], k: number) => fillRun(xs[(g.seed + k) % xs.length], f);
+    const ride = owed > 0;
+    const flying = ending === 'flying';
+    // flying: she goes full time on the spot (if she wasn't already), and Dennis turns up with a spreadsheet
+    const onTheSpot = flying && !p.fullTime;
+    if (onTheSpot) { p.fullTime = true; p.fullTimeDay = g.dayIndex; }
     const who: Reckoning['people'] = ['eggby', 'courtney', 'tim'];
     if (p.fullTime || p.trust > 0) who.push('jess');
-    if (g.dennis.bets.some(b => b.status === 'won' || b.status === 'lost' || b.status === 'open')) who.push('dennis');
+    if (flying || g.dennis.bets.some(b => b.status === 'won' || b.status === 'lost' || b.status === 'open')) who.push('dennis');
     const name = (id: string) => (id === 'jess' ? PEOPLE.partTimer.name : id === 'dennis' ? CONFIG.dennis.name : friendById(id as FriendId).name);
-    const lines: Reckoning['lines'] = [{ who: 'you', name: 'You', text: pick(E.you, 0) }];
-    who.forEach((id, i) => lines.push({ who: id, name: name(id), text: pick(E.byPerson[id], i + 1), expr: ending === 'short' ? 'misty' : ending === 'scraped' ? 'laughing' : 'animated' }));
-    lines.push({ who: 'landlord', name: `📄 ${LEASE_LINES.landlord}`, text: pick(E.landlord, 9) });
-    l.ending = ending;
-    rememberLease({ n: l.n, seed: l.seed, ending, cash: Math.round(cash), rentDue: l.rentDue, piece: f.piece, jessFullTime: p.fullTime, gifts: p.gifts.length, when: new Date().toISOString().slice(0, 10) });
+    const lines: Reckoning['lines'] = [{ who: 'you', name: 'You', text: pick(ride && E.youRide ? E.youRide : E.you, 0) }];
+    const expr = ending === 'short' ? 'misty' : ending === 'scraped' ? 'laughing' : 'animated';
+    who.forEach((id, i) => lines.push({ who: id, name: name(id), text: pick(id === 'jess' && onTheSpot ? LEASE_LINES.jessOnTheSpot : E.byPerson[id], i + 1), expr: id === 'jess' && onTheSpot ? 'misty' : expr }));
+    lines.push({ who: 'landlord', name: `📄 ${LEASE_LINES.landlord}`, text: pick(ride && E.landlordRide ? E.landlordRide : E.landlord, 9) });
+    l.ending = ending; l.owed = owed;
+    rememberLease({ n: l.n, seed: l.seed, ending, cash: Math.round(cash), rentDue: l.rentDue, owed, piece: f.piece, jessFullTime: p.fullTime, gifts: p.gifts.length, when: new Date().toISOString().slice(0, 10) });
     this.save();
     return { people: who, lines };
   }

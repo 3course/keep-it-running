@@ -1,8 +1,10 @@
 // The Lease's words: the landlord's letter, Sunday postcards, the Saturday market, the week-3 wobble's notices, and
-// the three endings (with a line from everyone who's part of the shed by then). Speech bubbles: keep lines under ~100.
+// the five endings (with a line from everyone who's part of the shed by then). Speech bubbles: keep lines under ~100.
 // Templates (filled from the run): {rent} {cash} {days} {landlord} {gifts} {best} {bestAmount} {worst} {worstAmount}
-// {piece} {won} {total} {net} {jess} {mate} {lease} {beers} {nights} {sheets} {price} {buyer} {kept}
-export type Ending = 'comfortable' | 'scraped' | 'short';
+// {piece} {won} {total} {net} {jess} {mate} {lease} {beers} {nights} {sheets} {price} {buyer} {kept} {owed} {carried}
+import type { Ending } from '../../world/leaseEnding.js';
+export type { Ending };
+export interface EndingLines { headline: string; headlineRide?: string; you: string[]; youRide?: string[]; landlord: string[]; landlordRide?: string[]; byPerson: Record<'eggby' | 'courtney' | 'tim' | 'jess' | 'dennis', string[]> }
 export type WobbleKind = 'priceRise' | 'quietCustomer' | 'extractorDue' | 'jessAnswer';
 
 export const LEASE_LINES = {
@@ -94,8 +96,50 @@ export const LEASE_LINES = {
       '{jess} has asked properly about full time. She deserves a proper answer this week.',
     ],
   } as Record<WobbleKind, string[]>,
+  /** The letter's extra line when last lease's shortfall rode over. */
+  letterCarried: "That's the usual, plus the {carried} that rode over from last time. No rush. Well. Some rush.",
   /** Day 20: how it went, and a line from everyone. */
   endings: {
+    flying: {
+      headline: 'Rent paid. Flying.',
+      landlord: [
+        "Rent's in, and then some, I'd guess. Renewal's yours. Don't let me put it up. — {landlord}",
+        "{rent}, received. Thirty years and I never had a month like your month.",
+        "Paid in full and early. Mate, I might come and work for you.",
+      ],
+      you: [
+        '{rent} paid and {cash} in the bank. Twenty days. We are flying.',
+        "Rent's paid and there's real money left. Real decisions now. Good ones.",
+        "{sheets} sheets, {gifts} thank-yous, and enough left over to choose what's next.",
+      ],
+      byPerson: {
+        eggby: [
+          'This is the best thing a shed has ever done. I say that as a man who has seen sheds.',
+          "{best}! {bestAmount}! I'm getting it engraved. You'll cut the engraving. Obviously.",
+          "Flying. Civilisation achieved. Next step: an awning. Then: Rome.",
+        ],
+        courtney: [
+          "FLYING! We're FLYING! Bron says this is what Golden Plains feels like on the Sunday!",
+          "I'm crying! Happy crying! {gifts} gifts! You're basically a local legend now!",
+          "The {piece}! The money! The {piece}! I've run out of exclamation marks! Here's more!!",
+        ],
+        tim: [
+          "Should've bought the shed in 2012. Then again, you're doing all right without it.",
+          '{sheets} sheets and a fat bank balance. Champ. Write that down. Frame it.',
+          'Even {worst} looks small from up here. {worstAmount}? Pocket change, champ.',
+        ],
+        jess: [
+          "Look at that number! I'm screenshotting the bank. Is that allowed? I've done it.",
+          "{sheets} sheets! And I get to keep coming in every day. Best job I've had.",
+          'The {piece} was my favourite. Can we make another one? For us this time?',
+        ],
+        dennis: [
+          "I've got a spreadsheet ready. Tab one: second router. Tab two: {jess}. Tab three: a holiday.",
+          "Spreadsheet's open. {won} of {total} came good, {net} net. Now: what do we do with the rest?",
+          "I took the liberty. Three options, colour-coded. Gold's my favourite. I never use gold.",
+        ],
+      },
+    },
     comfortable: {
       headline: 'Rent paid, with room to spare.',
       landlord: [
@@ -136,8 +180,60 @@ export const LEASE_LINES = {
         ],
       },
     },
+    made: {
+      headline: 'Rent paid. A bit left over.',
+      landlord: [
+        "Rent's in, in full. Lease is yours if you want it. Clear the gutters. — {landlord}",
+        '{rent} received. No fuss. My favourite kind of tenant.',
+        "Paid up. I'll send the renewal. Keep doing what you're doing, only a bit more.",
+      ],
+      you: [
+        '{rent} paid, {cash} left. Not a fortune. Not nothing. The shed stays.',
+        "Made it. Didn't sweat the last day too much. Only a little bit.",
+        "{sheets} sheets, rent paid, a bit in the tin. That'll do. That'll more than do.",
+      ],
+      byPerson: {
+        eggby: [
+          "Made it. Not a squeak, not a fanfare. A solid, decent result. Very civilised.",
+          '{best} did the heavy lifting. {bestAmount}. Remember that day. I will.',
+          "Rent paid with a bit left. That's the dream, isn't it? The modest dream.",
+        ],
+        courtney: [
+          "You did it! I knew you would! Well, I hoped! Same thing! Get in here!",
+          'Rent PAID! Bron owes me ten bucks. She said you would. So did I. We both win.',
+          "The {piece}! Still thinking about it! Let's do a small party. A medium party.",
+        ],
+        tim: [
+          "Made it. Good. Next one, a bit more. That's how they get you. Write it down.",
+          '{sheets} sheets. Solid. Like a good parma. Not fancy. Right.',
+          "Should've bought in 2012. But you're all right. You're doing all right.",
+        ],
+        jess: [
+          "We made it! I knew we would! I wrote it on the whiteboard and everything!",
+          "Next lease I'm going to be faster at stacking. You'll see. Watch me.",
+          'The {piece} was the best one. I told my mum about it. She wants one.',
+        ],
+        dennis: [
+          'Paid, with a little margin. {won} of {total} on my calls, {net} net. Respectable.',
+          "I had it at four in five. Spot on. I'm unbearable when I'm spot on.",
+          "There's {cash} spare. I'd keep most of it. And spend a little on a round.",
+        ],
+      },
+    },
     scraped: {
       headline: 'Rent paid. Only just.',
+      /** Short, but inside the grace: the landlord takes what's there and the rest rides. */
+      headlineRide: 'Near enough. The rest rides.',
+      landlordRide: [
+        "{owed} short. Pay what you've got. The rest rides to next lease. I'm not a monster. — {landlord}",
+        "Near enough's good enough, this once. The {owed} can ride. Keep the gutters clear.",
+        "I'll take what's there. {owed} rides over. I've had worse tenants. I've had much worse.",
+      ],
+      youRide: [
+        '{owed} short. Graham took what was there and let the rest ride. We stay.',
+        "Close. Not quite. Close enough, as it turns out. The shed's still ours.",
+        'Paid what we had. {owed} to find next lease. Laughed about it eventually.',
+      ],
       landlord: [
         "Rent's in. Just. I could hear you sweating from Ivanhoe. Lease is yours. — {landlord}",
         "{rent} received, by the skin of the teeth. I like a tenant who makes it close. Builds character.",
@@ -216,5 +312,11 @@ export const LEASE_LINES = {
         ],
       },
     },
-  } as Record<Ending, { headline: string; you: string[]; landlord: string[]; byPerson: Record<'eggby' | 'courtney' | 'tim' | 'jess' | 'dennis', string[]> }>,
+  } satisfies Record<Ending, EndingLines> as Record<Ending, EndingLines>,
+  /** Flying, and she wasn't full time yet: you ask her on the spot. */
+  jessOnTheSpot: [
+    'Full time? Starting Monday? Starting NOW? I am already here! YES!',
+    "You're asking me now? In front of everyone? Yes! Obviously yes! I'm going to cry.",
+    'Full time! I brought a cake just in case. That was a joke. I did bring a cake.',
+  ],
 };

@@ -30,8 +30,17 @@ describe('the lease, on Game', () => {
     }
     assert.equal(kinds.size, 4, 'every kind comes up across seeds');
   });
-  it('three endings, read off the cash', () => {
-    assert.equal(LS.outcome(9000, 6500), 'comfortable'); assert.equal(LS.outcome(6600, 6500), 'scraped'); assert.equal(LS.outcome(2000, 6500), 'short');
+  it('five endings, read off the spare at day 20; a near miss rides to the next lease', () => {
+    const E = CONFIG.lease.endings, rent = 7000;
+    assert.equal(LS.outcome(rent - E.graceShort - 1, rent), 'short');
+    assert.equal(LS.outcome(rent - E.graceShort, rent), 'scraped');
+    assert.equal(LS.outcome(rent + E.scrapedUnder - 1, rent), 'scraped');
+    assert.equal(LS.outcome(rent + E.scrapedUnder, rent), 'made');
+    assert.equal(LS.outcome(rent + E.comfortableFrom, rent), 'comfortable');
+    assert.equal(LS.outcome(rent + E.flyingFrom, rent), 'flying');
+    assert.equal(LS.owedAfter(rent - 600, rent), 600, 'scraped, short: the rest rides');
+    assert.equal(LS.owedAfter(rent + 600, rent), 0);
+    assert.equal(LS.owedAfter(rent - E.graceShort - 1, rent), 0, 'short is short: nothing rides');
   });
 });
 
@@ -81,7 +90,33 @@ describe('the lease, in the shed', () => {
     await game.page.waitForSelector('#kir-hud .summary .ending');
     assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .summary .ending').textContent), /Start another lease/);
     const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir-leases')));
-    assert.equal(wall.at(-1).ending, 'short'); // $5,000 less the week's overheads: short of $6,500
+    assert.equal(wall.at(-1).ending, 'short'); // $5,000 less the week's overheads: well short of the rent
+    await game.close();
+  });
+  it('day 20, flying: Jess goes full time on the spot, Dennis brings a spreadsheet', async () => {
+    const game = await freshGame(env);
+    await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); w.lease.letterRead = true; g.dayIndex = 20; g.day = 5; w.lease.startDayIndex = 1; w.people.fullTime = false; w.people.trust = 5; g.cash = 40000; g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; });
+    await game.page.waitForFunction(() => window.kirScene.knockoff.mode === 'reckoning');
+    assert.equal(await game.eval((g, w) => w.people.fullTime), true, 'full time on the spot');
+    assert.equal(await game.eval((g, w) => w.lease.ending), 'flying');
+    assert.ok(await game.eval((g, w, s) => s.knockoff.figures.has('dennis')), 'Dennis is there');
+    await game.close();
+  });
+  it('a near miss: scraped it, and the rest rides into the next lease’s letter', async () => {
+    const game = await freshGame(env);
+    await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); w.lease.letterRead = true; g.dayIndex = 20; g.day = 5; w.lease.startDayIndex = 1; g.cash = w.lease.rentDue + 900 - 500; /* less the week's $900 overheads: $500 short */ g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; });
+    await game.page.waitForFunction(() => window.kirScene.knockoff.mode === 'reckoning');
+    assert.equal(await game.eval((g, w) => w.lease.ending), 'scraped');
+    assert.equal(await game.eval((g, w) => w.lease.owed), 500);
+    const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir-leases')));
+    assert.equal(wall.at(-1).owed, 500);
+    // the next lease: the usual rent plus what rode over
+    const next = await game.page.evaluate(async () => {
+      const LS = await import(new URL('src/world/lease.ts', document.baseURI).href);
+      const l = LS.newLease(window.kirScene.g, LS.nextLeaseNumber());
+      return { rent: l.rentDue, carried: l.carried };
+    });
+    assert.deepEqual(next, { rent: CONFIG.lease.rentDue + 500, carried: 500 });
     await game.close();
   });
 });

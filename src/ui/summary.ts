@@ -83,6 +83,7 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
     + ((d.sheetsShifted ?? 0) > 0 ? row(`Missed clamps: ${d.sheetsShifted} sheet${d.sheetsShifted > 1 ? 's' : ''} shifted`, money(choreShare(d, 'shift')), 'bad lost-shift') : '')
     + ((d.sheetsLifted ?? 0) > 0 ? row(`Undrained compressor: ${d.sheetsLifted} sheet${d.sheetsLifted > 1 ? 's' : ''} lifted`, money(choreShare(d, 'lift')), 'bad lost-lift') : '');
   return row('Revenue', money(d.revenue), 'money')
+    + ((d.walkIns ?? 0) > 0 ? row(`&nbsp;&nbsp;Walk-ins (${d.walkInCount ?? 0})`, money(d.walkIns), 'dim walkins') : '')
     + row('&nbsp;&nbsp;Boards used', money(-d.materials), 'dim') + row('&nbsp;&nbsp;Delivery fees', money(-d.deliveryFees), 'dim')
     + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
     + row('&nbsp;&nbsp;Other costs', money(-other), 'dim') + overdraft
@@ -94,6 +95,12 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
     + ((d.canRefund ?? 0) > 0 ? row('Can refund (10c a can)', `+$${d.canRefund.toFixed(2)}`, 'good can-refund') : '') + row('Capex (upgrades)', money(-d.upgrades), 'dim')
     + row('Ply on hand', `${money(ply.value)} (${ply.sheets} sheet${ply.sheets === 1 ? '' : 's'})`, 'money')
     + `<p class="dim small">Other: parts ${money(d.consumables)}, fixes ${money(d.fixes)}, beer ${money(d.beer)}, mate had a beer ${money(d.mateBeer)}, fees ${money(d.fees)}. Ply on hand is stock you've paid for, not a cost yet.</p>`;
+}
+
+/** "2 served, 1 turned away": today's walk-ins at the roller door. */
+function walkInsLine(g: Game): string {
+  const served = g.walkIns.filter(w => w.status === 'served').length, gone = g.walkIns.length - served;
+  return [served ? `${served} served` : '', gone ? `${gone} turned away` : ''].filter(Boolean).join(', ');
 }
 
 /** The boards ruined by one chore: the day's chore-ruined board cost, split by how many sheets each ruined. */
@@ -125,6 +132,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     ['Fires (duct/extr.)', `${d.firesSpot} (${d.firesDuct}/${d.firesExtractor})`],
     ...(CONFIG.chores ? [['Sheets shifted (clamps)', `${d.sheetsShifted ?? 0}`], ['Sheets lifted (compressor)', `${d.sheetsLifted ?? 0}`],
       ['Offcut bin overflowed', `${d.binOverflows ?? 0}`]] as [string, string][] : []),
+    ...(g.walkIns?.length ? [['Walk-ins', walkInsLine(g)]] as [string, string][] : []),
   ];
   el.innerHTML = `
     <h1>End of day ${d.day}</h1>
@@ -170,7 +178,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void, 
   const total = g.week.reduce<DayStats>((acc, d) => {
     for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k] ?? 0; // a day saved before a field existed
     return acc;
-  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0 });
+  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
   const last = g.week[g.week.length - 1]; // stock is a snapshot at close, not a sum
   total.costs += g.weekOverheads;

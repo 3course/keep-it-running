@@ -8,6 +8,7 @@
 // rate (sheets ruined / sheets cut) per script. These runs buy no upgrades.
 // `npm run sim -- upgrades [seeds]` (default 20) measures the upgrades instead: each one alone, and each script's
 // buying policy over four weeks, compared seed for seed (see upgradeStudy).
+import { ENDINGS, outcome, type Ending } from '../world/leaseEnding.js';
 import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
 import type { DayStats } from './types.js';
@@ -753,12 +754,12 @@ function leaseStudy() {
     const made = finish.filter(c => c >= due).length / finish.length;
     const q = (p: number) => Math.round(finish[Math.min(finish.length - 1, Math.floor(p * finish.length))]);
     const mean = Math.round(finish.reduce((a, b) => a + b, 0) / finish.length);
-    const outcomes = { comfortable: finish.filter(c => c >= due * 1.25).length, scraped: finish.filter(c => c >= due && c < due * 1.25).length, short: finish.filter(c => c < due).length };
-    console.log(`${sc.name.padEnd(10)} rent made ${(made * 100).toFixed(0).padStart(3)}% | spare (mean) $${mean - due} | endings ${outcomes.comfortable}/${outcomes.scraped}/${outcomes.short} (comfortably/scraped/didn't) | cash at the end: worst $${q(0)} · 5% $${q(0.05)} · 25% $${q(0.25)} · median $${q(0.5)} · 75% $${q(0.75)} · best $${q(0.999)}`);
+    const outcomes = Object.fromEntries(ENDINGS.map(e => [e, finish.filter(c => outcome(c, due) === e).length])) as Record<Ending, number>;
+    console.log(`${sc.name.padEnd(10)} rent made ${(made * 100).toFixed(0).padStart(3)}% | spare (mean) $${mean - due} | endings ${ENDINGS.map(e => outcomes[e]).join('/')} (flying/comfortably/made it/scraped/didn't) | cash at the end: worst $${q(0)} · 5% $${q(0.05)} · 25% $${q(0.25)} · median $${q(0.5)} · 75% $${q(0.75)} · best $${q(0.999)}`);
   }
   // where the money goes over a lease, per script (mean of seeds)
   if (args.includes('breakdown')) {
-    const keys: (keyof DayStats)[] = ['revenue', 'materials', 'labour', 'consumables', 'fixes', 'beer', 'mateBeer', 'fees', 'deliveryFees', 'overdraftFees', 'latePayLost', 'lostJobsValue', 'choreBoards', 'sheetsDone', 'sheetsScrapped', 'sheetsLate', 'sheetsLost', 'sheetsMissed', 'firesDuct', 'firesExtractor'];
+    const keys: (keyof DayStats)[] = ['revenue', 'materials', 'labour', 'consumables', 'fixes', 'beer', 'mateBeer', 'fees', 'deliveryFees', 'overdraftFees', 'latePayLost', 'lostJobsValue', 'choreBoards', 'walkIns', 'walkInCount', 'sheetsDone', 'sheetsScrapped', 'sheetsLate', 'sheetsLost', 'sheetsMissed', 'firesDuct', 'firesExtractor'];
     for (const sc of SCRIPTS) {
       const runs = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks).weeks.flat());
       console.log(`${sc.name.padEnd(10)} ` + keys.map(k => `${k}=${Math.round(runs.reduce((a, days) => a + days.reduce((b, d) => b + (d[k] ?? 0), 0), 0) / runs.length)}`).join(' '));
