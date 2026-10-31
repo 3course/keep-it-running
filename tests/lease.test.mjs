@@ -13,6 +13,7 @@ const D = await env.load('/src/world/daily.ts');
 const { newPeople } = await env.load('/src/people/state.ts');
 const { CONFIG } = await env.load('/src/config.ts');
 const LW = await env.load('/src/world/leaseWeeks.ts');
+const { LEASE_LINES: LEASE } = await env.load('/src/people/lines/lease.ts');
 
 describe('the lease, on Game', () => {
   it('a wobble in week 3, drawn from the pool, set off through the game’s own systems', () => {
@@ -31,12 +32,30 @@ describe('the lease, on Game', () => {
     }
     assert.equal(kinds.size, 4, 'every kind comes up across seeds');
   });
-  it('the weeks a lease deals: seeded, 0–3 a lease on their own weeks, every kind turns up', () => {
+  it('the weeks a lease deals: seeded; quiet weeks as configured, never two running; every kind turns up', () => {
     assert.deepEqual(LW.drawFortunes(7), LW.drawFortunes(7));
-    const counts = new Set(), kinds = new Set();
-    for (let s = 1; s <= 200; s++) { const f = LW.drawFortunes(s); assert.equal(f.length, CONFIG.lease.weeks); counts.add(f.filter(Boolean).length); f.filter(Boolean).forEach(k => kinds.add(k)); }
-    assert.deepEqual([...counts].sort(), [0, 1, 2, 3]);
+    const quiet = new Set(), kinds = new Set();
+    const Q = CONFIG.lease.fortunes.quiet.countWeights;
+    for (let s = 1; s <= 200; s++) {
+      const f = LW.drawFortunes(s); assert.equal(f.length, CONFIG.lease.weeks);
+      const q = f.filter(k => k === 'quiet').length; quiet.add(q);
+      assert.ok(Q[q] > 0, `${q} quiet weeks can't be dealt`);
+      f.forEach((k, i) => assert.ok(!(k === 'quiet' && f[i + 1] === 'quiet'), 'never two quiet weeks running'));
+      f.filter(Boolean).forEach(k => kinds.add(k));
+    }
+    assert.deepEqual([...quiet].sort(), Q.map((w, i) => (w > 0 ? i : -1)).filter(i => i >= 0));
     assert.equal(kinds.size, LW.FORTUNE_KINDS.length);
+  });
+  it('a quiet week: nobody walks in, and it reads as the radio, not a warning', () => {
+    const g = new Game(3, 1); g.maybeDistraction = () => {}; g.maybeFault = () => {}; g.maybeFire = () => {};
+    LW.startFortune('quiet', g, 5, 'radio');
+    while (g.minute < CONFIG.clock.endHour * 60) g.tick();
+    assert.equal(g.walkIns.length, 0, 'no walk-ins all day');
+    g.knockOff();
+    assert.equal(g.today.walkIns, 0, 'no floor');
+    const l = LS.newLease(new Game(3, 1), 1);
+    for (let d = 0; d < 20; d++) { const h = new Game(3, 1); h.dayIndex = 1 + d; assert.equal(LS.quietWeek(l, h), l.fortunes[Math.floor(d / 5)] === 'quiet'); }
+    assert.ok(LEASE.weeks.quiet.every(x => x.startsWith('📻')));
   });
   it('each dealt week works through Game, for its five days and no longer', () => {
     const F = CONFIG.lease.fortunes, last = 5;
@@ -115,7 +134,7 @@ describe('the lease, in the shed', () => {
   });
   it('day 20: the reckoning with everyone, an ending card, and the run on the office wall', async () => {
     const game = await freshGame(env);
-    await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); w.lease.letterRead = true; g.dayIndex = 20; g.day = 5; w.lease.startDayIndex = 1; w.people.fullTime = true; g.cash = 5000; g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; });
+    await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); w.lease.letterRead = true; g.dayIndex = 20; g.day = 5; w.lease.startDayIndex = 1; w.people.fullTime = true; g.cash = 1000; g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; });
     await game.page.waitForFunction(() => window.kirScene.knockoff.mode === 'reckoning');
     assert.ok(await game.eval((g, w, s) => ['eggby', 'courtney', 'tim', 'jess', 'you'].every(id => s.knockoff.figures.has(id))), 'everyone');
     for (let k = 0; k < 200 && !(await game.eval((g, w, s) => s.knockoff.talk.asking)); k++) { await game.page.mouse.click(200, 300); await game.page.waitForTimeout(50); }
@@ -123,7 +142,7 @@ describe('the lease, in the shed', () => {
     await game.page.waitForSelector('#kir-hud .summary .ending');
     assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .summary .ending').textContent), /Start another lease/);
     const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir-leases')));
-    assert.equal(wall.at(-1).ending, 'short'); // $5,000 less the week's overheads: well short of the rent
+    assert.equal(wall.at(-1).ending, 'short'); // $1,000 less the week's overheads: well short of the rent
     await game.close();
   });
   it('day 20, flying: Jess goes full time on the spot, Dennis brings a spreadsheet', async () => {

@@ -126,6 +126,19 @@ export const CAFE_LINES = {
     '{mai}, sliding the cup over: "Word is {business} wants {want}. Told them you\'re the best."',
     'Napkin on the saucer, in {mai}\'s handwriting: "{business}. {want}. Ring at 10!"',
   ],
+  /** A quiet week (the lease dealt one): Mai's dead, and the radio's on about the long weekend. */
+  quiet: {
+    mai: [
+      "Dead in here. Dead. You're my third customer and one was a pigeon.",
+      "Is everyone away? It's like a Sunday all week. I've cleaned the machine twice.",
+      "Quiet one, eh? Long weekend hangover. The whole street's on half speed.",
+      "Nobody's in. Wren's doing a crossword. Wren never does a crossword.",
+    ],
+    radio: [
+      '…traffic light all over after the long weekend; plenty of people still down the coast…',
+      "…a quiet week for a lot of businesses, with the school holidays rolling on…",
+    ],
+  },
   weather: [
     'Radio says fine and 24. Roller door all the way up today.',
     '{mai}: "Thirty-four this arvo. Northerly. Your shed\'ll be an oven. Drink water."',

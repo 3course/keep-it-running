@@ -20,6 +20,7 @@ export interface DayFacts {
   jessIn: boolean;
   fullTimeToday: boolean;  // she went full time today
   keepsake: string | null; // the last thing cut after hours
+  quiet?: boolean;         // a quiet week (the Lease): the machine's free, so a cut's on the cards every night
 }
 
 export interface NightContext { dayIndex: number; host: FriendId; facts: DayFacts; people: PeopleState; /** Tests: offer the rare one when eligible. */ forceLsg?: boolean }
@@ -262,7 +263,7 @@ export class Night {
       }
     }
     // an after-hours cut, once a night
-    if (!this.cut && stage >= 2 && this.beers >= 2 && (this.turn + this.ctx.dayIndex) % 3 === 0) {
+    if (!this.cut && stage >= 2 && this.beers >= 2 && (this.ctx.facts.quiet || (this.turn + this.ctx.dayIndex) % 3 === 0)) {
       const t = lru(THREADS.filter(x => x.kind === 'cut' && ok(x)));
       if (t) return t;
     }

@@ -929,6 +929,7 @@ export class World3D {
       gift: gift ? { phrase: GIFT_PHRASE[gift.kind], from: gift.from } : null,
       jess: PEOPLE.partTimer.name, jessIn: this.jessIn, fullTimeToday: p.fullTimeDay === g.dayIndex,
       keepsake: p.keepsakes.length ? p.keepsakes[p.keepsakes.length - 1].design.name.toLowerCase() : null,
+      quiet: g.fortuneNow?.walkIns === 0,
     };
   }
 

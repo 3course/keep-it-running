@@ -262,7 +262,7 @@ export const CONFIG = {
   // The Lease (src/world/lease.ts): a run of 4 weeks on one seed; the rent's due at the end, in the bank.
   lease: {
     weeks: 4,
-    rentDue: 8200,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
+    rentDue: 5400,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
     // the endings, by the spare at day 20 (cash less the rent): src/world/leaseEnding.ts
     endings: {
       graceShort: 1500,        // short by up to this: "scraped it" — the landlord takes what's there, the rest rides to the next lease
@@ -274,12 +274,14 @@ export const CONFIG = {
     // can't (spare capacity to take a big order or a run of rushes; stock planned to catch a cheap week), and quiet
     // weeks that only cost you if you'd have filled them. How many a seed gets varies; each lands on its own week.
     fortunes: {
-      countWeights: [1, 2, 2, 1],   // a lease gets 0, 1, 2 or 3 of them, by these weights
-      quiet:     { weight: 1, calls: 0.35 },                       // the phone barely rings all week
+      countWeights: [2, 1, 0, 0],   // a lease gets 0, 1, 2 or 3 of the others, by these weights, in the weeks the quiet ones leave
+      // quiet weeks are dealt first, on their own: 0, 1 or 2 a lease by these weights, never two weeks running. The phone
+      // and the morning board thin out and nobody walks in (no floor that week): what spreads the competent endings.
+      quiet:     { weight: 0, countWeights: [0, 6, 4], calls: 0.15 },                       // the phone barely rings all week
       bigOrder:  { weight: 2, sheets: 10, type: 'formwork' as const, priceMult: 1.4 }, // one customer, ten sheets, due Friday
       rushes:    { weight: 1, rushMult: 5 },                       // a run of rush jobs (rush pays CONFIG.jobs.rush.priceMult)
       plyDip:    { weight: 1, plyMult: 0.8 },                      // the supplier's clearing stock: ply 20% off for the week
-      premium:   { weight: 1, priceMult: 1.3 },                    // a repeat customer who pays over the odds, all week
+      premium:   { weight: 1, priceMult: 1.2 },                    // a repeat customer who pays over the odds, all week
     },
     wobbleWeek: 3,              // the week a wobble comes (drawn from the pool, not scripted)
     priceRise: 1.15,            // the wobble: ply up this much for the rest of the lease
@@ -292,6 +294,7 @@ export const CONFIG = {
     enabled: true,              // the balance sim turns him off unless run with `-- dennis`
     name: 'Dennis',
     callChance: 0.65,           // a day he rings at all
+    quietWeekCallChance: 1,     // …in a quiet week (the Lease), every day: you've got time to listen
     callFromHour: 9, callToHour: 14,
     answerMinutes: 15,          // how long the phone rings
     callbackMinutes: 120,       // "give me a minute": he rings back this much later…

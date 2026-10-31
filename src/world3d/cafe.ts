@@ -16,7 +16,7 @@ import { friendById } from '../people/friends.js';
 import type { FriendId } from '../people/dialogue/types.js';
 import { PEOPLE } from '../people/config.js';
 import { people } from '../people/state.js';
-import { leaseDay, leaseLength, outcome, projectedCash } from '../world/lease.js';
+import { leaseDay, leaseLength, outcome, projectedCash, quietWeek } from '../world/lease.js';
 import { logEvent, type WorldState } from '../world/state.js';
 import { Talk } from '../ui/talk.js';
 import { boxAt, toon } from './build.js';
@@ -150,6 +150,11 @@ export class Cafe {
       this.fig('dennis', { shirt: 0xb8902e, hair: 'short', hairColour: 0x9a9aa0 }, new THREE.Vector3(-1.6, 0, -0.6), true);
       out.push({ who: 'dennis', name: CONFIG.dennis.name, text: this.fill(pick(L.dennis, day), f), note: `${CONFIG.dennis.name}'s ringing at 10`,
         apply: () => { if (g.dennis.call) g.dennis.call.minute = CONFIG.cafe.leadHour * 60; } });
+    }
+    // a quiet week: Mai says it's dead, the radio's on about the long weekend
+    if (quietWeek(w.lease, g)) {
+      if (out.length < 2) out.push({ who: 'mai', name: CONFIG.cafe.barista, text: this.fill(pick(L.quiet.mai, day), f) });
+      if (out.length < 2) out.push({ who: 'radio', name: '📻 Radio', text: this.fill(pick(L.quiet.radio, day), f) });
     }
     if (out.length >= 2) return out;
     // one more, rotating: a lead, the weather, the landlord, yesterday's customer

@@ -99,9 +99,11 @@ export const LEASE_LINES = {
   } as Record<WobbleKind, string[]>,
   /** A week the lease deals, on its first morning (src/world/leaseWeeks.ts). */
   weeks: {
+    // a quiet week isn't announced: it's the radio on the bench, then the phone not ringing
     quiet: [
-      "Quiet week. The phone's barely ringing and the board's thin. Everyone's away, apparently.",
-      'School holidays. Half the builders are at the coast. It\'s going to be a slow one.',
+      "📻 …and the Monash's clear this morning, with half of Melbourne still down the coast after the long weekend…",
+      "📻 …quiet on the roads after the long weekend. Lot of people taking the week, sounds like. Here's one for the stayers…",
+      "📻 …school holidays and a long weekend back to back: if you're at work this morning, we salute you…",
     ],
     bigOrder: [
       'Big order in: one builder, ten sheets of formply, due Friday. Clear the decks.',

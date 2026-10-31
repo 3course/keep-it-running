@@ -23,6 +23,14 @@ export const JESS = {
     "Off to the tram! Leave me something tricky for next time.",
     'See you! Thanks for having me. Again. Every time.',
   ],
+  /** A quiet week: not much on the board. */
+  quiet: [
+    'Is there anything to do? I can sweep again. I have swept. I can sweep better.',
+    "It's so quiet. Should I sort the offcuts by size? By colour? By vibe?",
+    "Phone hasn't rung all morning. Is it broken? I'll check. ...It's not broken.",
+    'Quiet week, huh. Want me to oil the roller door? Graham said she sticks.',
+    'Can you show me something on the machine? Since we have, like, all the time.',
+  ],
   chat: [
     "Is it bad I've started naming the clamps?",
     "That noise when it finishes a cut and spins down. So satisfying.",

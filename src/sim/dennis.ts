@@ -41,7 +41,7 @@ export const newDennis = (): DennisState => ({ bets: [], nextId: 1, declines: 0,
 
 /** The bits of Game this needs (Game passes itself). */
 export interface DennisHost {
-  seed: number; dayIndex: number; minute: number; cash: number;
+  seed: number; dayIndex: number; minute: number; cash: number; readonly fortuneNow?: { walkIns: number } | null;
   dennis: DennisState;
   stock: Record<JobTypeId, number>; stockValue: Record<JobTypeId, number>;
   dennisEarn(amount: number, note: string): void;
@@ -93,7 +93,7 @@ export function dennisStartDay(h: DennisHost) {
   for (const bet of st.bets) if (bet.status === 'open' && bet.settleDay <= h.dayIndex) settle(h, bet);
   if (h.dayIndex < 2 || h.dayIndex < st.quietUntil) return;
   const r = rngFor(h, 1);
-  if (!r.chance(D().callChance)) return;
+  if (!r.chance(h.fortuneNow?.walkIns === 0 ? D().quietWeekCallChance : D().callChance)) return;
   // one bet a day: rotate through the library, nothing he's already got running
   const running = new Set(st.bets.filter(b => b.status === 'open' || ((b.status === 'won' || b.status === 'lost') && (b.until ?? -1) >= h.dayIndex)).map(b => b.kind));
   const from = st.lastKind ? (BET_KINDS.indexOf(st.lastKind) + 1) : r.int(0, BET_KINDS.length - 1);

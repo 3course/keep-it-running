@@ -241,7 +241,7 @@ export class PeopleDay {
     if (g.minute >= this.nextChat && this.dist(j) < 4.5) {
       const gripe = p.trust >= J.askAt / 2 && !p.shownToday.includes('layout') ? this.gripe() : null;
       if (gripe) { p.shownToday.push('layout'); this.say('jess', pick(JESS_LAYOUT[gripe], g.dayIndex), 4, 'thoughtful'); }
-      else this.say('jess', pick(JESS.chat, g.minute + g.dayIndex));
+      else this.say('jess', pick(g.fortuneNow?.walkIns === 0 ? JESS.quiet : JESS.chat, g.minute + g.dayIndex));
       this.nextChat = g.minute + J.chatEvery;
     }
     // otherwise wander

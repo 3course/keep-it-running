@@ -233,7 +233,7 @@ export class Game {
   /** The Lease's week (src/world/leaseWeeks.ts), from today to `f.until`. A quiet one takes today's later calls too. */
   setFortune(f: Fortune, note?: string) {
     this.fortune = f;
-    if (note) this.say(note, f.calls < 1 ? 'bad' : 'good');
+    if (note) this.say(note, f.calls < 1 ? 'info' : 'good'); // a quiet week's line is the radio, not a warning
     if (f.calls < 1) {
       this.orderCalls.splice(Math.max(1, Math.round(this.orderCalls.length * f.calls)));
       const fresh = this.jobs.filter(j => j.status === 'queued' && (this.freshToday ?? []).includes(j.id));
@@ -1784,6 +1784,7 @@ export class Game {
   private tickWalkIns() {
     const E = CONFIG.economy, hours = E.walkInHours;
     if (!(E.walkInFloor > 0 || E.walkInPerDay > 0)) return;
+    if (this.fortuneNow?.walkIns === 0) return; // a quiet week: nobody walks in either
     for (const w of this.walkIns) if (w.status === 'waiting' && this.minute >= w.minute + E.walkInWaitMinutes) { w.status = 'left'; this.say('The walk-in gave up waiting.', 'bad'); }
     const slot = hours.findIndex(h => this.minute === h * 60);
     if (slot < 0 || this.walkIns.length >= E.walkInMax) return;

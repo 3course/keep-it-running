@@ -84,6 +84,14 @@ export function fireWobble(l: LeaseState, g: Game, p: PeopleState): boolean {
   return true;
 }
 
+/** What this week of the lease is (null: an ordinary one), from the lease's own draw — known before Monday's dealt. */
+export function weekKind(l: LeaseState | undefined, g: Game): FortuneKind | null {
+  if (!l) return null;
+  const wk = Math.floor((g.dayIndex - l.startDayIndex) / CONFIG.week.days);
+  return (l.fortunes ??= drawFortunes(l.seed))[wk] ?? null;
+}
+export const quietWeek = (l: LeaseState | undefined, g: Game) => weekKind(l, g) === 'quiet';
+
 /** Each morning: if it starts a week this lease dealt, set it going. Returns the kind once, on its first morning. */
 export function dealWeek(l: LeaseState, g: Game, note: (k: FortuneKind) => string): FortuneKind | null {
   if ((l.dealtOn ??= []).includes(g.dayIndex)) return null;

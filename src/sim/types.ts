@@ -191,7 +191,7 @@ export interface MilestoneState {
 export type MilestoneId = 'sparkArrestor' | 'secondBitRack';
 
 /** A run of days the Lease dealt (src/world/leaseWeeks.ts): each field neutral at 1. Read by order calls and the supplier. */
-export interface Fortune { calls: number; rushMult: number; plyMult: number; priceMult: number; until: number }
+export interface Fortune { calls: number; rushMult: number; plyMult: number; priceMult: number; walkIns: number; until: number }
 
 /** Someone at the roller door with a small job (Game.walkIns). Which design it is is the world's business. */
 export interface WalkIn { id: number; minute: number; status: 'waiting' | 'served' | 'left'; paid: number }
