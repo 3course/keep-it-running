@@ -12,6 +12,7 @@ const LS = await env.load('/src/world/lease.ts');
 const D = await env.load('/src/world/daily.ts');
 const { newPeople } = await env.load('/src/people/state.ts');
 const { CONFIG } = await env.load('/src/config.ts');
+const LW = await env.load('/src/world/leaseWeeks.ts');
 
 describe('the lease, on Game', () => {
   it('a wobble in week 3, drawn from the pool, set off through the game’s own systems', () => {
@@ -29,6 +30,38 @@ describe('the lease, on Game', () => {
       if (l.wobble.kind === 'jessAnswer') assert.ok(p.trust >= 18 && p.jessExtraDay === g.dayIndex);
     }
     assert.equal(kinds.size, 4, 'every kind comes up across seeds');
+  });
+  it('the weeks a lease deals: seeded, 0–3 a lease on their own weeks, every kind turns up', () => {
+    assert.deepEqual(LW.drawFortunes(7), LW.drawFortunes(7));
+    const counts = new Set(), kinds = new Set();
+    for (let s = 1; s <= 200; s++) { const f = LW.drawFortunes(s); assert.equal(f.length, CONFIG.lease.weeks); counts.add(f.filter(Boolean).length); f.filter(Boolean).forEach(k => kinds.add(k)); }
+    assert.deepEqual([...counts].sort(), [0, 1, 2, 3]);
+    assert.equal(kinds.size, LW.FORTUNE_KINDS.length);
+  });
+  it('each dealt week works through Game, for its five days and no longer', () => {
+    const F = CONFIG.lease.fortunes, last = 5;
+    const fresh = () => { const g = new Game(3, 1); g.maybeDistraction = () => {}; return g; };
+    // a big order: ten sheets, due by close on the week's last day, at a premium
+    const b = fresh(), before = b.jobs.length;
+    LW.startFortune('bigOrder', b, last);
+    const big = b.jobs.slice(before);
+    assert.equal(big.length, F.bigOrder.sheets); assert.ok(big.every(j => j.dueDay === last && j.type === F.bigOrder.type));
+    // cheap ply, this week only
+    const p = fresh(), full = p.plyQuote('formwork', 4).boards;
+    LW.startFortune('plyDip', p, last);
+    assert.ok(p.plyQuote('formwork', 4).boards < full);
+    p.dayIndex = last + 1; assert.equal(p.plyQuote('formwork', 4).boards, full, 'over after the week');
+    // quiet: today's later calls and this morning's board thin out
+    const q = fresh(), calls = q.orderCalls.length, board = q.jobs.length;
+    LW.startFortune('quiet', q, last);
+    assert.ok(q.orderCalls.length < calls || calls === 1); assert.ok(q.jobs.length < board);
+    // premium and rushes: read by the order calls
+    const r = fresh(); LW.startFortune('premium', r, last); assert.equal(r.fortuneNow.priceMult, F.premium.priceMult);
+    const u = fresh(); LW.startFortune('rushes', u, last); assert.equal(u.fortuneNow.rushMult, F.rushes.rushMult);
+    // fortuneMorning only starts a week on its first morning
+    const m = fresh(); m.dayIndex = 2;
+    assert.equal(LW.fortuneMorning(['premium', 'premium', null, null], 1, m), null);
+    m.dayIndex = 6; assert.equal(LW.fortuneMorning(['premium', 'premium', null, null], 1, m), 'premium');
   });
   it('five endings, read off the spare at day 20; a near miss rides to the next lease', () => {
     const E = CONFIG.lease.endings, rent = 7000;

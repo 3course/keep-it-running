@@ -11,6 +11,7 @@ import { friendById } from '../people/friends.js';
 import type { Ending, WobbleKind } from '../people/lines/lease.js';
 import type { PeopleState } from '../people/state.js';
 import { designById } from '../designs/index.js';
+import { drawFortunes, fortuneMorning, type FortuneKind } from './leaseWeeks.js';
 
 export interface LeaseDay { dayIndex: number; profit: number; revenue: number; story: string | null }
 export interface LeaseState {
@@ -26,6 +27,9 @@ export interface LeaseState {
   /** Last lease's shortfall that rode over (in rentDue already), and this one's (scraped it, short of the rent). */
   carried?: number;
   owed?: number;
+  /** The weeks this lease deals (src/world/leaseWeeks.ts), and the mornings already dealt. */
+  fortunes?: (FortuneKind | null)[];
+  dealtOn?: number[];
 }
 
 export interface PastLease { n: number; seed: number; ending: Ending; cash: number; rentDue: number; owed?: number; piece: string | null; jessFullTime: boolean; gifts: number; when: string }
@@ -78,6 +82,13 @@ export function fireWobble(l: LeaseState, g: Game, p: PeopleState): boolean {
     case 'jessAnswer': p.trust = Math.max(p.trust, PEOPLE.partTimer.askAt); p.jessExtraDay = g.dayIndex; break;
   }
   return true;
+}
+
+/** Each morning: if it starts a week this lease dealt, set it going. Returns the kind once, on its first morning. */
+export function dealWeek(l: LeaseState, g: Game, note: (k: FortuneKind) => string): FortuneKind | null {
+  if ((l.dealtOn ??= []).includes(g.dayIndex)) return null;
+  l.dealtOn.push(g.dayIndex);
+  return fortuneMorning(l.fortunes ??= drawFortunes(l.seed), l.startDayIndex, g, note);
 }
 
 /** Everything the ending's lines (and the postcards) can say about the run, read off the save. */

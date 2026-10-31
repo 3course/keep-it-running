@@ -4,7 +4,7 @@ import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import { dennisAnswer, dennisCallMult, dennisDecide, dennisFaultMult, dennisFireMult, dennisJoineryMult, dennisPowerTrip, dennisRentMult, dennisRouterDay,
   dennisStartDay, dennisTick, newDennis, type Bet, type DennisState } from './dennis.js';
-import type { LayoutEffects, WalkIn } from './types.js';
+import type { Fortune, LayoutEffects, WalkIn } from './types.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
@@ -53,6 +53,10 @@ export class Game {
   supplyCostMult = 1;
   callMult = 1;
   callMultUntil = 0;              // dayIndex the quiet spell lasts to
+  /** The Lease's week (src/world/leaseWeeks.ts): calls, rush share, ply price and order prices for a run of days. Null: neutral. */
+  fortune: Fortune | null = null;
+  /** This morning's new sheets (ids), so a quiet week that starts today can thin them. */
+  freshToday: number[] = [];
   /** The cafe: a large coffee speeds tasks until this minute; the sparky you shouted resets the breaker on the house. */
   coffeeUntil = 0;
   sparkyFavour = false;
@@ -226,6 +230,28 @@ export class Game {
     this.say(`${sheets} sheet${sheets > 1 ? 's' : ''} on the board: ${CONFIG.dennis.name}'s ${label}.`, 'good');
     return jobs.map(j => j.id);
   }
+  /** The Lease's week (src/world/leaseWeeks.ts), from today to `f.until`. A quiet one takes today's later calls too. */
+  setFortune(f: Fortune, note?: string) {
+    this.fortune = f;
+    if (note) this.say(note, f.calls < 1 ? 'bad' : 'good');
+    if (f.calls < 1) {
+      this.orderCalls.splice(Math.max(1, Math.round(this.orderCalls.length * f.calls)));
+      const fresh = this.jobs.filter(j => j.status === 'queued' && (this.freshToday ?? []).includes(j.id));
+      const drop = new Set(fresh.slice(Math.max(1, Math.round(fresh.length * f.calls))).map(j => j.id));
+      this.jobs = this.jobs.filter(j => !drop.has(j.id));
+      this.today.sheetsDemanded -= drop.size;
+    }
+  }
+  get fortuneNow(): Fortune | null { return this.fortune && this.dayIndex <= this.fortune.until ? this.fortune : null; }
+  /** An order put on the board from outside the phone (the Lease's big order): `sheets` of a type, due by close on `dueDay`. */
+  leaseOrder(type: JobTypeId, sheets: number, dueDay: number, priceMult: number, label: string): number[] {
+    const t = CONFIG.jobs.types.find(x => x.id === type)!, close = CONFIG.clock.endHour * 60;
+    const jobs = Array.from({ length: sheets }, (_, i) => this.makeJob(t, `${label}${sheets > 1 ? ` (${i + 1}/${sheets})` : ''}`, dueDay, close, { priceMult }));
+    this.jobs.push(...jobs);
+    this.today.sheetsDemanded += sheets;
+    this.say(`Order in: ${label}, ${sheets} × ${t.material}.`, 'good');
+    return jobs.map(j => j.id);
+  }
   jobOpen(id: number) { const j = this.jobs.find(x => x.id === id); return !!j && (j.status === 'queued' || j.status === 'cutting'); }
   /** His phone's ringing (the view rings the phone; the sim answers it). */
   get dennisRinging() { return !!this.dennis.ringing; }
@@ -374,10 +400,14 @@ export class Game {
     // unfinished work carries over; delivered, scrapped and lost jobs drop off the board
     const carried = this.jobs.filter(j => j.status === 'queued');
     const fresh = this.generateJobs();
-    this.jobs = [...carried, ...fresh];
-    this.today.sheetsDemanded += fresh.length;
     this.lateDropToday = this.rng.chance(CONFIG.jobs.lateDrop.chance);
     this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0));
+    // a quiet week (the Lease): the morning board's thin too
+    const f = this.fortuneNow;
+    if (f && f.calls < 1) fresh.splice(Math.max(1, Math.round(fresh.length * f.calls)));
+    this.jobs = [...carried, ...fresh];
+    this.freshToday = fresh.map(j => j.id);
+    this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
@@ -414,6 +444,8 @@ export class Game {
     calls.sort((a, b) => a.minute - b.minute);
     // the Lease's wobble: a big customer's gone quiet (fewer calls for a few days)
     if (this.callMult < 1 && this.dayIndex <= this.callMultUntil) calls.splice(Math.max(1, Math.round(calls.length * this.callMult)));
+    const f = this.fortuneNow;
+    if (f && f.calls < 1) calls.splice(Math.max(1, Math.round(calls.length * f.calls)));
     // reputation: sheets lost yesterday cost calls today (latest calls go first; the guaranteed first call stays)
     const keep = Math.max(o.callsMin, calls.length - this.lostYesterday * o.lostJobCallPenalty);
     if (keep < calls.length) this.say(`Word's got around about yesterday. Fewer calls today.`, 'bad');
@@ -933,12 +965,13 @@ export class Game {
     const o = CONFIG.jobs.orders;
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
     const name = this.rng.pick(JOB_NAMES);
-    const kind = this.rng.weighted(['today', 'tomorrow', 'rush'] as const, k => o.deadlineMix[k])!;
+    const f = this.fortuneNow;
+    const kind = this.rng.weighted(['today', 'tomorrow', 'rush'] as const, k => o.deadlineMix[k] * (k === 'rush' && f ? f.rushMult : 1))!;
     const close = CONFIG.clock.endHour * 60;
     const due = kind === 'rush' ? { day: this.dayIndex, minute: this.minute + o.rushMinutes }
       : { day: this.dayIndex + (kind === 'tomorrow' ? 1 : 0), minute: close };
     const label = kind === 'rush' ? `RUSH — ${name}` : name;
-    const priceMult = kind === 'rush' ? CONFIG.jobs.rush.priceMult : 1;
+    const priceMult = (kind === 'rush' ? CONFIG.jobs.rush.priceMult : 1) * (f?.priceMult ?? 1);
     const jobs: Job[] = [];
     for (let i = 0; i < sheets; i++) {
       jobs.push(this.makeJob(t, sheets > 1 ? `${label} (${i + 1}/${sheets})` : label, due.day, due.minute, { priceMult }));
@@ -1162,7 +1195,7 @@ export class Game {
     if (this.phase !== 'day') return { error: 'Supplier is closed.' };
     if (!(s.orderSizes as readonly number[]).includes(qty)) return { error: 'They sell it in 4s.' };
     const t = CONFIG.jobs.types.find(x => x.id === type)!;
-    let boards = Math.round(t.boardCost * this.materialMult() * this.supplyCostMult) * qty;
+    let boards = Math.round(t.boardCost * this.materialMult() * this.supplyCostMult * (this.fortuneNow?.plyMult ?? 1)) * qty;
     if (this.courierPenaltyPending) boards = Math.round(boards * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
     const fee = qty >= s.freeDeliveryFrom ? 0 : s.deliveryFee;
     // the supplier won't take you past the overdraft limit

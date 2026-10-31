@@ -3,6 +3,7 @@
 // Templates (filled from the run): {rent} {cash} {days} {landlord} {gifts} {best} {bestAmount} {worst} {worstAmount}
 // {piece} {won} {total} {net} {jess} {mate} {lease} {beers} {nights} {sheets} {price} {buyer} {kept} {owed} {carried}
 import type { Ending } from '../../world/leaseEnding.js';
+import type { FortuneKind } from '../../world/leaseWeeks.js';
 export type { Ending };
 export interface EndingLines { headline: string; headlineRide?: string; you: string[]; youRide?: string[]; landlord: string[]; landlordRide?: string[]; byPerson: Record<'eggby' | 'courtney' | 'tim' | 'jess' | 'dennis', string[]> }
 export type WobbleKind = 'priceRise' | 'quietCustomer' | 'extractorDue' | 'jessAnswer';
@@ -96,6 +97,29 @@ export const LEASE_LINES = {
       '{jess} has asked properly about full time. She deserves a proper answer this week.',
     ],
   } as Record<WobbleKind, string[]>,
+  /** A week the lease deals, on its first morning (src/world/leaseWeeks.ts). */
+  weeks: {
+    quiet: [
+      "Quiet week. The phone's barely ringing and the board's thin. Everyone's away, apparently.",
+      'School holidays. Half the builders are at the coast. It\'s going to be a slow one.',
+    ],
+    bigOrder: [
+      'Big order in: one builder, ten sheets of formply, due Friday. Clear the decks.',
+      'Ten sheets for one job, due Friday, and they\'re paying well for it. Get cutting.',
+    ],
+    rushes: [
+      "Everyone wants it yesterday this week. Rush jobs, rush prices. Keep the bed full.",
+      'A run of rush jobs coming. Pays a premium, if you can turn them round.',
+    ],
+    plyDip: [
+      "The yard's clearing stock: ply's 20% off all week. Buy ahead while it's cheap.",
+      'Cheap ply this week. The yard over-ordered. Stock up.',
+    ],
+    premium: [
+      'A repeat customer with deep pockets this week. Orders pay over the odds.',
+      'Good week for prices: the regulars are paying a premium. Do them proud.',
+    ],
+  } satisfies Record<FortuneKind, string[]>,
   /** The letter's extra line when last lease's shortfall rode over. */
   letterCarried: "That's the usual, plus the {carried} that rode over from last time. No rush. Well. Some rush.",
   /** Day 20: how it went, and a line from everyone. */

@@ -262,13 +262,24 @@ export const CONFIG = {
   // The Lease (src/world/lease.ts): a run of 4 weeks on one seed; the rent's due at the end, in the bank.
   lease: {
     weeks: 4,
-    rentDue: 7300,              // the landlord's letter: in the bank by the end of day 20 (npm run sim -- --lease: competent 100% with ~$8k spare, sloppy ~50%)
+    rentDue: 8200,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
     // the endings, by the spare at day 20 (cash less the rent): src/world/leaseEnding.ts
     endings: {
       graceShort: 1500,        // short by up to this: "scraped it" — the landlord takes what's there, the rest rides to the next lease
       scrapedUnder: 1500,      // over by less than this: still "scraped it"
-      comfortableFrom: 7600,   // under this: "made it" (this and flyingFrom sit at the competent script's thirds: npm run sim -- --lease 200)
-      flyingFrom: 9100,        // this or more: "flying"
+      comfortableFrom: 3000,   // under this: "made it"
+      flyingFrom: 7000,        // this or more: "flying"
+    },
+    // The weeks the lease deals (src/world/leaseWeeks.ts): upside a sharp operator can ride and a sloppy one mostly
+    // can't (spare capacity to take a big order or a run of rushes; stock planned to catch a cheap week), and quiet
+    // weeks that only cost you if you'd have filled them. How many a seed gets varies; each lands on its own week.
+    fortunes: {
+      countWeights: [1, 2, 2, 1],   // a lease gets 0, 1, 2 or 3 of them, by these weights
+      quiet:     { weight: 1, calls: 0.35 },                       // the phone barely rings all week
+      bigOrder:  { weight: 2, sheets: 10, type: 'formwork' as const, priceMult: 1.4 }, // one customer, ten sheets, due Friday
+      rushes:    { weight: 1, rushMult: 5 },                       // a run of rush jobs (rush pays CONFIG.jobs.rush.priceMult)
+      plyDip:    { weight: 1, plyMult: 0.8 },                      // the supplier's clearing stock: ply 20% off for the week
+      premium:   { weight: 1, priceMult: 1.3 },                    // a repeat customer who pays over the odds, all week
     },
     wobbleWeek: 3,              // the week a wobble comes (drawn from the pool, not scripted)
     priceRise: 1.15,            // the wobble: ply up this much for the rest of the lease

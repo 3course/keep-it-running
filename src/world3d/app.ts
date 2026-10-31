@@ -2,6 +2,7 @@
 // this file only decides where you are, what you see, and turns taps into Game calls.
 // Portrait, one thumb: hold and drag on the lower half for the stick, tap a thing to walk to it and
 // use it, hold on the exhaust unit (or its label) to spray. WASD + E on desktop.
+import type { FortuneKind } from '../world/leaseWeeks.js';
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
@@ -46,7 +47,7 @@ import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
 import { DennisView } from './dennisView.js';
 import { Cafe } from './cafe.js';
-import { fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
+import { dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
@@ -570,8 +571,13 @@ export class World3D {
     this.offerLayout();
     this.cafe.offer();
     this.cafe.update(dt, this.paused);
-    // the Lease's week-3 wobble, set off on its day
+    // the Lease's week-3 wobble, set off on its day; a dealt week, on its first morning
     const lease = this.w.lease;
+    if (lease && g.phase === 'day') {
+      const pickLine = (k: FortuneKind) => LEASE_LINES.weeks[k][g.dayIndex % LEASE_LINES.weeks[k].length];
+      const k = dealWeek(lease, g, pickLine);
+      if (k) { logEvent(this.w, pickLine(k)); this.save(); }
+    }
     if (lease && g.phase === 'day' && fireWobble(lease, g, people(this.w))) {
       const f = { ...runFacts(lease, g, people(this.w)), landlord: LEASE_LINES.landlord };
       logEvent(this.w, fillRun(LEASE_LINES.wobbles[lease.wobble.kind][g.dayIndex % LEASE_LINES.wobbles[lease.wobble.kind].length], f));

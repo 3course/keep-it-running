@@ -8,6 +8,7 @@
 // rate (sheets ruined / sheets cut) per script. These runs buy no upgrades.
 // `npm run sim -- upgrades [seeds]` (default 20) measures the upgrades instead: each one alone, and each script's
 // buying policy over four weeks, compared seed for seed (see upgradeStudy).
+import { drawFortunes, fortuneMorning, FORTUNE_KINDS, type FortuneKind } from '../world/leaseWeeks.js';
 import { ENDINGS, outcome, type Ending } from '../world/leaseEnding.js';
 import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
@@ -418,7 +419,7 @@ interface WeekResult { g: Game; idle: { total: number; longest: number }[] }
 interface Upgrading { buying?: boolean; owned?: readonly UpgradeId[] }
 
 /** Play `weeks` weeks of a new game starting on `firstDay`; the result is the last of them (`weeks`: every week's days). */
-function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up: Upgrading = {}): WeekResult & { weeks: DayStats[][]; refused: number } {
+function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up: Upgrading = {}, morning?: (g: Game) => void): WeekResult & { weeks: DayStats[][]; refused: number } {
   const g = new Game(seed, firstDay);
   g.layout = simLayout; // `-- layouts`: the factory laid out a given way (default: as built)
   // count the ply orders the supplier refused for want of money (an insolvent business can't restock)
@@ -430,7 +431,7 @@ function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up:
   const all: DayStats[][] = [];
   for (let w = 0; w < weeks; w++) {
     if (w > 0) g.nextWeek();
-    idle = playOn(script, g, !!up.buying);
+    idle = playOn(script, g, !!up.buying, morning);
     all.push([...g.week]);
   }
   return { g, idle, weeks: all, refused };
@@ -438,13 +439,13 @@ function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up:
 
 /** Play the rest of the week. Returns per day: minutes the bed sat empty (machine 'idle') while labour was on the
  * clock, and the longest such run. Fault downtime and consumable swaps aren't counted — this measures pacing, not breakdowns. */
-function playOn(script: Script, g: Game, buying = false) {
+function playOn(script: Script, g: Game, buying = false, morning?: (g: Game) => void) {
   let guard = 0;
   const idle: { total: number; longest: number }[] = [];
   let idleDay: DayStats | null = null, run = 0;
   while (g.phase !== 'weekSummary' && guard++ < 100000) {
     if (g.phase === 'day') {
-      if (idleDay !== g.today) { idleDay = g.today; idle.push({ total: 0, longest: 0 }); run = 0; }
+      if (idleDay !== g.today) { idleDay = g.today; idle.push({ total: 0, longest: 0 }); run = 0; morning?.(g); }
       script.policy(g); g.tick();
       const today = idle[idle.length - 1];
       const phaseAfter = g.phase as Phase; // tick() can end the day; don't count the 7pm lights-off minute
@@ -744,30 +745,52 @@ function dennisStudy() {
  * (CONFIG.lease.rentDue) is due at the end: the cash in the bank on day 20 has to cover it. Reports the rent-made rate
  * per script (target: competent ~85%, sloppy ~25%) and the spread of what they finish with.
  */
+/** A lease on one seed: four weeks, with the weeks it deals (src/world/leaseWeeks.ts) unless run with `nofortunes`. */
+function playLease(sc: Script, seed: number, dealt?: (FortuneKind | null)[]) {
+  const fortunes = dealt ?? (args.includes('nofortunes') ? [] : drawFortunes(seed));
+  return playWeek(sc, seed, 1, CONFIG.lease.weeks, {}, g => { fortuneMorning(fortunes, 1, g); });
+}
+
 function leaseStudy() {
   const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 40 }, (_, i) => i + 1);
   const due = CONFIG.lease.rentDue;
   console.log(`\nThe Lease: ${CONFIG.lease.weeks} weeks from day 1, ${seeds.length} seeds. Rent due at the end: $${due} in the bank.`);
   const ends: Record<string, number[]> = {};
   for (const sc of SCRIPTS) {
-    const finish = ends[sc.name] = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks).g.cash).sort((a, b) => a - b);
+    const finish = ends[sc.name] = seeds.map(seed => playLease(sc, seed).g.cash).sort((a, b) => a - b);
     const made = finish.filter(c => c >= due).length / finish.length;
     const q = (p: number) => Math.round(finish[Math.min(finish.length - 1, Math.floor(p * finish.length))]);
     const mean = Math.round(finish.reduce((a, b) => a + b, 0) / finish.length);
     const outcomes = Object.fromEntries(ENDINGS.map(e => [e, finish.filter(c => outcome(c, due) === e).length])) as Record<Ending, number>;
     console.log(`${sc.name.padEnd(10)} rent made ${(made * 100).toFixed(0).padStart(3)}% | spare (mean) $${mean - due} | endings ${ENDINGS.map(e => outcomes[e]).join('/')} (flying/comfortably/made it/scraped/didn't) | cash at the end: worst $${q(0)} · 5% $${q(0.05)} · 25% $${q(0.25)} · median $${q(0.5)} · 75% $${q(0.75)} · best $${q(0.999)}`);
   }
+  // `fit`: the rent that has sloppy making it 45% of the time, and the competent split that rent would give
+  if (args.includes('fit')) {
+    const s = ends['sloppy'], c = ends['competent'];
+    const rent = Math.round(s[Math.floor(0.55 * s.length)] / 100) * 100, E = CONFIG.lease.endings;
+    const share = (lo: number, hi: number) => Math.round(100 * c.filter(x => x - rent >= lo && x - rent < hi).length / c.length);
+    console.log(`fit: rent $${rent} → sloppy 45% | competent made/comfortably/flying ${share(-1e9, E.comfortableFrom)}/${share(E.comfortableFrom, E.flyingFrom)}/${share(E.flyingFrom, 1e9)}%`);
+  }
+  // what each kind of week is worth, per script: dealt in week 2, against the same seeds with none
+  if (args.includes('fortunes')) {
+    const mean = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
+    const base = Object.fromEntries(SCRIPTS.map(sc => [sc.name, mean(seeds.map(seed => playLease(sc, seed, []).g.cash))]));
+    console.log('a week of… (in week 2), change in cash at the end: ' + SCRIPTS.map(s => s.name).join(' / '));
+    for (const k of FORTUNE_KINDS) console.log(`  ${k.padEnd(9)} ` + SCRIPTS.map(sc => `${mean(seeds.map(seed => playLease(sc, seed, [null, k, null, null]).g.cash)) - base[sc.name]}`.padStart(7)).join(''));
+    const n = Object.fromEntries([0, 1, 2, 3, 4].map(i => [i, seeds.filter(s => drawFortunes(s).filter(Boolean).length === i).length]));
+    console.log(`  dealt per lease (seeds with 0/1/2/3 weeks): ${n[0]}/${n[1]}/${n[2]}/${n[3]}`);
+  }
   // where the money goes over a lease, per script (mean of seeds)
   if (args.includes('breakdown')) {
     const keys: (keyof DayStats)[] = ['revenue', 'materials', 'labour', 'consumables', 'fixes', 'beer', 'mateBeer', 'fees', 'deliveryFees', 'overdraftFees', 'latePayLost', 'lostJobsValue', 'choreBoards', 'walkIns', 'walkInCount', 'sheetsDone', 'sheetsScrapped', 'sheetsLate', 'sheetsLost', 'sheetsMissed', 'firesDuct', 'firesExtractor'];
     for (const sc of SCRIPTS) {
-      const runs = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks).weeks.flat());
+      const runs = seeds.map(seed => playLease(sc, seed).weeks.flat());
       console.log(`${sc.name.padEnd(10)} ` + keys.map(k => `${k}=${Math.round(runs.reduce((a, days) => a + days.reduce((b, d) => b + (d[k] ?? 0), 0), 0) / runs.length)}`).join(' '));
     }
   }
   if (args.includes('weekly')) {
     for (const sc of SCRIPTS) {
-      const runs = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks));
+      const runs = seeds.map(seed => playLease(sc, seed));
       const wk = (i: number, k: keyof DayStats) => Math.round(runs.reduce((a, r) => a + r.weeks[i].reduce((b, d) => b + (d[k] ?? 0), 0), 0) / runs.length);
       console.log(`${sc.name.padEnd(10)} refused orders/lease=${(runs.reduce((a, r) => a + r.refused, 0) / runs.length).toFixed(1)} | ` + [0, 1, 2, 3].map(i => `wk${i + 1}: done=${wk(i, 'sheetsDone')} lost=${wk(i, 'sheetsLost')} rev=${wk(i, 'revenue')} stockout=${wk(i, 'stockOutMinutes')}m`).join(' | '));
     }
