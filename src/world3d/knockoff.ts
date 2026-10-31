@@ -20,23 +20,34 @@ import type { ShedLighting } from './lighting.js';
 import type { Sfx } from './sfx.js';
 import { boxAt, toon } from './build.js';
 import { LsgVignette } from './lsg.js';
+import { MATE_LAYOUT } from '../people/lines/layout.js';
+import { fullPlan, shift } from '../world/layoutPlan.js';
 
 /** How each mate looks up close (their shirt is the one they always wear: src/data/mates.ts). */
 const LOOKS: Record<FriendId, Omit<FigureLook, 'shirt'>> = {
   eggby: { hair: 'short', hairColour: 0x6a4a2a, canColour: 0xd9a23a },
   courtney: { hair: 'bun', hairColour: 0x2a1a14, canColour: 0x8fd37a },
   tim: { hair: 'beanie', hairColour: 0x4a5a6a, canColour: 0xc0281e },
+  dennis: { hair: 'short', hairColour: 0x9a9aa0, canColour: 0xf4efe0 },
 };
 const YOU: FigureLook = { shirt: 0xe8892e, hair: 'cap', hairColour: 0x2f4f6f, canColour: 0x2f8f6f };
 
 // the set, in metres: crates in front of the fridge (dock, east wall), the roller door just north of it
-const SPOT = {
+const SPOT_BUILT = {
   you: new THREE.Vector3(13.1, 0, 17.85),
   host: new THREE.Vector3(13.55, 0, 17.05),
   guest: new THREE.Vector3(13.95, 0, 16.55),
   door: new THREE.Vector3(14.1, 0, 15.4),     // where the mate stands at 5, just inside the door
   fridgeFront: new THREE.Vector3(13.85, 0.6, 18.0),
 };
+/** The set where the crates and fridge are now (the layout can move them). */
+const SPOT = { you: new THREE.Vector3(), host: new THREE.Vector3(), guest: new THREE.Vector3(), door: new THREE.Vector3(), fridgeFront: new THREE.Vector3() };
+function placeSet(w: WorldState) {
+  const plan = fullPlan(w.layout), c = shift(plan, 'crates'), f = shift(plan, 'fridge');
+  for (const k of ['you', 'host', 'guest'] as const) SPOT[k].copy(SPOT_BUILT[k]).add(new THREE.Vector3(c.x, 0, c.z));
+  SPOT.door.copy(SPOT_BUILT.door);
+  SPOT.fridgeFront.copy(SPOT_BUILT.fridgeFront).add(new THREE.Vector3(f.x, 0, f.z));
+}
 /** From the look point out to the camera: west, a little up, a touch south. */
 const CAM_DIR = new THREE.Vector3(-0.98, 0.14, 0.1).normalize();
 const SKY = { dusk: new THREE.Color(0xe8946a), night: new THREE.Color(0x141a30) };
@@ -98,6 +109,7 @@ export class KnockOff {
   private workLight = false;
 
   constructor(private d: KnockOffDeps) {
+    placeSet(d.w);
     this.talk = new Talk(d.talkParent);
     // crates, a radio on the fridge, the fridge's light (a real one where the tier has point lights, a glow where not)
     const crateCols = [0x2f6f9e, 0xc0402a, 0xe0b030];
@@ -109,11 +121,12 @@ export class KnockOff {
       c.name = `crate${i}`;
       this.set.add(c);
     });
-    this.radio = boxAt(0.3, 0.16, 0.14, toon(0x6a4a3a), 14.25, 0.9, 17.7);
+    const fs = shift(fullPlan(d.w.layout), 'fridge');
+    this.radio = boxAt(0.3, 0.16, 0.14, toon(0x6a4a3a), 14.25 + fs.x, 0.9, 17.7 + fs.z);
     this.set.add(this.radio);
     this.glow = new THREE.Mesh(new THREE.CircleGeometry(1.4, 16).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ color: 0xcfe6ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
-    this.glow.position.set(13.4, 0.02, 18.0);
+    this.glow.position.set(13.4 + fs.x, 0.02, 18.0 + fs.z);
     this.set.add(this.glow);
     this.set.add(this.empties);
     if (d.pointLights) {
@@ -175,6 +188,8 @@ export class KnockOff {
     const you = this.figure('you', YOU);
     you.root.position.copy(SPOT.you);
     this.night = new Night({ dayIndex: g.dayIndex, host: id, facts: this.d.facts(), people: people(w), forceLsg: this.forceLsg });
+    // moved things round lately? they've got thoughts (mostly wrong)
+    if (w.layoutDay !== undefined && g.dayIndex - w.layoutDay <= 1) this.night.lead(MATE_LAYOUT[id][g.dayIndex % MATE_LAYOUT[id].length]);
     this.mode = 'night';
     this.base = { sky: (this.d.scene.background as THREE.Color | null)?.clone() ?? null, hemi: this.d.lights.hemi.intensity, sun: this.d.lights.sun.intensity, hemiColour: this.d.lights.hemi.color.clone() };
     this.frame(false);

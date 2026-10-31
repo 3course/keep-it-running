@@ -36,6 +36,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     else add(true, 'ply-unload', `Unload the ply (${truck.bundles.length} bundle${truck.bundles.length > 1 ? 's' : ''} left)`, 'rollerDoor');
   }
 
+  // the layout put the compressor on the extractor's circuit: the breaker
+  if (g.powerTripped) add(true, 'breaker', "Power's tripped: reset the breaker", 'switchboard');
+
   // the morning after: a can on the router bed holds up the first cut; the rest want bagging for the refund
   const cans = w.people?.cans ?? [];
   if (cans.some(c => c.spot === 'bed')) add(true, 'bedcan', 'Can on the router bed from last night', 'machine');

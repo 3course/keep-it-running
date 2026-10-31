@@ -15,6 +15,8 @@ export interface MadeEntry { design: Design; count: number; after: string | null
 export interface DayPeople {
   lastNight: { who: string; beers: number; quote: string; quoteBy: string; dontAsk?: boolean } | null;
   afterHours: MadeEntry[];
+  /** Metres walked today, and the minutes the layout cost (negative: it saved them). */
+  walking?: { metres: number; layoutMinutes: number };
 }
 
 const GALLERY_CSS = `
@@ -127,6 +129,8 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     ${ppl?.lastNight?.dontAsk ? `<p class="story lastnight"><b>Last night:</b> don't ask.</p>` : ppl?.lastNight ? `<p class="story lastnight"><b>Last night:</b> ${escapeHtml(ppl.lastNight.who)}, ${ppl.lastNight.beers} beer${ppl.lastNight.beers === 1 ? '' : 's'} each. “${escapeHtml(ppl.lastNight.quote)}” — ${escapeHtml(ppl.lastNight.quoteBy)}</p>` : ''}
     <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
     <section><h2>Shop floor</h2>${floor.map(([k, v]) => `<div class="row"><span class="dim">${k}</span><span>${v}</span></div>`).join('')}
+      ${ppl?.walking ? `<div class="row walking"><span class="dim">Walking today</span><span>${ppl.walking.metres.toLocaleString('en-AU')} m</span></div>
+      <div class="row layoutcost ${ppl.walking.layoutMinutes > 0 ? 'bad' : ppl.walking.layoutMinutes < 0 ? 'good' : ''}"><span class="dim">Time lost to layout</span><span>${ppl.walking.layoutMinutes >= 0 ? `${ppl.walking.layoutMinutes} min` : `${-ppl.walking.layoutMinutes} min saved`}</span></div>` : ''}
       <p class="verdict">${dayVerdict(d)}</p></section>
     ${galleryHtml(made)}
     ${galleryHtml(ppl?.afterHours ?? [], 'After hours', (d.afterHours ?? 0) > 0 ? `<p class="dim small">Boards used: ${money(d.afterHours)}. Worth it.</p>` : '<p class="dim small">Cut from offcuts. Free, and better for it.</p>')}
@@ -158,7 +162,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
   const total = g.week.reduce<DayStats>((acc, d) => {
     for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k] ?? 0; // a day saved before a field existed
     return acc;
-  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0 });
+  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
   const last = g.week[g.week.length - 1]; // stock is a snapshot at close, not a sum
   total.costs += g.weekOverheads;

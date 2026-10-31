@@ -86,6 +86,7 @@ const CSS = `
 #kir-hud .modal .go { background: #4e8a46; } #kir-hud .modal .ot { background: #9e3d3d; }
 #kir-hud .paused { cursor: pointer; }
 #kir-hud .paused .card { border-color: #a2937f; }
+#kir-hud .paused .card button { display: block; width: 100%; margin-top: 10px; padding: 10px; font: 16px 'Courier New', monospace; background: #efe6d8; color: #14110f; border: 2px solid #14110f; border-radius: 10px; }
 #kir-hud .labels { position: absolute; inset: 0; pointer-events: none; }
 #kir-hud .lbl { position: absolute; transform: translate(-50%, -100%); width: max-content; display: flex; flex-direction: column-reverse; align-items: center; gap: 6px; }
 #kir-hud .lbl button { pointer-events: auto; font: 600 ${F(20)} 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
@@ -171,6 +172,9 @@ export interface HudCallbacks {
   togglePause: () => void;
   knockOff: () => void;
   overtime: () => void;
+  /** Layout mode (the pause menu): move things round; put everything back where it was built. */
+  layout?: () => void;
+  resetLayout?: () => void;
 }
 
 export class Hud {
@@ -241,8 +245,12 @@ export class Hud {
     this.pad = el('div', { className: 'pad' });
     this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
-    this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p></div>`;
+    this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p>
+      <button class="layout">Move things round</button><button class="resetlayout">Put everything back as built</button></div>`;
     this.pausedEl.addEventListener('click', () => this.cb.togglePause());
+    this.pausedEl.querySelector('.layout')!.addEventListener('click', e => { e.stopPropagation(); this.cb.togglePause(); this.cb.layout?.(); });
+    const reset = this.pausedEl.querySelector<HTMLButtonElement>('.resetlayout')!;
+    reset.addEventListener('click', e => { e.stopPropagation(); this.cb.resetLayout?.(); reset.textContent = 'Back as built.'; window.setTimeout(() => { reset.textContent = 'Put everything back as built'; }, 2000); });
     this.labels = el('div', { className: 'labels' });
     this.stick = el('div', { className: 'stick' });
     this.knob = el('div', { className: 'knob' });

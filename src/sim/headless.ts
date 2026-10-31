@@ -15,6 +15,7 @@ import type { JobTypeId, UpgradeId } from '../config.js';
 import type { LayoutEffects } from './types.js';
 import { NEUTRAL_LAYOUT } from './Game.js';
 import { PRESETS, effectsOf, measure } from '../world/layoutPlan.js';
+import { simOnly, type BetKind } from './dennis.js';
 
 type Policy = (g: Game) => void;
 
@@ -160,6 +161,16 @@ function sloppyChores(g: Game): boolean {
 }
 const sloppyClamps = (g: Game) => (g.rng.chance(0.5) ? CLAMPS - 2 : CLAMPS - 1);
 
+/** Dennis on the phone: every script picks up and answers the run's way (`-- dennis`: yes to everything, or no). */
+let dennisSays: 'yes' | 'no' = 'no';
+/** `-- dennis only=<kind>`: yes to that kind of bet only (to price each one). */
+const dennisOnly = () => ((globalThis as { process?: { argv: string[] } }).process?.argv ?? []).find(a => a.startsWith('only='))?.slice(5);
+function answersDennis(g: Game) {
+  if (!g.dennisRinging || !g.canAct) return;
+  const bet = g.answerDennis();
+  if (bet) g.decideDennis(dennisSays);
+}
+
 /** The breaker: competent resets it straight away, average soon after, sloppy when they notice. True: that's this minute. */
 function resetsPower(g: Game, chance: number): boolean {
   if (!g.powerTripped || !g.canAct || !g.rng.chance(chance)) return false;
@@ -167,6 +178,7 @@ function resetsPower(g: Game, chance: number): boolean {
 }
 
 const competent: Policy = (g) => {
+  answersDennis(g);
   if (g.powerTripped && resetsPower(g, 1)) return;
   // a fire beats everything: drop what you're doing and go
   if (g.fire && !g.fireResponse) g.fightFire();
@@ -215,6 +227,7 @@ const competent: Policy = (g) => {
 const sloppyIgnores = new WeakMap<Game, Map<number, boolean>>();
 
 const sloppy: Policy = (g) => {
+  answersDennis(g);
   if (g.powerTripped && resetsPower(g, 0.3)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (sloppyRare(g)) return;
@@ -306,6 +319,7 @@ function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
  * usually makes the right call once it does, and sometimes lets chores slide (puts off swaps, gets to trucks and the next sheet late).
  */
 const average: Policy = (g) => {
+  answersDennis(g);
   if (g.powerTripped && resetsPower(g, 0.6)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (g.fire && averageReacts(g, `fire-${g.fire.id}`, 20, 60) && g.fightFire()) return;
@@ -494,6 +508,8 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
 }
 
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
+// Dennis is off unless asked for (`-- dennis`): the default report is the economy as it was before him
+if (!args.includes('dennis')) (CONFIG.dennis as { enabled: boolean }).enabled = false;
 /** The layout every game in this run plays on. */
 let simLayout: LayoutEffects = NEUTRAL_LAYOUT;
 // `-- baseline`: rare events and milestones off, as the economy was before them (the frozen baseline)
@@ -503,6 +519,7 @@ if (args.includes('nochores')) Object.assign(CONFIG as unknown as Record<string,
 console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'}, chores ${CONFIG.chores ? 'on' : 'off'})`);
 if (args[2] === 'upgrades') upgradeStudy();
 else if (args[2] === 'layouts') layoutStudy();
+else if (args[2] === 'dennis') dennisStudy();
 else defaultReport();
 
 /**
@@ -685,4 +702,37 @@ function upgradeStudy() {
   console.log(`  everything owned keeps competent at or under 20%: steady ${pct(allComp)}, weeks 3–4 with its buying ${pct(compPolicyLate)} — ${allComp <= 0.2 && compPolicyLate <= 0.2 ? 'PASS' : 'FAIL'}`);
   console.log(`  average with the fault sensor has clearly lower steady-state scrap: ${pts(sensor)} points (${pct(mean(steady(byName('average'), []).map(scrapRate)))} → ${pct(mean(steady(byName('average'), ['faultSensor']).map(scrapRate)))}) — ${sensor <= -0.05 ? 'PASS' : 'FAIL'}`);
   void comp;
+}
+
+/**
+ * `npm run sim -- dennis [seeds]`: competent's margin over two weeks from the steady state, three ways per seed —
+ * without Dennis, saying yes to every bet, saying no to every bet. Target: yes beats no clearly on average, but the
+ * worst yes seed loses to the best no seed (they're real risks).
+ */
+function dennisStudy() {
+  simOnly.kind = (dennisOnly() as BetKind | undefined) ?? null;
+  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 20 }, (_, i) => i + 1);
+  const comp = SCRIPTS.find(s => s.name === 'competent')!;
+  const tally: Record<string, { n: number; won: number; net: number; open: number }> = {};
+  const run = (seed: number, on: boolean, says: 'yes' | 'no') => {
+    (CONFIG.dennis as { enabled: boolean }).enabled = on; dennisSays = says;
+    const r = playWeek(comp, seed, STEADY_FROM, 4);
+    const days = r.weeks.flat();
+    if (on && says === 'yes') for (const b of r.g.dennis.bets) { const t = (tally[b.kind] ??= { n: 0, won: 0, net: 0, open: 0 }); t.n++; if (b.status === 'won') t.won++; if (b.status === 'open') t.open++; t.net += b.net; }
+    return { m: margin(days), cash: r.g.cash, bets: r.g.dennis.bets.filter(b => b.status === 'won' || b.status === 'lost' || b.status === 'open').length,
+      won: r.g.dennis.bets.filter(b => b.status === 'won').length, lost: r.g.dennis.bets.filter(b => b.status === 'lost').length };
+  };
+  const rows = seeds.map(seed => ({ seed, off: run(seed, false, 'no'), yes: run(seed, true, 'yes'), no: run(seed, true, 'no') }));
+  (CONFIG.dennis as { enabled: boolean }).enabled = false;
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`.padStart(6);
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  console.log(`\nDennis: competent, four weeks from the steady state, ${seeds.length} seeds. Operating margin.`);
+  console.log('seed |  without | yes to all (won/lost) | no to all');
+  for (const r of rows) console.log(`${String(r.seed).padStart(4)} | ${pct(r.off.m)}   | ${pct(r.yes.m)} (${r.yes.won}/${r.yes.lost})        | ${pct(r.no.m)}`);
+  const yes = rows.map(r => r.yes.m), no = rows.map(r => r.no.m), off = rows.map(r => r.off.m);
+  console.log(`mean | ${pct(mean(off))}   | ${pct(mean(yes))}              | ${pct(mean(no))}`);
+  const clear = mean(yes) - mean(no), worstYes = Math.min(...yes), bestNo = Math.max(...no);
+  console.log(`yes beats no on average by ${(clear * 100).toFixed(1)} points — ${clear >= 0.02 ? 'PASS' : 'FAIL'} (want a clear margin, 2+ points)`);
+  console.log('by bet (yes to all): ' + Object.entries(tally).map(([k, t]) => `${k} ×${t.n} won ${t.won} open ${t.open} net $${Math.round(t.net / t.n)}`).join(' | '));
+  console.log(`worst yes seed ${pct(worstYes)} vs best no seed ${pct(bestNo)} — ${worstYes < bestNo ? 'PASS (the risks are real)' : 'FAIL (too safe)'}`);
 }

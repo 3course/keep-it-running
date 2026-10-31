@@ -12,13 +12,17 @@ import type { Gift, Keepsake, PeopleState } from '../people/state.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { boxAt, toon } from './build.js';
 import { buildPiece } from './piece.js';
+import { DEFAULT_PLAN, shift, type Plan } from '../world/layoutPlan.js';
 
 // spots, in metres (world). Walls that face the camera (south-facing faces of north walls) so you see them as you work.
-const CORK = { x: 4.6, y: 1.45, z: 19.53, w: 1.5, h: 0.9 };            // office, on the wall it shares with the floor
+const CORK_BUILT = { x: 4.6, y: 1.45, z: 19.53, w: 1.5, h: 0.9 };      // office, on the wall it shares with the floor
+let CORK = { ...CORK_BUILT };
 const SILL = { x0: 6.6, x1: 8.6, y: 1.0, z: 19.62 };                     // office window, same wall
-const FRIDGE_SIDE = { x0: 14.06, y0: 0.2, z: 18.512 };                  // the bar fridge's side that faces the room (south)
+const FRIDGE_BUILT = { x0: 14.06, y0: 0.2, z: 18.512 };                 // the bar fridge's side that faces the room (south)
+let FRIDGE_SIDE = { ...FRIDGE_BUILT };
 const SMOKO = { x: 12.75, y: 0.35, z: 21.27 };                           // the upturned crate between the smoko chairs
-const SLABS = { x: 13.7, z: 18.75 };                                     // on the floor beside the fridge
+const SLABS_BUILT = { x: 13.7, z: 18.75 };                               // on the floor beside the fridge
+let SLABS = { ...SLABS_BUILT };
 /** Keepsakes: wall hooks on the factory's north wall and the dock's, the workbench as a shelf, the toilet door. */
 export const KEEPSAKE_SPOTS: { x: number; y: number; z: number; on: 'wall' | 'shelf' | 'door' }[] = [
   { x: 5.5, y: 1.8, z: 7.03, on: 'wall' }, { x: 9.6, y: 1.75, z: 7.03, on: 'wall' }, { x: 10.6, y: 1.9, z: 7.03, on: 'wall' },
@@ -40,8 +44,17 @@ export class Gratitude {
     scene.add(this.group);
   }
 
-  /** Bring the shed in line with the people state. */
-  update(p: PeopleState, dayIndex: number) {
+  private plan: Plan = DEFAULT_PLAN;
+
+  /** Bring the shed in line with the people state (and the layout: the corkboard, fridge and bench move). */
+  update(p: PeopleState, dayIndex: number, plan: Plan = DEFAULT_PLAN) {
+    if (plan !== this.plan) {
+      this.plan = plan; this.sig = '';
+      const c = shift(plan, 'corkboard'), f = shift(plan, 'fridge');
+      CORK = { ...CORK_BUILT, x: CORK_BUILT.x + c.x, z: CORK_BUILT.z + c.z };
+      FRIDGE_SIDE = { ...FRIDGE_BUILT, x0: FRIDGE_BUILT.x0 + f.x, z: FRIDGE_BUILT.z + f.z };
+      SLABS = { x: SLABS_BUILT.x + f.x, z: SLABS_BUILT.z + f.z };
+    }
     const sig = JSON.stringify([p.gifts.map(g => [g.kind, g.slot, g.dayIndex === dayIndex || isKeep(g)]), p.keepsakes.map(k => k.design.id), p.cans.map(c => c.id),
       Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab), Math.floor(p.bagged / 2), p.oddObject ?? '']);
     if (sig === this.sig) return;
@@ -192,7 +205,9 @@ export class Gratitude {
     let next = 0;
     for (const k of ks) {
       const isMoon = k.design.id.startsWith('kept-ah-dunny-moon');
-      const spot = isMoon ? { ...DUNNY_DOOR, on: 'door' as const } : KEEPSAKE_SPOTS[next++ % KEEPSAKE_SPOTS.length];
+      const raw = isMoon ? { ...DUNNY_DOOR, on: 'door' as const } : KEEPSAKE_SPOTS[next++ % KEEPSAKE_SPOTS.length];
+      const b = shift(this.plan, 'bench');
+      const spot = raw.on === 'shelf' ? { ...raw, x: raw.x + b.x, z: raw.z + b.z } : raw; // the shelf is the part-timer's bench
       const size = Math.max(k.design.sheet.w, k.design.sheet.h);
       const piece = buildPiece(k.design, (spot.on === 'shelf' ? 0.42 : 0.55) / size, this.rich);
       // flat piece → hung on a wall facing out (+z), sketch-up the right way up

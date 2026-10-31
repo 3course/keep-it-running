@@ -46,6 +46,12 @@ export interface WorldState {
   made?: { job: number; design: string }[];
   /** How many of today's `made` have gone out in a customer's ute (their reactions are for those). */
   pickedUp?: number;
+  /** The factory floor as you've laid it out (src/world/layoutPlan.ts); missing: as built. */
+  layout?: Partial<import('./layoutPlan.js').Plan>;
+  /** The day the layout last changed (a mate'll have something to say about it). */
+  layoutDay?: number;
+  /** Metres walked today, for the summary. */
+  walkedToday?: number;
   /** The people side (src/people/state.ts): the part-timer, knock-off nights, gifts, keepsakes, the morning's cans. */
   people?: PeopleState;
 }
@@ -93,7 +99,7 @@ export function startNewDay(w: WorldState, g: Game) {
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
   w.carrying = null; w.extinguisherFrom = null; w.hooks = { wall: true, shed: true, exhaust: true };
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
-  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0;
+  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it
   // a sheet cutting at knock-off was scrapped by Game; it's still lying on the bed
   if (w.bed === 'running') w.bed = 'scrap';

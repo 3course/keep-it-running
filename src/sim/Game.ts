@@ -2,6 +2,8 @@ import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type RareEven
 import { FAULTS } from '../data/faults.js';
 import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
+import { dennisAnswer, dennisCallMult, dennisDecide, dennisFaultMult, dennisFireMult, dennisJoineryMult, dennisPowerTrip, dennisRentMult, dennisRouterDay,
+  dennisStartDay, dennisTick, newDennis, type Bet, type DennisState } from './dennis.js';
 import type { LayoutEffects } from './types.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
@@ -25,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0,
   };
 }
 
@@ -45,6 +47,8 @@ export class Game {
   layout: LayoutEffects = NEUTRAL_LAYOUT;
   /** The 3D world walks its own walks: layout walking minutes only apply when Game times the walks itself (the sim). */
   worldWalks = false;
+  /** Dennis the accountant: his calls, bets and ledger (src/sim/dennis.ts). Plain data. */
+  dennis: DennisState = newDennis();
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
   powerTripped = false;
 
@@ -195,6 +199,30 @@ export class Game {
     return Math.max(1, Math.round(m + extra));
   }
 
+  // ---------- Dennis (src/sim/dennis.ts calls these) ----------
+  dennisSay(text: string, tone?: 'good' | 'bad' | 'info' | 'money') { this.say(text, tone); }
+  dennisEarn(amount: number, note: string) { if (amount > 0) this.earn(Math.round(amount), `${CONFIG.dennis.name}: ${note}`); }
+  dennisSpend(amount: number, bucket: 'bets' | 'labour' | 'upgrades', note: string) {
+    if (bucket === 'bets') this.today.bets ??= 0; // a day saved before the field existed
+    this.spend(Math.round(amount), bucket, note);
+  }
+  dennisJobs(type: JobTypeId, sheets: number, dueDays: number, priceMult: number, label: string, rush: boolean): number[] {
+    const t = CONFIG.jobs.types.find(x => x.id === type)!, close = CONFIG.clock.endHour * 60;
+    const due = rush ? { day: this.dayIndex, minute: Math.min(close, this.minute + CONFIG.jobs.orders.rushMinutes) } : { day: this.dayIndex + dueDays, minute: close };
+    const jobs = Array.from({ length: sheets }, (_, i) => this.makeJob(t, `${rush ? 'RUSH — ' : ''}${CONFIG.dennis.name}'s ${label}${sheets > 1 ? ` (${i + 1}/${sheets})` : ''}`, due.day, due.minute, { priceMult }));
+    this.jobs.push(...jobs);
+    this.today.sheetsDemanded += sheets;
+    this.say(`${sheets} sheet${sheets > 1 ? 's' : ''} on the board: ${CONFIG.dennis.name}'s ${label}.`, 'good');
+    return jobs.map(j => j.id);
+  }
+  jobOpen(id: number) { const j = this.jobs.find(x => x.id === id); return !!j && (j.status === 'queued' || j.status === 'cutting'); }
+  /** His phone's ringing (the view rings the phone; the sim answers it). */
+  get dennisRinging() { return !!this.dennis.ringing; }
+  /** Pick up: the bet he's pitching. */
+  answerDennis(): Bet | null { return this.phase === 'day' ? dennisAnswer(this) : null; }
+  /** Yes, no, or give me a minute. */
+  decideDennis(choice: 'yes' | 'no' | 'later'): boolean { return dennisDecide(this, choice); }
+
   /** Move things round at the start of the day: costs time (it's heavy), not money. */
   layoutShuffle(minutes: number) {
     if (this.phase !== 'day' || minutes <= 0) return;
@@ -321,6 +349,17 @@ export class Game {
     this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0));
     this.rare = null; this.notes = []; this.story = null;
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
+    if (CONFIG.dennis.enabled) {
+      dennisStartDay(this); // his own seeded rolls: off, nothing else changes
+      // the footy club's sponsorship: more calls while it's working
+      const mult = dennisCallMult(this);
+      if (mult > 1) {
+        const r = new Rng((this.seed * 31 + this.dayIndex * 977) >>> 0 || 1), o = CONFIG.jobs.orders;
+        const extra = Math.round(this.orderCalls.length * (mult - 1));
+        for (let i = 0; i < extra; i++) this.orderCalls.push({ minute: Math.round(r.range(o.spreadFromHour * 60, o.spreadToHour * 60)), sheets: r.int(o.sheetsMin, o.sheetsMax) });
+        this.orderCalls.sort((a, b) => a.minute - b.minute);
+      }
+    }
     const carryNote = carried.length ? ` (${carried.length} carried over)` : '';
     this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board${carryNote}. Roller door's up.`);
   }
@@ -395,7 +434,7 @@ export class Game {
       name,
       material: t.material,
       materialCost: Math.round(t.boardCost * this.materialMult()),
-      price: Math.round(this.priceFor(CONFIG.jobs.priceBasisBoardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1)),
+      price: Math.round(this.priceFor(CONFIG.jobs.priceBasisBoardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1) * (t.id === 'joinery' && CONFIG.dennis.enabled ? dennisJoineryMult(this) : 1)),
       cutMinutes: Math.max(1, Math.round(baseCut * t.cutMult)),
       deadlineMinute, dueDay,
       progress: 0, status: 'queued', paidLate: false, chipRisk: t.chipRisk, type: t.id,
@@ -468,7 +507,8 @@ export class Game {
       else if (this.current.progress >= this.current.cutMinutes) this.finishJob();
       else this.maybeFault(false);
       // a compressor on the extractor's circuit trips the power now and then (only rolled when the layout's like that)
-      if (this.layout.powerTripPerMinute > 0 && this.machine === 'cutting' && !this.powerTripped && this.rng.chance(this.layout.powerTripPerMinute)) {
+      const trip = this.layout.powerTripPerMinute + (CONFIG.dennis.enabled ? dennisPowerTrip(this) : 0);
+      if (trip > 0 && this.machine === 'cutting' && !this.powerTripped && this.rng.chance(trip)) {
         this.powerTripped = true; this.machine = 'paused';
         this.say('Power tripped. The breaker at the switchboard.', 'bad');
       }
@@ -490,6 +530,7 @@ export class Game {
       this.spawnOrderCall(this.orderCalls.shift()!.sheets);
     }
     if (this.rare) this.tickRare();
+    if (CONFIG.dennis.enabled) dennisTick(this);
 
     // ply deliveries
     this.tickDeliveries();
@@ -527,7 +568,7 @@ export class Game {
     }
     if (def.id === 'chipping' && this.current) w *= this.current.chipRisk;
     if (def.id === 'extraction' && this.upgrades.has('extractor')) w *= this.upgradeEffect('extractor');
-    if (def.id === 'extraction') w *= this.layout.extractionFaultMult;
+    if (def.id === 'extraction') w *= this.layout.extractionFaultMult * (CONFIG.dennis.enabled ? dennisFaultMult(this) : 1);
     if (def.id === 'chipping') w *= this.layout.chipMult;
     if (def.id === 'partLifted' && this.upgrades.has('vacuumZone')) w *= this.upgradeEffect('vacuumZone');
     return w;
@@ -624,6 +665,7 @@ export class Game {
     if (1 - this.wear.filter > c.bagFullAbove) p *= c.bagFullMult;
     if (this.wear.bit < c.dullBitBelow) p *= c.dullBitMult;
     if (this.hasMilestone('sparkArrestor')) p *= CONFIG.milestone.fireChanceMult;
+    if (CONFIG.dennis.enabled) p *= dennisFireMult(this); // a serviced extractor; a second router running
     return p;
   }
 
@@ -762,7 +804,15 @@ export class Game {
     if (late) { this.today.sheetsLate += 1; this.today.latePayLost = (this.today.latePayLost || 0) + j.price - pay; }
     this.typeLedger[j.type].revenue += pay;
     this.typeLedger[j.type].cut += 1;
-    this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
+    // on Dennis's terms (or his invoice): the pay waits on the bet
+    const held = CONFIG.dennis.enabled ? this.dennis.bets.find(b => b.status === 'open' && b.jobs?.includes(j.id)) : undefined;
+    if (held) { held.held += pay; this.say(`${j.name} delivered: paid when ${CONFIG.dennis.name}'s ${held.kind === 'terms' ? 'terms come due' : 'invoice clears'}.`); }
+    else this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
+    // the edge-bander's share, in its ledger line: edged panels pay the premium
+    if (j.type === 'joinery' && CONFIG.dennis.enabled && dennisJoineryMult(this) > 1) {
+      const bander = this.dennis.bets.find(b => b.kind === 'bandsaw' && (b.status === 'open' || b.status === 'won' || b.status === 'lost') && (b.until ?? -1) >= this.dayIndex);
+      if (bander) bander.net += Math.round(pay - pay / dennisJoineryMult(this));
+    }
     this.afterSheet(true);
     this.current = null;
     this.machine = 'idle';
@@ -1749,6 +1799,15 @@ export class Game {
     if (this.dockBlocked) { this.rare!.phase = 'done'; this.rare!.outcome = 'blocked'; this.say("Slats still in the doorway at knock-off. The landlord's handyman sorts it overnight."); }
     if (this.rare?.id === 'council' && this.rare.phase !== 'done' && this.rare.phase !== 'scheduled') this.finishCouncil(this.rare.touring === true);
     if (this.rare && this.rare.phase !== 'scheduled') this.rareLog.push({ day: this.dayIndex, id: this.rare.id, outcome: this.rare.outcome ?? 'unresolved' });
+    if (CONFIG.dennis.enabled) {
+      const extra = dennisRouterDay(this);
+      if (extra > 0) {
+        this.earn(extra, 'second router: a day of overflow work');
+        const bet = this.dennis.bets.find(b => b.kind === 'secondRouter' && (b.status === 'open' || b.status === 'won') && (b.until ?? -1) >= this.dayIndex);
+        if (bet) bet.net += extra;
+      }
+      this.dennis.ringing = null; this.dennis.call = null; this.dennis.pitched = null;
+    }
     this.updateMilestones();
     this.story = this.storyOfTheDay();
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = []; this.powerTripped = false;
@@ -1772,8 +1831,11 @@ export class Game {
     if (this.phase !== 'daySummary') return;
     this.week.push(this.today);
     if (this.day >= CONFIG.week.days) {
-      this.cash -= CONFIG.economy.weeklyOverheads;
-      this.weekOverheads = CONFIG.economy.weeklyOverheads;
+      const rent = Math.round(CONFIG.economy.weeklyOverheads * (CONFIG.dennis.enabled ? dennisRentMult(this) : 1));
+      this.cash -= rent;
+      this.weekOverheads = rent;
+      const lease = CONFIG.dennis.enabled && rent < CONFIG.economy.weeklyOverheads ? this.dennis.bets.find(b => b.kind === 'longerLease' && b.status === 'won') : undefined;
+      if (lease) lease.net += CONFIG.economy.weeklyOverheads - rent;
       this.phase = 'weekSummary';
       return;
     }

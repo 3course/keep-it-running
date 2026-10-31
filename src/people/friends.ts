@@ -12,6 +12,10 @@ export interface Friend {
   stances: Record<TopicId, { side: string; take: string }>;
   /** After-hours cuts they suggest (src/designs, afterHours designs), in their words. */
   cutIdeas: { design: string; line: string }[];
+  /** Not one of the three who rotate at the door: the accountant, who turns up now and then (and isn't rung). */
+  occasional?: boolean;
+  /** How hard the beers hit them (the slur filter's beer count is multiplied by this). */
+  lightweight?: number;
 }
 
 export const FRIENDS: Friend[] = [
@@ -99,13 +103,47 @@ export const FRIENDS: Friend[] = [
       { design: 'ah-trophy', line: "Trophy. For the best customer. We present it. There's a speech. I'll write it." },
     ],
   },
+  {
+    id: 'dennis', name: 'Dennis', shirt: 0xb8902e, occasional: true, lightweight: 1.6,
+    voiceNotes: "The accountant. Cheerful, numerate, slightly too keen. Talks in round figures, odds and percentages "
+      + "(\"I'd say four in five\"), loves a spreadsheet, always honest about his odds. A bit lonely, very decent, delighted "
+      + 'to be asked. A lightweight: sentimental by beer three. Best of anyone at the big idea, because he runs the numbers.',
+    stances: {
+      festival: { side: 'Golden Plains', take: 'Golden Plains. Went once, in 2015. Toilet queue averaged 23 minutes. Best weekend of my decade.' },
+      craftBeer: { side: 'crisp', take: "Crisp. Anything over five percent and I'm telling you I love you by half past six." },
+      pubs: { side: 'trivia night', take: "Trivia. I'm the maths round. Teams fight over me. First time in my life, honestly." },
+      suburbs: { side: 'stay put', take: "Stay put. Further north saves eighteen percent on rent, costs forty minutes a day. I've done it." },
+      housePrices: { side: 'still might buy', take: "Still might buy. My spreadsheet says 2041. It's said 2041 since 2019. Lovely spreadsheet." },
+      band: { side: 'start a new band', take: "Start a new one. I'd do the books. Every band needs someone to say no to the fog machine." },
+      cycling: { side: 'the tram', take: "The tram. Forty minutes reading each way. Two hundred hours a year. I've nearly finished a book." },
+      footy: { side: 'the pie at half time', take: 'The pie. $4.95 in 2010, $9.50 now. I track it. It is my personal inflation index.' },
+      coffee: { side: 'instant at home', take: "Instant. Twenty cents a cup against five-fifty. Over a year, that's a holiday. Haven't taken it." },
+      bunnings: { side: 'Saturday morning', take: 'Saturday morning. The snag is still under four dollars. Last honest price in Melbourne.' },
+      kids: { side: 'the cool godparent', take: 'Godparent to my niece. I opened her savings account. She calls me Uncle Compound Interest.' },
+      ferment: { side: 'gave it up', take: 'Gave it up. Kombucha. Odds of a bottle exploding were one in fifty. I was the one.' },
+      uteTarago: { side: 'Tarago', take: "Tarago. Eight seats. Cost per seat per kilometre, unbeatable. I've got the figures. Don't ask." },
+      aches: { side: 'stretch every morning', take: 'Stretch every morning. Ten minutes. Compounding returns. My hamstrings are a blue-chip stock.' },
+      wine: { side: "whatever's open", take: "Whatever's open. Half a glass and I'm misty. Honestly, it's tremendous value." },
+      radio: { side: 'only the countdown', take: 'Only the countdown. I predict the top ten in a spreadsheet. Seventy percent strike rate.' },
+      parents: { side: 'ring them Sundays', take: "Ring Mum Sundays. Average call, forty-seven minutes. Thirty of those are her neighbour's hedge." },
+    },
+    cutIdeas: [
+      { design: 'ah-trophy', line: 'A trophy for the customer with the best payment terms. Seven days, every time. Bit of ceremony.' },
+      { design: 'ah-coaster', line: "Cut me a coaster the size of a dinner plate. I'm a lightweight. I need a big target." },
+      { design: 'ah-boomerang', line: 'A boomerang for my desk. Like an invoice that comes back paid. Four in five do.' },
+    ],
+  },
 ];
 
 export const friendById = (id: FriendId) => FRIENDS.find(f => f.id === id)!;
+/** The three who rotate at the door (and who you can ring). */
+export const MATES_AT_DOOR = () => FRIENDS.filter(f => !f.occasional);
 
 /** Who's at the door tonight: rotate, and never the same friend two days running. */
-export function pickFriend(last: FriendId | null, dayIndex: number): FriendId {
-  const order = FRIENDS.map(f => f.id);
+export function pickFriend(last: FriendId | null, dayIndex: number, accountantDue = false): FriendId {
+  // now and then it's the accountant at the door instead (CONFIG.dennis.knockOffEvery)
+  if (accountantDue && last !== 'dennis' && FRIENDS.some(f => f.id === 'dennis')) return 'dennis';
+  const order = MATES_AT_DOOR().map(f => f.id);
   const pool = order.filter(id => id !== last);
   return pool[dayIndex % pool.length];
 }

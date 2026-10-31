@@ -36,7 +36,7 @@ export interface Zone { name: string; rect: Rect; yawDeg: number; outside?: bool
 export type ObjectId =
   | 'machine' | 'plyPallet' | 'finishedPallet' | 'offcutBin' | 'bitRack' | 'extractor' | 'compressor'
   | 'exhaust' | 'duct' | 'extinguisher' | 'rollerDoor' | 'smoko' | 'desk' | 'phone' | 'fridge'
-  | 'toilet' | 'racks' | 'spareExtinguisher' | 'exhaustExtinguisher' | 'bags' | 'skip';
+  | 'toilet' | 'racks' | 'spareExtinguisher' | 'exhaustExtinguisher' | 'bags' | 'skip' | 'switchboard';
 
 export interface PlacedObject {
   id: ObjectId;
@@ -85,6 +85,8 @@ export const OBJECTS: PlacedObject[] = [
   { id: 'phone', name: 'Phone', rect: { x: 8, y: 45, w: 1, h: 1 }, height: 1.5, colour: 0x5a4632, solid: false }, // wall-mounted, next to the computer
   // the bar fridge lives in the dock, by the roller door: knock-off beers on milk crates with the evening behind you
   { id: 'fridge', name: 'Bar fridge', rect: { x: 28, y: 35, w: 1, h: 2 }, height: 0.9, colour: 0xe4e4e0, solid: true },
+  // the switchboard (fixed): the extractor and heater's circuit; a compressor beside it trips it (src/world/layoutPlan.ts)
+  { id: 'switchboard', name: 'Switchboard', rect: { x: 21, y: 36, w: 1, h: 1 }, height: 1.6, colour: 0x6a6f74, solid: false },
   // toilet, storage
   { id: 'toilet', name: 'Toilet', rect: { x: 20, y: 45, w: 1, h: 1 }, height: 0.45, colour: 0xf4f4f0, solid: true },
   { id: 'racks', name: 'Sheet racks', rect: { x: 24, y: 14, w: 5, h: 2 }, height: 1.8, colour: 0x8a6a40, solid: true },

@@ -3,7 +3,7 @@
 // a big idea around beer 3, one topic argument a night (rotated so nights don't repeat), maybe an after-hours cut, and
 // from beer 2 the option to ring someone. "Wind it up" is always there and always ends it warmly.
 import { PEOPLE } from './config.js';
-import { FRIENDS, friendById } from './friends.js';
+import { MATES_AT_DOOR, friendById } from './friends.js';
 import { SCRIPTS, THREADS, TOPICS, BIG_IDEAS } from './dialogue/index.js';
 import type { BigIdeaId, Expr, Fact, FriendId, Line, Node, Reply, Thread, TopicId } from './dialogue/types.js';
 import type { PeopleState } from './state.js';
@@ -199,6 +199,9 @@ export class Night {
     this.current = this.build({ kind: 'end' });
   }
 
+  /** Put a line of the host's at the front of the turn showing now (an aside, e.g. on the new layout). */
+  lead(text: string, expr: Expr = 'animated') { this.current.lines.unshift(this.line({ text, expr })); }
+
   /** The after-hours cut's done: carry on. `accuracy` 0..1. */
   cutDone(accuracy: number) {
     if (this.state.kind !== 'cut') return;
@@ -306,7 +309,7 @@ export class Night {
       for (const r of st.node.replies) options.push({ text: this.fill(r.text, 'you'), kind: 'reply' });
       // from beer 2: ring someone who isn't here
       if (this.beers >= PEOPLE.night.callFromBeers && !this.calling) {
-        for (const f of FRIENDS) if (!this.present.includes(f.id)) options.push({ text: `Should we call ${f.name}?`, kind: 'call', call: f.id });
+        for (const f of MATES_AT_DOOR()) if (!this.present.includes(f.id)) options.push({ text: `Should we call ${f.name}?`, kind: 'call', call: f.id });
       }
     } else if (st.kind === 'another') {
       lines.push(this.line(this.pick(SCRIPTS[this.host].another.ask, 'aa')));
@@ -345,7 +348,7 @@ export class Night {
   /** Fill a template. `speaker`: whose stance {side} and {take} mean. */
   fill(text: string, speaker: Who): string {
     const d = this.ctx.facts, p = this.ctx.people;
-    const absent = FRIENDS.find(f => !this.present.includes(f.id) && f.id !== this.calling?.who);
+    const absent = MATES_AT_DOOR().find(f => !this.present.includes(f.id) && f.id !== this.calling?.who);
     const topic = this.topic ? TOPICS[this.topic] : null;
     const me = speaker === 'you' ? this.host : speaker;
     const side = topic ? friendById(me).stances[this.topic!].side : '';

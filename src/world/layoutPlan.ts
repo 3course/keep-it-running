@@ -39,7 +39,7 @@ export const DEFAULT_PLAN: Plan = {
   plyPallet: { x: 6, y: 25, rot: 0 }, finishedPallet: { x: 19, y: 28, rot: 0 }, extractor: { x: 14, y: 14, rot: 0 },
   bitRack: { x: 7, y: 14, rot: 0 }, offcutBin: { x: 19, y: 22, rot: 0 }, compressor: { x: 6, y: 19, rot: 0 },
   extinguisher: { x: 28, y: 34, rot: 0 }, fridge: { x: 28, y: 35, rot: 0 }, racks: { x: 24, y: 14, rot: 0 },
-  bench: { x: 12, y: 36, rot: 0 }, crates: { x: 26, y: 33, rot: 0 }, corkboard: { x: 6, y: 39, rot: 0 },
+  bench: { x: 12, y: 36, rot: 0 }, crates: { x: 26, y: 33, rot: 0 }, corkboard: { x: 8, y: 39, rot: 0 },
 };
 
 /** Three to compare in the sim (and to start from in layout mode). */
@@ -49,8 +49,8 @@ export const PRESETS: Record<'default' | 'compact' | 'dockFirst', Plan> = {
   compact: { ...DEFAULT_PLAN, plyPallet: { x: 7, y: 28, rot: 0 }, finishedPallet: { x: 18, y: 28, rot: 0 }, bitRack: { x: 10, y: 20, rot: 0 },
     offcutBin: { x: 18, y: 22, rot: 0 }, extinguisher: { x: 9, y: 22, rot: 0 }, extractor: { x: 12, y: 16, rot: 0 }, compressor: { x: 19, y: 34, rot: 0 } },
   // deliveries and pickups first: both pallets by the roller door, the extractor tucked away up the back
-  dockFirst: { ...DEFAULT_PLAN, plyPallet: { x: 25, y: 23, rot: 0 }, finishedPallet: { x: 25, y: 29, rot: 1 }, extractor: { x: 6, y: 14, rot: 0 },
-    bitRack: { x: 9, y: 14, rot: 0 }, fridge: { x: 28, y: 37, rot: 0 }, crates: { x: 26, y: 38, rot: 0 } },
+  dockFirst: { ...DEFAULT_PLAN, plyPallet: { x: 25, y: 23, rot: 0 }, finishedPallet: { x: 23, y: 28, rot: 0 }, extractor: { x: 8, y: 14, rot: 0 },
+    bitRack: { x: 11, y: 14, rot: 0 }, fridge: { x: 28, y: 37, rot: 0 }, crates: { x: 27, y: 41, rot: 0 } },
 };
 
 export const rectOf = (id: StationId, p: Placement): Rect => {
@@ -209,3 +209,10 @@ export const moved = (a: Plan, b: Plan) => STATION_IDS.filter(id => a[id].x !== 
 export const clonePlan = (p: Plan): Plan => JSON.parse(JSON.stringify(p));
 /** A saved plan with any station it doesn't know about filled from the default. */
 export const fullPlan = (p?: Partial<Plan> | null): Plan => ({ ...clonePlan(DEFAULT_PLAN), ...(p ?? {}) });
+
+/** How far a station has moved from where it was built, in metres (for the views that place things by it). */
+export function shift(plan: Plan | undefined, id: StationId): { x: number; z: number } {
+  if (!plan) return { x: 0, z: 0 };
+  const a = rectOf(id, plan[id]), b = rectOf(id, DEFAULT_PLAN[id]);
+  return { x: (a.x - b.x) * C, z: (a.y - b.y) * C };
+}

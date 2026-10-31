@@ -234,6 +234,7 @@ export interface DayStats {
   afterHours: number;      // boards used cutting things for fun after knock-off
   canRefund: number;       // container deposit back on bags of empties (income, not revenue)
   layoutMinutes: number;   // minutes the layout cost today: shoving things round, longer walks than the default
+  bets: number;            // Dennis's bets: what they cost and lost today (their wins are revenue)
 }
 
 /**

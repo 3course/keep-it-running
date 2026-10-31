@@ -21,6 +21,8 @@ import { offcutsBagAt } from '../world/state.js';
 import { WORLD } from '../world/worldConfig.js';
 import { Talk } from '../ui/talk.js';
 import { Figure } from './figures.js';
+import { measure, type Plan } from '../world/layoutPlan.js';
+import { JESS_LAYOUT, type LayoutGripe } from '../people/lines/layout.js';
 import type { Sfx } from './sfx.js';
 
 const C = WORLD.cell;
@@ -46,6 +48,8 @@ export interface PeopleDayDeps {
   /** Where the customer's ute is (world), for their bubble. */
   ute: () => THREE.Vector3 | null;
   save: () => void;
+  /** The factory as it's laid out now. */
+  plan: () => Plan;
 }
 
 interface Walker { fig: Figure; x: number; z: number; path: { x: number; z: number }[]; speed: number }
@@ -67,6 +71,7 @@ export class PeopleDay {
   private lineT = 0;
   private bubbleT = new Map<string, number>();
   private t = 0;
+  private nextTempt = 0;
 
   constructor(private d: PeopleDayDeps) {
     this.talk = new Talk(d.parent, 'day');
@@ -117,6 +122,14 @@ export class PeopleDay {
     this.place('mate', this.cakeMate?.fig);
     const ute = this.d.ute();
     if (ute) { const s = this.d.project(ute.clone().add(new THREE.Vector3(0, 1.4, 0))); this.talk.place('ute', s.x, s.y, !s.behind); }
+    // the fridge in sight of the router after 2 (the layout): "grab one?" now and then
+    if (live && g.layout.beerTemptation > 1 && g.minute >= 14 * 60 && g.fridgeOpen && !g.heldCan && g.minute >= this.nextTempt) {
+      const m = objectById('machine').rect, pl = this.d.player();
+      if (Math.hypot(pl.x - (m.x + m.w / 2) * C, pl.z - (m.y + m.h / 2) * C) < 4) {
+        this.say('you', pick(['Grab one?', 'The fridge is right there…', 'Just the one?'], g.minute), 2.5);
+        this.nextTempt = g.minute + Math.round(40 / g.layout.beerTemptation);
+      }
+    }
     // her question, unanswered, goes if you walk off
     if (this.asked && this.jess && this.dist(this.jess) > 6) { this.talk.hideReplies(); this.asked = null; }
   }
@@ -215,8 +228,13 @@ export class PeopleDay {
       });
       return;
     }
-    // a line, if you're about
-    if (g.minute >= this.nextChat && this.dist(j) < 4.5) { this.say('jess', pick(JESS.chat, g.minute + g.dayIndex)); this.nextChat = g.minute + J.chatEvery; }
+    // a line, if you're about (once she trusts you, now and then it's about the layout: she's usually right)
+    if (g.minute >= this.nextChat && this.dist(j) < 4.5) {
+      const gripe = p.trust >= J.askAt / 2 && !p.shownToday.includes('layout') ? this.gripe() : null;
+      if (gripe) { p.shownToday.push('layout'); this.say('jess', pick(JESS_LAYOUT[gripe], g.dayIndex), 4, 'thoughtful'); }
+      else this.say('jess', pick(JESS.chat, g.minute + g.dayIndex));
+      this.nextChat = g.minute + J.chatEvery;
+    }
     // otherwise wander
     if (arrived && Math.random() < dt * 0.15) this.walkTo(j, [WANDER[Math.floor(Math.random() * WANDER.length)]]);
   }
@@ -237,6 +255,20 @@ export class PeopleDay {
     this.seen.fault = !!g.fault;
     if (this.seen.fire && !g.fire) { show('fire', JESS.shown.fire, this.seen.fireStage === 'spot'); }
     this.seen.fire = !!g.fire; this.seen.fireStage = g.fire?.stage ?? '';
+  }
+
+  /** What's worst about the floor, if anything's bad enough to mention. */
+  private gripe(): LayoutGripe | null {
+    const m = measure(this.d.plan());
+    if (m.sharedCircuit && this.d.g.today.layoutMinutes > 0) return 'circuit';
+    if (!m.clearPath) return 'path';
+    if (m.fix > 6) return 'fix';
+    if (m.load > 6) return 'load';
+    if (m.clutter > 4) return 'clutter';
+    if (m.pickup > 9) return 'pickup';
+    if (m.fire > 22) return 'fire';
+    if (m.fridgeInSight && this.d.g.minute >= 14 * 60) return 'fridge';
+    return null;
   }
 
   /** You said yes. Tomorrow: cake. */

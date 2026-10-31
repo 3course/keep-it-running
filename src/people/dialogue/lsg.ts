@@ -6,6 +6,7 @@ import type { FriendId, Line } from './types.js';
 export const LSG_OFFER: Record<FriendId, Line[]> = {
   eggby: [{ text: "Don't make a thing of it. I've got a tab of 'LSG' in my wallet.", expr: 'thoughtful' }, { text: 'Bloke at trivia. Said it was for "special occasions". This feels special.', expr: 'relaxed' }],
   courtney: [{ text: "OKAY. Confession. There's a tab of 'LSG' in my wallet. Since Golden Plains. Twenty nineteen.", expr: 'animated' }, { text: "It's probably just paper now. Probably.", expr: 'laughing' }],
+  dennis: [{ text: "Full disclosure: there's a tab of 'LSG' in my wallet. Client gift. I haven't declared it.", expr: 'thoughtful' }, { text: 'Risk profile: unknown. Upside: considerable.', expr: 'laughing' }],
   tim: [{ text: "Found a tab of 'LSG' in my wallet. Behind the library card. Both expired, probably.", expr: 'relaxed' }, { text: "LSG. Lysergic… something. Write that down.", expr: 'laughing' }],
 };
 export const LSG_YES = 'Go on then.';
@@ -27,6 +28,7 @@ export const LAUGHS: Record<FriendId | 'you', string[]> = {
   eggby: ['heh.', 'heh heh.', 'hhhh-heh.', '*wheeze*'],
   courtney: ['HAHAHAHA', 'AHAHA no STOP', 'hahahahaaa', 'HA!'],
   tim: ['pfft.', 'hehehe', 'hah. hah. hah.', 'snrk'],
+  dennis: ['ha-HA!', 'heh-heh-heh', 'oh ho ho', 'HAH. Sorry. Ha.'],
   you: ['hahaha', 'hehe', 'ahaha', 'hah!'],
 };
 /** Coming back down: a long pause, then this, then everyone agrees and it's a warm goodbye. */

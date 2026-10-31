@@ -43,6 +43,8 @@ import { Tracing } from './tracing.js';
 import { PeopleDay } from './peopleDay.js';
 import { Gratitude } from './gratitude.js';
 import { BAG_SPOT } from '../world/cans.js';
+import { LayoutEditor } from './layoutEditor.js';
+import { DEFAULT_PLAN, applyPlan, clonePlan, effectsOf, fullPlan, measure, STATION_IDS, type Plan } from '../world/layoutPlan.js';
 import { Sfx } from './sfx.js';
 import type { DayFacts } from '../people/night.js';
 import { people } from '../people/state.js';
@@ -154,9 +156,9 @@ export class World3D {
   private pendingCan: number | null = null;
   private sipsSeen = 0;
   /** The visiting mate's walking (where they go is Game's call). Public for tests. */
-  readonly visitor: VisitorWalker;
+  visitor: VisitorWalker;
   /** The council inspector's walking (a rare event). Public for tests. */
-  readonly inspector: InspectorWalker;
+  inspector: InspectorWalker;
   private rareSeen: { key: string; at: number } | null = null; // last rare-event phase seen, and when its cue last played
   // designs (src/designs): the toolpath on the bed, the reveal when a sheet comes off, the card when a job lands
   /** The job's real toolpath on the sheet; the router head follows it. Public for tests. */
@@ -175,6 +177,14 @@ export class World3D {
   peopleDay!: PeopleDay;
   /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
   gratitude!: Gratitude;
+  /** Layout mode (public for tests). */
+  layoutEditor!: LayoutEditor;
+  /** The day the "move anything round?" offer last went up. */
+  private layoutOffered = -1;
+  get plan(): Plan { return fullPlan(this.w.layout); }
+  /** The plan, the same object until it changes (views compare by reference). */
+  private planCache: { src: unknown; plan: Plan } = { src: null, plan: DEFAULT_PLAN };
+  private get planNow(): Plan { if (this.planCache.src !== this.w.layout) this.planCache = { src: this.w.layout, plan: this.plan }; return this.planCache.plan; }
   /** A morning can (or the refund bag) we're walking over to. */
   private pendingMorning: { can: number } | { bag: true } | null = null;
   readonly sfx = new Sfx();
@@ -201,6 +211,10 @@ export class World3D {
     canvas.addEventListener('webglcontextrestored', () => this.onContextRestored());
 
     this.camera = new THREE.PerspectiveCamera(WORLD.fov, this.vw / this.vh, 0.1, 120);
+    // the factory as you've laid it out (saved), measured: Game times its walks by it; the world walks them itself
+    applyPlan(this.plan);
+    this.g.layout = effectsOf(measure(this.plan));
+    this.g.worldWalks = true;
     this.solid = solidCells(); // solid objects and the big clutter
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);
@@ -222,6 +236,8 @@ export class World3D {
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
       overtime: () => { this.g.startOvertime(); this.hud.hideEndOfDay(); this.save(); },
+      layout: () => this.enterLayout(),
+      resetLayout: () => this.commitLayout(clonePlan(DEFAULT_PLAN), 0),
     });
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
     this.orderCard = new OrderCard(this.hud.labels.parentElement!);
@@ -292,6 +308,7 @@ export class World3D {
       this.ring.unlock(); // audio may only start after a gesture
       this.sfx.unlock();
       if (this.reveal.active) { this.reveal.skip(); this.skipEl.style.display = 'none'; e.preventDefault(); return; } // a tap skips the reveal, and only that
+      if (this.layoutEditor.active) { canvas.setPointerCapture(e.pointerId); this.layoutEditor.pointer('down', e); return; } // shoving things round
       if (this.tracing.active) { canvas.setPointerCapture(e.pointerId); this.tracing.pointer('down', e); return; } // after-hours: your finger's the pencil
       if (this.knockoff.inScene) return; // the bubbles take the taps
       if (this.paused || this.g.phase !== 'day') return;
@@ -303,6 +320,7 @@ export class World3D {
       this.ptr = { id: e.pointerId, x0: L.x, y0: L.y, t0: performance.now(), stickable: true, active: false };
     });
     canvas.addEventListener('pointermove', e => {
+      if (this.layoutEditor.active) { this.layoutEditor.pointer('move', e); return; }
       if (this.tracing.active) { this.tracing.pointer('move', e); return; }
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
@@ -317,6 +335,7 @@ export class World3D {
       }
     });
     const up = (e: PointerEvent) => {
+      if (this.layoutEditor.active) this.layoutEditor.pointer('up', e);
       if (this.tracing.active) this.tracing.pointer('up', e);
       this.objectHold = false;
       const p = this.ptr;
@@ -486,7 +505,7 @@ export class World3D {
 
     this.updateSpray();
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
-    if (g.phase === 'day' && !this.paused && !tourActive(w)) {
+    if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active) {
       this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
       let ticked = false;
       while (this.acc >= CONFIG.clock.realMsPerGameMinute && g.phase === 'day') {
@@ -497,7 +516,11 @@ export class World3D {
       if (ticked) { this.syncWorld(); this.save(); }
     }
     this.syncWorld();
+    const before = { x: this.pos.x, z: this.pos.z };
     this.move(dt);
+    // metres walked today (the summary shows it: a bad layout is legible)
+    const stepped = Math.hypot(this.pos.x - before.x, this.pos.z - before.z);
+    if (stepped < 1 && g.phase === 'day') this.w.walkedToday = (this.w.walkedToday ?? 0) + stepped;
     this.updateVisitor(dt);
     this.updateRare(dt);
     this.updateTour();
@@ -508,12 +531,15 @@ export class World3D {
     // placed by where it really is
     this.knockoff.applyCamera(this.camera, this.camLook, dt);
     this.tracing.applyCamera(this.camera, dt);
+    this.layoutEditor.applyCamera(this.camera, dt);
     if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
     this.camera.updateMatrixWorld();
     this.knockoff.update(dt, this.paused);
     this.tracing.update(this.paused ? 0 : dt);
-    this.peopleDay.update(dt, this.paused || this.knockoff.inScene);
-    this.gratitude.update(people(this.w), this.g.dayIndex);
+    this.peopleDay.update(dt, this.paused || this.knockoff.inScene || this.layoutEditor.active);
+    this.layoutEditor.update();
+    this.offerLayout();
+    this.gratitude.update(people(this.w), this.g.dayIndex, this.planNow);
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'
@@ -660,12 +686,25 @@ export class World3D {
     return [...out.values()];
   }
 
+  /**
+   * Walking today, and the minutes the layout cost against the one it was built with: the shoving at the start of the
+   * day, plus each load, stack, pickup and bundle's walk being longer (or shorter) than it was.
+   */
+  walkingToday(): { metres: number; layoutMinutes: number } {
+    const g = this.g, d = g.today, now = measure(this.plan), was = measure(DEFAULT_PLAN), mpm = CONFIG.layout.metresPerMinute;
+    const sheets = d.sheetsDone + d.sheetsScrapped;
+    const extra = sheets * (2 * (now.load - was.load) + 2 * (now.stack - was.stack) + CONFIG.layout.pickupsPerStack * 2 * (now.pickup - was.pickup))
+      + d.trucks * 3 * 2 * (now.delivery - was.delivery);
+    return { metres: Math.round(this.w.walkedToday ?? 0), layoutMinutes: Math.round((d.layoutMinutes ?? 0) + extra / mpm) };
+  }
+
   /** The people side of today's summary: last night (if there was one tonight) and what got cut after hours. */
   dayPeople(): DayPeople {
     const p = people(this.w), dayIndex = this.g.dayIndex, ln = p.lastNight;
     const names = (ids: string[]) => ids.map(id => (id === 'you' ? 'You' : friendById(id as FriendId).name)).join(' and ');
     return {
       lastNight: ln && ln.dayIndex === dayIndex ? { who: `You and ${names(ln.who)}`, beers: ln.beers, quote: ln.quote, quoteBy: ln.quoteBy, dontAsk: !!ln.lsg } : null,
+      walking: this.walkingToday(),
       afterHours: p.keepsakes.filter(k => k.dayIndex === dayIndex).map(k => ({
         design: k.design, count: 1, after: this.reveal.thumbnail(this.renderer, k.design),
         tag: `${k.suggestedBy === 'you' ? 'Your idea' : `${names([k.suggestedBy])}'s idea`}, ${k.beers} beer${k.beers === 1 ? '' : 's'} deep${k.accuracy < 0.6 ? ', gloriously wonky' : ''}`,
@@ -689,6 +728,50 @@ export class World3D {
     this.skipEl.style.display = 'block';
   }
 
+  // ---------- layout ----------
+
+  enterLayout() {
+    if (this.layoutEditor.active || this.knockoff.active || this.g.phase !== 'day') return;
+    this.stopWalking();
+    this.layoutOffered = this.g.dayIndex; // asked and answered
+    this.hud.setHudVisible(false);
+    this.layoutEditor.enter(this.plan);
+  }
+
+  /** A new layout: into the save, the shed rebuilt round it, Game told what it costs. */
+  commitLayout(plan: Plan, minutes: number) {
+    this.w.layout = clonePlan(plan);
+    this.w.layoutDay = this.g.dayIndex;
+    applyPlan(plan);
+    this.g.layout = effectsOf(measure(plan));
+    this.rebuildWorld();
+    if (minutes > 0) this.g.layoutShuffle(minutes);
+    logEvent(this.w, minutes ? `Moved things round (${minutes} min of shoving)` : 'Moved things round');
+    this.save();
+  }
+
+  /** Rebuild the shed from the layout (as after a lost context). */
+  private rebuildWorld() {
+    this.scene = new THREE.Scene();
+    this.buildScene();
+    this.knockoff.talk.clear(); this.makeKnockOff();
+    this.solid = solidCells();
+    this.visitor = new VisitorWalker(this.walkable);
+    this.inspector = new InspectorWalker(this.walkable);
+    if (!this.walkable(Math.floor(this.pos.x / C), Math.floor(this.pos.z / C))) this.pos = { x: (MACHINE_SPOT.x + 0.5) * C, z: (MACHINE_SPOT.y + 0.5) * C };
+    this.labelSig = '';
+  }
+
+  /** Start of each day (after the first walk-round): "Move anything round?" — yes opens layout mode. */
+  private offerLayout() {
+    const g = this.g, ed = this.layoutEditor;
+    const open = g.phase === 'day' && !tourActive(this.w) && !this.paused && !ed.active && g.minute < CONFIG.clock.startHour * 60 + 30 && !g.current;
+    if (open && this.layoutOffered !== g.dayIndex && g.dayIndex > 1) {
+      this.layoutOffered = g.dayIndex;
+      ed.talk.ask([{ text: 'Move anything round?' }, { text: 'Not today', cls: 'home' }], i => { if (i === 0) this.enterLayout(); });
+    } else if (!open && ed.talk.asking && !ed.active) ed.talk.hideReplies();
+  }
+
   private makeKnockOff() {
     this.knockoff = new KnockOff({
       scene: this.scene, g: this.g, w: this.w, pointLights: this.tier.pointLights, talkParent: this.hud.labels.parentElement!,
@@ -709,11 +792,18 @@ export class World3D {
       gather: on => this.knockoff.gather(on, m.group), sayAs: (who, text) => this.knockoff.sayAs(who, text), save: () => this.save(),
       thumb: d => this.reveal.thumbnail(this.renderer, d),
     });
+    this.layoutEditor?.exit();
+    this.layoutEditor = new LayoutEditor({
+      scene: this.scene, camera: this.camera, canvas: this.renderer.domElement, parent: this.hud.labels.parentElement!,
+      hide: on => { for (const id of STATION_IDS) { const v = this.built.objects.get(id as ObjectId); if (v) v.group.visible = !on; } },
+      project: v => this.project(v), commit: (plan, minutes) => this.commitLayout(plan, minutes), free: () => this.g.dayIndex <= 1,
+      closed: () => this.hud.setHudVisible(true),
+    });
     this.peopleDay?.dispose();
     this.peopleDay = new PeopleDay({
       scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, walkable: this.walkable,
       project: v => this.project(v), player: () => this.pos, sfx: this.sfx, thumb: d => this.reveal.thumbnail(this.renderer, d),
-      ute: () => (this.built.vehicles.ute.visible ? this.built.vehicles.ute.position : null), save: () => this.save(),
+      ute: () => (this.built.vehicles.ute.visible ? this.built.vehicles.ute.position : null), save: () => this.save(), plan: () => this.planNow,
     });
   }
 
@@ -850,7 +940,7 @@ export class World3D {
 
   private move(dt: number) {
     const g = this.g, w = this.w;
-    const frozen = this.paused || g.phase !== 'day' || this.knockoff?.inScene || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
+    const frozen = this.paused || g.phase !== 'day' || this.knockoff?.inScene || this.layoutEditor?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
     let tx = 0, tz = 0;
     if (!frozen) {
       // screen-relative input (keyboard or stick) → world, using the camera's yaw

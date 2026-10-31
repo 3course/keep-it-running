@@ -3,7 +3,7 @@
 // you get exactly two replies — the director adds "Wind it up" (and "Should we call…?" from beer 2). Text is a
 // template ({design}, {customer}, {side}…: see TEMPLATE_KEYS in ../night.ts); the slur filter goes over it on screen.
 
-export type FriendId = 'eggby' | 'courtney' | 'tim';
+export type FriendId = 'eggby' | 'courtney' | 'tim' | 'dennis';
 
 /** Faces the friend can pull. Tag a line with one; untagged lines are relaxed. */
 export type Expr = 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated';

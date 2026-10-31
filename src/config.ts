@@ -236,20 +236,47 @@ export const CONFIG = {
   },
 
   // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
+  // Dennis, the accountant (src/sim/dennis.ts): one calculated risk a call, at most a call a day, none on day 1. Each bet
+  // has an honest stated chance (`hit`) and a stated gain; losses hurt. Money in $; days are game days.
+  dennis: {
+    enabled: true,              // the balance sim turns him off unless run with `-- dennis`
+    name: 'Dennis',
+    callChance: 0.65,           // a day he rings at all
+    callFromHour: 9, callToHour: 14,
+    answerMinutes: 15,          // how long the phone rings
+    callbackMinutes: 120,       // "give me a minute": he rings back this much later…
+    stillThere: 0.5,            // …and the offer's still on this often
+    quietAfter: 3, quietDays: 3,  // three no's in a row: he goes quiet this many days…
+    humbleHit: 0.05, humbleScale: 0.6, // …then comes back with safer bets: better odds, smaller stakes and gains
+    knockOffEvery: 6,           // he's the one at the roller door at 5 about this often
+    coffeeEvery: 20,            // a coffee and a look at the ledger, about monthly
+    bets: {
+      prebuy: { hit: 0.75, sheets: 20, rise: 0.2, drop: 0.1, settleDays: 3 },
+      terms: { hit: 0.75, sheets: 6, priceMult: 1.7, dueDays: 3, settleDays: 6, slowPays: 0.5 },
+      bandsaw: { hit: 0.7, cost: 900, premium: 0.25, days: 10, part: 600, settleDays: 4 },
+      secondRouter: { hit: 0.75, lease: 700, days: 5, perDay: 340, fireMult: 1.4, powerTripPerMinute: 0.0015 },
+      jessHours: { hit: 0.7, days: 3, wagePerDay: 180, orderMargin: 1200 },
+      extractorService: { hit: 0.8, cost: 100, days: 5, fireMult: 0.35, faultMult: 0.5, claimed: 400 },
+      rushInvoice: { hit: 0.75, priceMult: 1.8, disputePays: 0.4, settleDays: 1 },
+      longerLease: { hit: 0.8, discount: 0.25, weeks: 4, breakFee: 250, settleDays: 2 },
+      footy: { hit: 0.7, cost: 150, days: 10, callMult: 1.15, claimed: 500 },
+    },
+  },
+
   // The factory layout (src/world/layoutPlan.ts): what moving things round does. All relative to the default layout.
   layout: {
-    metresPerMinute: 2.5,         // a game minute is a real second; you walk 3 m/s, a bit less with stops and turns
+    metresPerMinute: 4,           // what a metre of walking costs the sim (game minutes are real seconds; you walk 3 m/s, often with a trolley)
     maxDuctMetres: 7,             // the extractor's duct won't reach the router from further than this
-    pickupsPerStack: 0.5,         // a pickup trip for every other stack you carry off
+    pickupsPerStack: 1,           // a pickup trip for every stack you carry off
     binFillPerMetre: 0.03,        // offcut bin near the router: you bin more as you go, so it fills faster
     suctionPerMetre: 0.08,        // a longer duct: weaker suction, more extraction faults…
     suctionChipPerMetre: 0.025,   // …and a few more chipped edges
-    fireSpreadPerMetre: 0.09,     // a shorter duct: a fire in it reaches the machine faster
+    fireSpreadPerMetre: 0.12,     // a shorter duct: a fire in it reaches the machine faster
     clutterFree: 3,               // stations right round the router before it's cluttered…
     clutterPenalty: 0.04,         // …each one past that, slower walking
     blockedPathMult: 0.94,        // no clear metre-wide run dock → router → finished pallet: everyone walks slower
     circuitReachMetres: 3.5,      // compressor this close to the switchboard: on the extractor and heater's circuit…
-    powerTripPerMinute: 0.004,    // …and it trips the power now and then while cutting
+    powerTripPerMinute: 0.006,    // …and it trips the power now and then while cutting
     fridgeSightMetres: 8,         // the fridge in sight of the router (no wall between, this close)…
     beerTemptation: 1.6,          // …"Grab one" comes up this much more after 2pm
     moveMinutesFirstDayFree: true,

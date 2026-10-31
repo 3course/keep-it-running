@@ -241,6 +241,9 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       }
       return a;
     }
+    case 'switchboard':
+      // a compressor on the extractor's circuit (the layout) trips it now and then
+      return g.powerTripped && g.canAct ? [{ label: 'Reset the breaker', key: 'breaker', done: 'Breaker back on', run: () => { if (!g.resetPower(true)) return 'Not right now'; } }] : [];
     case 'desk':
       return g.canAct ? [{ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() }] : [];
     case 'fridge':
@@ -298,6 +301,7 @@ ${work}`;
     case 'bitRack': return g.replacing?.key === 'bit' ? `Swapping bit… ${g.replacing.remaining}m` : null;
     case 'extractor': return g.replacing?.key === 'filter' ? `Changing bag… ${g.replacing.remaining}m` : null;
     case 'phone': return g.busy ? `${g.busy.label}… ${g.busy.remaining}m` : null;
+    case 'switchboard': return g.powerTripped ? 'TRIPPED. The compressor and the extractor are on one circuit.' : null;
     case 'toilet': return w.toiletUntil ? `Occupied… ${Math.max(0, w.toiletUntil - absMinute(g))}m` : null;
     default: return null;
   }

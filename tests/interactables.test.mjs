@@ -215,6 +215,13 @@ const CASES = {
     assert.equal((await tapLabel(game, 'Use the loo')).said, 'Off to the loo');
     assert.deepEqual(await game.eval((g, w) => [g.needLoo, w.toiletUntil !== null]), [false, true]);
   },
+  // the layout put the compressor on the extractor's circuit: the breaker trips
+  async switchboard(game) {
+    await game.eval(g => { g.powerTripped = true; g.machine = 'paused'; });
+    await walkTo(game, 'switchboard');
+    assert.equal((await tapLabel(game, 'Reset the breaker')).said, 'Breaker back on');
+    assert.equal(await game.eval(g => g.powerTripped), false);
+  },
 };
 
 describe('interactables', () => {
@@ -226,7 +233,7 @@ describe('interactables', () => {
     const { OBJECTS } = await env.load('/src/world/layout.ts');
     for (const id of withActions) assert.ok(OBJECTS.some(o => o.id === id), `${id} is in the shed`);
     assert.deepEqual(Object.keys(CASES).sort(), [...withActions, 'visitor', 'inspector'].sort());
-    assert.equal(Object.keys(CASES).length, 19);
+    assert.equal(Object.keys(CASES).length, 20);
   });
 
   // the exhaust unit's glow: a spot fire only smokes at first; day 2's lesson fire (CONFIG.fire.lesson) glows from the start
