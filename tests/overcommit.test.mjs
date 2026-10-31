@@ -97,6 +97,7 @@ describe('money lost to late pay and pulled jobs', () => {
 
   it('a job pulled at close records its price; an on-time day records nothing', () => {
     const g = board(CLOSE - 1, { overdue: 2 });
+    for (const j of g.jobs) j.dueDay = g.dayIndex - CONFIG.economy.pullAfterDays; // pulled this many days past due
     const lost = g.jobs.reduce((s, j) => s + j.price, 0);
     g.tick(); g.knockOff();
     assert.equal(g.today.sheetsLost, 2);

@@ -65,11 +65,18 @@ export const CONFIG = {
 
   economy: {
     startingCash: 1500,
-    latePayFraction: 0.8,   // late sheets pay this fraction of price
+    latePayFraction: 0.95,   // late sheets pay this fraction of price
     bankFee: 50,            // fee when you ignore the bank
-    overdraftLimit: 1000,   // the supplier won't take an order that would put cash below -this
+    overdraftLimit: 4000,   // the supplier won't take an order that would put cash below -this
     overdraftFeePerDay: 25, // charged at close on any day that ends overdrawn
     weeklyOverheads: 900,   // rent/power/insurance, taken at end of week
+    // The downside, softened (the day stays as busy; it just shouldn't bankrupt you):
+    lateGraceMinutes: 60,    // a sheet isn't late till this long past its deadline
+    pullAfterDays: 3,       // an overdue job is pulled this many days past its due day
+    scrapSalvage: 0.75,        // a ruined sheet's offcuts still sell for this share of its board cost
+    walkInPerDay: 100,        // there's always one walk-in (cut-to-size from offcuts) at the counter…
+    walkInFloor: 2300,           // …and on a slow day you take every walk-in going: the day's takings are topped up to this
+    fixCostMult: 0.4,         // parts and call-outs on a fix, as a share of their listed price
   },
 
   jobs: {
@@ -114,7 +121,7 @@ export const CONFIG = {
     types: [
       { id: 'formwork', name: 'Formwork',       material: '18mm formply', weight: 0.50, boardCost: 95,  priceMult: 1.0, cutMult: 1.0,  bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: false },
       { id: 'joinery',  name: 'Joinery panels', material: '18mm MDF',     weight: 0.35, boardCost: 55,  priceMult: 0.8, cutMult: 1.0,  bagFillMult: 1.5, fireChanceMult: 1.5, chipRisk: 1.1, dullBitRuinsSheet: false },
-      { id: 'signage',  name: 'Signage',        material: '6mm acrylic',  weight: 0.15, boardCost: 190, priceMult: 1.7, cutMult: 0.85, bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: true },
+      { id: 'signage',  name: 'Signage',        material: '6mm acrylic',  weight: 0.15, boardCost: 190, priceMult: 1.7, cutMult: 0.85, bagFillMult: 1.0, fireChanceMult: 1.0, chipRisk: 1.1, dullBitRuinsSheet: false },
     ],
   },
 
@@ -128,7 +135,7 @@ export const CONFIG = {
     smokeOnlyMinutes: 20,         // smoke first; the orange glow shows after this
     ductFireAfterMinutes: 90,     // ignored this long (at breakdown rate 1.0; longer at the ramp's plateau): duct fire — cut stops until it's out
     extractorFireAfterMinutes: 180, // ignored this long (at breakdown rate 1.0): extractor fire — repair bill, machine down for the day
-    extractorRepairCost: 800,
+    extractorRepairCost: 400,
     walkToExtinguisherMinutes: 5, // extinguisher hangs by the roller door
     grabMinutes: 1,
     walkToDuctMinutes: 6,
@@ -249,7 +256,7 @@ export const CONFIG = {
   // The Lease (src/world/lease.ts): a run of 4 weeks on one seed; the rent's due at the end, in the bank.
   lease: {
     weeks: 4,
-    rentDue: 6500,              // the landlord's letter: in the bank by the end of day 20 (npm run sim -- --lease: competent ~88%)
+    rentDue: 7300,              // the landlord's letter: in the bank by the end of day 20 (npm run sim -- --lease: competent 100% with ~$8k spare, sloppy ~50%)
     wobbleWeek: 3,              // the week a wobble comes (drawn from the pool, not scripted)
     priceRise: 1.15,            // the wobble: ply up this much for the rest of the lease
     quietCalls: 0.6, quietDays: 3, // the wobble: a big customer goes quiet — this share of order calls for these days

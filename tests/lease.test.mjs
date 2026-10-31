@@ -38,8 +38,8 @@ describe('the lease, on Game', () => {
 describe('the lease, in the shed', () => {
   it('day 1: the landlord’s letter; the rent on the notepad', async () => {
     const game = await freshGame(env);
-    assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .lettercard')?.textContent ?? ''), /\$6,500/);
-    assert.match(await game.eval((g, w, s) => s.hud.pad.textContent), /Rent: \$6,500 by day 20 · day 1/);
+    assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .lettercard')?.textContent ?? ''), new RegExp(`\\$${CONFIG.lease.rentDue.toLocaleString('en-AU')}`));
+    assert.match(await game.eval((g, w, s) => s.hud.pad.textContent), new RegExp(`Rent: \\$${CONFIG.lease.rentDue.toLocaleString('en-AU')} by day 20 · day 1`));
     await game.close();
   });
   it('Friday: a group night — another mate on the way without being rung', async () => {

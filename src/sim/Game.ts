@@ -27,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
   };
 }
 
@@ -428,7 +428,7 @@ export class Game {
 
   /** Absolute due time, comparable across days. */
   dueAt(j: Job): number { return j.dueDay * 24 * 60 + j.deadlineMinute; }
-  isLate(j: Job): boolean { return this.dayIndex * 24 * 60 + this.minute > this.dueAt(j); }
+  isLate(j: Job): boolean { return this.dayIndex * 24 * 60 + this.minute > this.dueAt(j) + CONFIG.economy.lateGraceMinutes; }
   dueLabel(j: Job): string {
     if (j.dueDay > this.dayIndex) return `tmrw ${this.formatTime(j.deadlineMinute)}`;
     if (j.dueDay < this.dayIndex) return 'overdue';
@@ -813,6 +813,9 @@ export class Game {
     this.today.sheetsScrapped += 1;
     this.typeLedger[this.current.type].scrapped += 1;
     this.say(`${reason} $${this.current.materialCost} of ${this.current.material} in the skip.`, 'bad');
+    // the offcuts aren't nothing
+    const salvage = Math.round(this.current.materialCost * CONFIG.economy.scrapSalvage);
+    if (salvage > 0) this.earn(salvage, 'offcuts from the ruined sheet');
     // the fault still needs fixing, but there's no job to resume
     if (!this.fault) { this.current = null; this.machine = 'idle'; }
   }
@@ -1296,8 +1299,9 @@ export class Game {
     if (!f || f.phase !== 'step' || !f.path || !this.canAct) return false;
     const step = f.path.steps[f.stepIndex];
     if (!f.redo) {
-      if (step.cost > 0) this.spend(step.cost, 'fixes', step.label.toLowerCase());
-      if (this.current) this.typeLedger[this.current.type].fixes += step.cost;
+      const cost = Math.round(step.cost * CONFIG.economy.fixCostMult); // parts and call-outs, softened (CONFIG.economy)
+      if (cost > 0) this.spend(cost, 'fixes', step.label.toLowerCase());
+      if (this.current) this.typeLedger[this.current.type].fixes += cost;
     }
     f.redo = false;
     f.phase = 'working';
@@ -1722,7 +1726,7 @@ export class Game {
     if (!CONFIG.milestones) return;
     const m = this.milestones, c = CONFIG.milestone;
     m.fireFreeStreak = this.today.firesSpot > 0 ? 0 : m.fireFreeStreak + 1;
-    const profit = this.today.revenue - this.today.costs;
+    const profit = this.today.revenue - (this.today.walkIns ?? 0) - this.today.costs; // the work, not the counter's walk-ins
     m.bestDayProfit = Math.max(m.bestDayProfit, Math.round(profit));
     if (!m.unlocked.includes('sparkArrestor') && m.fireFreeStreak >= c.fireFreeDays) {
       m.unlocked.push('sparkArrestor');
@@ -1809,7 +1813,7 @@ export class Game {
       this.say(`${this.current.name} left half-cut. Scrap.`, 'bad');
     }
     // anything still queued a full day past its due date is gone, and the word gets around
-    const lost = this.queued.filter(j => this.dayIndex >= j.dueDay + 1);
+    const lost = this.queued.filter(j => this.dayIndex >= j.dueDay + CONFIG.economy.pullAfterDays);
     for (const j of lost) j.status = 'lost';
     this.today.sheetsLost = lost.length;
     this.today.lostJobsValue = (this.today.lostJobsValue || 0) + lost.reduce((s, j) => s + j.price, 0);
@@ -1828,6 +1832,10 @@ export class Game {
     if (this.dockBlocked) { this.rare!.phase = 'done'; this.rare!.outcome = 'blocked'; this.say("Slats still in the doorway at knock-off. The landlord's handyman sorts it overnight."); }
     if (this.rare?.id === 'council' && this.rare.phase !== 'done' && this.rare.phase !== 'scheduled') this.finishCouncil(this.rare.touring === true);
     if (this.rare && this.rare.phase !== 'scheduled') this.rareLog.push({ day: this.dayIndex, id: this.rare.id, outcome: this.rare.outcome ?? 'unresolved' });
+    // the floor on the day: a walk-in at the counter, cut from an offcut
+    const walkIn = Math.max(CONFIG.economy.walkInPerDay, CONFIG.economy.walkInFloor - this.today.revenue);
+    if (walkIn > 0) this.today.walkIns += Math.round(walkIn);
+    if (walkIn > 0) this.earn(Math.round(walkIn), walkIn > CONFIG.economy.walkInPerDay ? 'a slow day: you took every walk-in going' : 'walk-in job at the counter');
     if (CONFIG.dennis.enabled) {
       const extra = dennisRouterDay(this);
       if (extra > 0) {

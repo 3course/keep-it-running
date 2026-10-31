@@ -229,6 +229,7 @@ export interface DayStats {
   sheetsShifted: number;   // ruined: clamps left off
   sheetsLifted: number;    // ruined: the compressor wasn't drained
   choreBoards: number;     // what those ruined boards cost
+  walkIns: number;         // the counter's walk-ins (the day's floor): not counted toward a best day
   binOverflows: number;    // times the offcut bin spilled onto the floor
   // after 5 (the view's knock-off beers, src/people): never touched by the balance sim
   afterHours: number;      // boards used cutting things for fun after knock-off

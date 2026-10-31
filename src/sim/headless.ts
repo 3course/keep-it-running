@@ -752,10 +752,27 @@ function leaseStudy() {
     const finish = ends[sc.name] = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks).g.cash).sort((a, b) => a - b);
     const made = finish.filter(c => c >= due).length / finish.length;
     const q = (p: number) => Math.round(finish[Math.min(finish.length - 1, Math.floor(p * finish.length))]);
-    console.log(`${sc.name.padEnd(10)} rent made ${(made * 100).toFixed(0).padStart(3)}% | cash at the end: worst $${q(0)} · 25% $${q(0.25)} · median $${q(0.5)} · 75% $${q(0.75)} · best $${q(0.999)}`);
+    const mean = Math.round(finish.reduce((a, b) => a + b, 0) / finish.length);
+    const outcomes = { comfortable: finish.filter(c => c >= due * 1.25).length, scraped: finish.filter(c => c >= due && c < due * 1.25).length, short: finish.filter(c => c < due).length };
+    console.log(`${sc.name.padEnd(10)} rent made ${(made * 100).toFixed(0).padStart(3)}% | spare (mean) $${mean - due} | endings ${outcomes.comfortable}/${outcomes.scraped}/${outcomes.short} (comfortably/scraped/didn't) | cash at the end: worst $${q(0)} · 5% $${q(0.05)} · 25% $${q(0.25)} · median $${q(0.5)} · 75% $${q(0.75)} · best $${q(0.999)}`);
+  }
+  // where the money goes over a lease, per script (mean of seeds)
+  if (args.includes('breakdown')) {
+    const keys: (keyof DayStats)[] = ['revenue', 'materials', 'labour', 'consumables', 'fixes', 'beer', 'mateBeer', 'fees', 'deliveryFees', 'overdraftFees', 'latePayLost', 'lostJobsValue', 'choreBoards', 'sheetsDone', 'sheetsScrapped', 'sheetsLate', 'sheetsLost', 'sheetsMissed', 'firesDuct', 'firesExtractor'];
+    for (const sc of SCRIPTS) {
+      const runs = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks).weeks.flat());
+      console.log(`${sc.name.padEnd(10)} ` + keys.map(k => `${k}=${Math.round(runs.reduce((a, days) => a + days.reduce((b, d) => b + (d[k] ?? 0), 0), 0) / runs.length)}`).join(' '));
+    }
+  }
+  if (args.includes('weekly')) {
+    for (const sc of SCRIPTS) {
+      const runs = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks));
+      const wk = (i: number, k: keyof DayStats) => Math.round(runs.reduce((a, r) => a + r.weeks[i].reduce((b, d) => b + (d[k] ?? 0), 0), 0) / runs.length);
+      console.log(`${sc.name.padEnd(10)} refused orders/lease=${(runs.reduce((a, r) => a + r.refused, 0) / runs.length).toFixed(1)} | ` + [0, 1, 2, 3].map(i => `wk${i + 1}: done=${wk(i, 'sheetsDone')} lost=${wk(i, 'sheetsLost')} rev=${wk(i, 'revenue')} stockout=${wk(i, 'stockOutMinutes')}m`).join(' | '));
+    }
   }
   // what the rent figure does to the rates (the day sim isn't touched: the rent's the only lever)
   const rate = (xs: number[], d: number) => `${Math.round(100 * xs.filter(c => c >= d).length / xs.length)}%`.padStart(4);
   console.log('rent due →  ' + SCRIPTS.map(s => s.name.padStart(10)).join(''));
-  for (const d of [3000, 4000, 5000, 5500, 6000, 6500, 7000]) console.log(`$${d}`.padEnd(11) + SCRIPTS.map(s => rate(ends[s.name], d).padStart(10)).join(''));
+  for (const d of [-3000, -2000, -1000, -500, 0, 500, 1000, 2000].map(x => CONFIG.lease.rentDue + x)) console.log(`$${d}`.padEnd(11) + SCRIPTS.map(s => rate(ends[s.name], d).padStart(10)).join(''));
 }
