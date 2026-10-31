@@ -4,6 +4,7 @@ import type { Game } from '../sim/Game.js';
 import type { DayStats } from '../sim/types.js';
 import { startOver } from '../world/save.js';
 import { copyText } from './clipboard.js';
+import { perf } from '../world3d/perf.js';
 
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
 const pct = (f: number) => `${(f * 100).toFixed(0)}%`;
@@ -93,7 +94,8 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
   el.querySelector('.next')!.addEventListener('click', () => { g.nextDay(); onNext(); });
   const status = el.querySelector('.status')!;
   el.querySelector('.copy')!.addEventListener('click', () => {
-    void copyText(g.dayReport()).then(ok => { status.textContent = ok ? 'Copied — paste it into a message.' : "Couldn't reach the clipboard."; });
+    const frames = perf.report(); // how the renderer's coping, for a playtester's report
+    void copyText(frames ? `${g.dayReport()}\n\n${frames}` : g.dayReport()).then(ok => { status.textContent = ok ? 'Copied — paste it into a message.' : "Couldn't reach the clipboard."; });
   });
 }
 

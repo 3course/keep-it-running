@@ -25,6 +25,7 @@ import { InspectorWalker } from './inspector.js';
 import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
+import { perf } from './perf.js';
 import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
 
@@ -120,7 +121,10 @@ export class World3D {
     this.renderer = new THREE.WebGLRenderer({ antialias: this.tier.antialias, powerPreference: this.tier.powerPreference });
     this.renderer.setPixelRatio(1);
     this.vw = window.innerWidth; this.vh = window.innerHeight;
-    this.renderer.setSize(Math.round(this.vw * WORLD.renderScale), Math.round(this.vh * WORLD.renderScale), false);
+    // the tier's resolution (or ?res=), as a multiple of the original 1/3; frames are timed against the tier's target
+    this.resMult = gpu.resOverride ?? this.tier.resMult;
+    perf.tier = gpu.tier; perf.targetMs = this.tier.targetMs;
+    this.renderer.setSize(Math.round(this.vw * this.renderScale), Math.round(this.vh * this.renderScale), false);
     this.renderer.shadowMap.enabled = this.tier.shadows;
     this.renderer.shadowMap.type = this.tier.shadowType;
     // a shader that won't compile is a dead view, not just a console message
@@ -156,7 +160,8 @@ export class World3D {
     });
     this.hud.setPaused(this.paused);
     this.hud.setMuted(this.ring.muted);
-    if (gpu.tier !== 'full') this.hud.setTagNote(`${gpu.tier === 'bare' ? 'safe, no shadows' : 'safe'} (${gpu.why})`);
+    if (gpu.tier === 'low' || gpu.tier === 'bare') this.hud.setTagNote(`${gpu.tier === 'bare' ? 'safe, no shadows' : 'safe'} (${gpu.why})`);
+    else if (gpu.resOverride !== null) this.hud.setTagNote(`res ×${gpu.resOverride}`);
     this.buildDebugLabels();
     uiHooks.orderPly = () => this.hud.showPlyOrder(this.g, (t, n) => { if (this.g.orderPly(t, n)) { this.player.hop(); this.save(); } });
     this.buildSigns();
@@ -179,7 +184,9 @@ export class World3D {
   private fit() {
     const aw = Math.max(1, window.innerWidth), ah = Math.max(1, window.innerHeight);
     this.vw = aw; this.vh = ah;
-    this.renderer.setSize(Math.round(aw * WORLD.renderScale), Math.round(ah * WORLD.renderScale), false);
+    const rw = Math.round(aw * this.renderScale), rh = Math.round(ah * this.renderScale);
+    this.renderer.setSize(rw, rh, false);
+    perf.size = `${rw}×${rh}`; perf.resMult = this.resMult;
     const aspect = aw / ah;
     this.camera.aspect = aspect;
     this.camera.fov = aspect <= 1 ? WORLD.fov
@@ -301,9 +308,40 @@ export class World3D {
 
   // ---------- frame ----------
 
+  /** Internal render resolution as a multiple of WORLD.renderScale: the tier's, or ?res=; stepped down if frames are slow. */
+  private resMult = 1;
+  private get renderScale() { return WORLD.renderScale * this.resMult; }
+  private lastFrameAt = 0;
+  private slowChecks = 0;
+
+  /**
+   * Hold the tier's frame rate: every couple of seconds look at the median frame time; slow twice running and the
+   * resolution steps down (never below the original 1/3, never when ?res= is set). Logged for "Copy details".
+   */
+  private holdFrameRate(now: number) {
+    if (this.lastFrameAt) perf.add(now - this.lastFrameAt);
+    this.lastFrameAt = now;
+    if (this.gpu.resOverride !== null || this.paused || document.hidden) return;
+    const r = perf.recent;
+    if (r.frames < 120) return;
+    if (r.median > this.tier.targetMs * 1.2) {
+      if (++this.slowChecks < 2) { perf.reset(); return; }
+      const next = Math.max(1, Math.round(this.resMult * 0.8 * 100) / 100);
+      if (next < this.resMult) {
+        perf.stepDowns.push(`×${this.resMult.toFixed(2)}→×${next.toFixed(2)} at ${r.median.toFixed(1)} ms`);
+        console.info(`[Keep It Running] frames at ${r.median.toFixed(1)} ms (target ${this.tier.targetMs.toFixed(1)}): resolution ×${this.resMult} → ×${next}`);
+        this.resMult = next;
+        this.fit();
+      }
+    }
+    this.slowChecks = 0;
+    perf.reset();
+  }
+
   private frame(now: number) {
     if (this.failed) return; // the failure card is up: stop
     requestAnimationFrame(t => this.frame(t));
+    this.holdFrameRate(now);
     if (this.contextLost) { this.last = now; return; } // clock stopped until the view's back
     try {
       this.step(now);
