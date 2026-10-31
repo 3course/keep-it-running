@@ -310,7 +310,11 @@ export class Tracing {
   private frame() {
     const c = this.d.sheet.parent!.localToWorld(new THREE.Vector3(0, this.d.bed.top, 0));
     this.camPose.look.copy(c);
-    this.camPose.pos.set(c.x, c.y + 2.35, c.z + 0.75);
+    // high enough that the whole design fits the narrower way of the screen, with room round it for a finger
+    const d = this.design!, cam = this.d.camera, vfov = cam.fov * Math.PI / 180, hfov = 2 * Math.atan(Math.tan(vfov / 2) * cam.aspect);
+    const w = d.sheet.w * this.scale, h = d.sheet.h * this.scale;
+    const dist = Math.max(w / (2 * Math.tan(hfov / 2)), h / (2 * Math.tan(vfov / 2))) * 1.3;
+    this.camPose.pos.set(c.x, c.y + dist * 0.95, c.z + dist * 0.3);
   }
 
   /** Done: keep the piece, hang it up, back to the crates. */
