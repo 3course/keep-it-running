@@ -8,6 +8,7 @@
 // rate (sheets ruined / sheets cut) per script. These runs buy no upgrades.
 // `npm run sim -- upgrades [seeds]` (default 20) measures the upgrades instead: each one alone, and each script's
 // buying policy over four weeks, compared seed for seed (see upgradeStudy).
+import { WORLD } from '../world/worldConfig.js';
 import { drawFortunes, fortuneMorning, FORTUNE_KINDS, type FortuneKind } from '../world/leaseWeeks.js';
 import { ENDINGS, outcome, type Ending } from '../world/leaseEnding.js';
 import { Game, type Phase } from './Game.js';
@@ -207,6 +208,7 @@ const competent: Policy = (g) => {
   if (g.truckOnApron?.stage === 'waiting') handleTruck(g); // sign before the driver gives up
   for (const d of g.distractions) {
     // a mate who comes up (or is yarning): chats when the machine's idle, sends them off when it's cutting
+    if (d.kind === 'friend' && usesMate.has(g)) continue; // the `mate` variant handles them (mateHelps)
     if (d.kind === 'friend') { if (d.ask || d.engaged) g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat'); }
     else if (d.order) g.respond(d.id, overCommitted(g) ? 'decline' : 'answer');
     else g.respond(d.id, d.kind === 'courier' ? 'sign' : 'answer');
@@ -257,7 +259,7 @@ const sloppy: Policy = (g) => {
   // chats to everyone, ignores the courier, drinks from 2pm
   for (const d of g.distractions) {
     if (d.kind === 'phone' || d.kind === 'bank') g.respond(d.id, 'answer');
-    if (d.kind === 'friend' && d.ask) g.respond(d.id, 'chat'); // yes to everything, a beer whenever they ask
+    if (d.kind === 'friend' && d.ask && !usesMate.has(g)) g.respond(d.id, 'chat'); // yes to everything, a beer whenever they ask
   }
   for (const c of g.callbacks) g.callBack(c.id);
   sloppyOrders(g);
@@ -402,12 +404,47 @@ function sloppyBuys(g: Game) {
   for (const id of cheapestFirst) if (!g.upgrades.has(id) && g.cash >= price(id)) g.buyUpgrade(id);
 }
 
-const SCRIPTS: Script[] = [
+// ---------- the `mate` variant (competent and sloppy): a visiting mate as a pair of hands ----------
+// Always a yarn first, then "Give us a hand?" (Game.askHelp); he does one pending job every helpMinutesPerTask (slower
+// per beer): the boards off the bed, a bundle off the truck, the offcut bin (the shed's other two — the old extractor
+// bag and a sheet onto the bed — are world-only). One beer after two, fetched and handed over (Game.giveBeer). Later
+// asks: a plain yarn, or "flat out" if competent's cutting. No other beers for him.
+const usesMate = new WeakSet<Game>();
+/** Tallies for the report: jobs he did, visits he helped on, beers handed over (all leases of a run, by script). */
+export const mateTally: Record<string, { jobs: number; visits: number; beers: number }> = {};
+const mateScript = new WeakMap<Game, string>();
+const mateState = new WeakMap<Game, { visit: number; asked: boolean; beer: boolean; next: number; idle: number }>();
+function mateHelps(g: Game, competentScript: boolean) {
+  const d = g.distractions.find(x => x.kind === 'friend');
+  if (!d) return;
+  let st = mateState.get(g);
+  if (!st || st.visit !== d.id) mateState.set(g, st = { visit: d.id, asked: false, beer: false, next: 0, idle: 0 });
+  const tally = (mateTally[mateScript.get(g) ?? '?'] ??= { jobs: 0, visits: 0, beers: 0 });
+  const taskMinutes = () => Math.round(CONFIG.visitors.helpMinutesPerTask * (1 + 0.25 * (d.beers ?? 0)));
+  if (!d.chatted && d.ask) { g.yarn(d.id); return; }
+  if (d.chatted && !d.engaged && !st.asked) { st.asked = true; if (g.askHelp(d.id)) { st.next = g.minute + taskMinutes(); tally.visits++; } }
+  if (!st.beer && g.fridgeOpen && g.visitorMayHaveBeer(d) && !g.heldCan && g.canAct && g.buyBeer()) { st.beer = g.giveBeer(d.id); if (st.beer) tally.beers++; }
+  if (d.ask && !d.helping) { if (competentScript && g.machine === 'cutting') g.respond(d.id, 'disengage'); else g.yarn(d.id); }
+  if (d.helping && g.minute >= st.next) {
+    const truck = g.truckOnApron;
+    const done = (g.bedPile > 0 && !g.palletFull && g.helperTask('stack'))
+      || (truck?.stage === 'unloading' && g.helperTask('unload'))
+      || (g.offcutBin >= WORLD.offcutsEmptyAt && g.offcutPile === 0 && g.helperTask('offcuts'));
+    if (done) { st.idle = 0; tally.jobs++; g.helperDid(d.id); st.next = g.minute + taskMinutes(); }
+    else if (++st.idle > 12) g.helperStop(d.id);
+  }
+}
+/** A script, with the mate variant on top (only when run with `mate`; average is left as it is). */
+const withMate = (s: Script): Script => (!((globalThis as { process?: { argv: string[] } }).process?.argv ?? []).includes('mate') || s.name === 'average' ? s
+  : { ...s, policy: g => { usesMate.add(g); mateScript.set(g, s.name); mateHelps(g, s.name === 'competent'); s.policy(g); } });
+
+const SCRIPTS: Script[] = ([
   // a half-cut sheet on the bed counts as work left: knocking off would scrap it
   { name: 'competent', policy: competent, overtime: g => !g.machineDown && (!!g.current || g.queued.length > 0), buy: competentBuys },
   { name: 'average', policy: average, overtime: g => !g.machineDown && !!g.current, buy: averageBuys }, // only to save the sheet on the bed
   { name: 'sloppy', policy: sloppy, overtime: () => false, buy: sloppyBuys },
-];
+] as Script[]).map(withMate);
+
 
 /** First day of a steady-state week: the ramp's last entry, which every later day uses too. */
 const STEADY_FROM = CONFIG.difficulty.breakdownByDay.length;
@@ -771,6 +808,7 @@ function leaseStudy() {
     const share = (lo: number, hi: number) => Math.round(100 * c.filter(x => x - rent >= lo && x - rent < hi).length / c.length);
     console.log(`fit: rent $${rent} → sloppy 45% | competent made/comfortably/flying ${share(-1e9, E.comfortableFrom)}/${share(E.comfortableFrom, E.flyingFrom)}/${share(E.flyingFrom, 1e9)}%`);
   }
+  if (args.includes('mate')) for (const [k, t] of Object.entries(mateTally)) console.log(`mate (${k}): per lease, ${(t.visits / seeds.length).toFixed(1)} visits he helped on, ${(t.jobs / seeds.length).toFixed(1)} jobs done, ${(t.beers / seeds.length).toFixed(1)} beers handed over`);
   // what each kind of week is worth, per script: dealt in week 2, against the same seeds with none
   if (args.includes('fortunes')) {
     const mean = (xs: number[]) => Math.round(xs.reduce((a, b) => a + b, 0) / xs.length);
