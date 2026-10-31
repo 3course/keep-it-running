@@ -72,6 +72,10 @@ export class Game {
   servesWalkIns = false;
   /** A mate who said he'd be back when the fridge opens ("Beer after two?"): who, and from when (minute of day). */
   mateReturn: { mate: string; minute: number } | null = null;
+  /** Today's planned mate visits (minutes of day, CONFIG.visitors.perDay), when the last one left, and whether one's been after two. */
+  mateVisits: number[] = [];
+  mateLeftAt = -9999;
+  mateAfterTwo = false;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
   powerTripped = false;
 
@@ -417,6 +421,7 @@ export class Game {
     this.freshToday = fresh.map(j => j.id);
     this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
+    this.mateVisits = this.planMateVisits(); this.mateLeftAt = -9999; this.mateAfterTwo = false;
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
       dennisStartDay(this); // his own seeded rolls: off, nothing else changes
@@ -899,7 +904,33 @@ export class Game {
 
   // ---------- distractions ----------
 
+  /** The day's mate visits: 1 or 2, seeded on their own hash (the day's rng isn't touched). */
+  private planMateVisits(): number[] {
+    const P = CONFIG.visitors.perDay, r = (salt: number) => this.roll(this.dayIndex * 31 + 7, salt + 40);
+    const from = P.fromHour * 60, to = P.toHour * 60, len = CONFIG.visitors.visitMinutes;
+    if (r(1) >= P.twoChance) return [Math.round(from + r(2) * (to - from))];
+    // two: the first in the morning, the second at least a visit plus the gap later
+    const t1 = Math.round(from + r(2) * (P.afterHour * 60 - len - P.minGapMinutes - 60 - from));
+    const t2lo = t1 + len + P.minGapMinutes;
+    return [t1, Math.round(t2lo + r(3) * Math.max(0, to - t2lo))];
+  }
+
+  /** A planned visit that's due: in it comes, once the last mate's been gone long enough (and only one after two). */
+  private dueMateVisit() {
+    const P = CONFIG.visitors.perDay, due = this.mateVisits[0];
+    if (due === undefined || this.minute < due) return;
+    if (this.distractions.some(x => x.kind === 'friend') || this.minute < this.mateLeftAt + P.minGapMinutes) {
+      if (this.minute > P.toHour * 60 + 30) this.mateVisits.shift(); // too late in the day now
+      return;
+    }
+    if (this.minute >= P.afterHour * 60 && this.mateAfterTwo) { this.mateVisits = []; return; }
+    this.mateVisits.shift();
+    if (this.minute >= P.afterHour * 60) this.mateAfterTwo = true;
+    this.spawnDistraction('friend');
+  }
+
   private maybeDistraction() {
+    this.dueMateVisit();
     if (this.distractions.length >= CONFIG.distractions.maxActive) return;
     if (!this.rng.chance(CONFIG.distractions.chancePerMinute)) return;
     const d = CONFIG.distractions;
@@ -911,7 +942,7 @@ export class Game {
     ];
     if (this.distractions.some(x => x.kind === 'friend')) kinds[0].w = 0;
     const pick = this.rng.weighted(kinds, k => k.w);
-    if (!pick) return;
+    if (!pick || pick.kind === 'friend') return; // mates come when they're planned (dueMateVisit), not off this roll
     this.spawnDistraction(pick.kind);
   }
 
@@ -1007,7 +1038,10 @@ export class Game {
     const d = CONFIG.distractions;
     // the mate who said he'd be back after two
     const back = this.mateReturn;
-    if (back && this.minute >= back.minute && !this.distractions.some(x => x.kind === 'friend')) { this.mateReturn = null; this.spawnDistraction('friend', back.mate); }
+    if (back && this.minute >= back.minute && !this.distractions.some(x => x.kind === 'friend')) {
+      this.mateReturn = null; this.spawnDistraction('friend', back.mate);
+      if (this.minute >= CONFIG.visitors.perDay.afterHour * 60) { this.mateAfterTwo = true; this.mateVisits = this.mateVisits.filter(t => t < CONFIG.visitors.perDay.afterHour * 60); }
+    }
     for (const dist of [...this.distractions]) {
       if (dist.kind === 'friend') this.tickVisitor(dist);
       dist.remaining -= 1;
@@ -1068,6 +1102,7 @@ export class Game {
   }
 
   private removeDistraction(id: number) {
+    if (this.distractions.some(x => x.id === id && x.kind === 'friend')) this.mateLeftAt = this.minute;
     this.distractions = this.distractions.filter(x => x.id !== id);
   }
 

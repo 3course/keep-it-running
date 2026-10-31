@@ -234,3 +234,24 @@ describe('visitors', () => {
     });
   });
 });
+
+describe('how often a mate drops in (CONFIG.visitors.perDay)', () => {
+  it('1 or 2 visits a day, never two arrivals within 90 minutes, at most one after two', () => {
+    const P = V.perDay, count = [0, 0, 0, 0];
+    for (let seed = 1; seed <= 30; seed++) {
+      const g = new Game(seed, 1);
+      for (let day = 0; day < 5; day++) {
+        const arrivals = [], seen = new Set();
+        while (g.phase === 'day') { g.tick(); for (const d of g.distractions) if (d.kind === 'friend' && !seen.has(d.id)) { seen.add(d.id); arrivals.push(g.minute); } }
+        count[Math.min(3, arrivals.length)]++;
+        assert.ok(arrivals.filter(m => m >= P.afterHour * 60).length <= 1, `seed ${seed} day ${day}: two after two`);
+        for (let i = 1; i < arrivals.length; i++) assert.ok(arrivals[i] - arrivals[i - 1] >= P.minGapMinutes, `seed ${seed}: ${arrivals}`);
+        if (g.phase === 'endOfDayPrompt') g.knockOff();
+        if (g.phase === 'daySummary') g.nextDay();
+        if (g.phase === 'weekSummary') break;
+      }
+    }
+    assert.equal(count[0] + count[3], 0, `every day 1 or 2: ${count}`);
+    assert.ok(count[1] > 20 && count[2] > 20, `both happen: ${count}`);
+  });
+});

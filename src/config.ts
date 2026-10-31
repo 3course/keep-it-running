@@ -209,6 +209,10 @@ export const CONFIG = {
     helpMin: 1, helpMax: 4,
     helpMinutesPerTask: 12,    // the visit stretches to fit the jobs he's taken on
     returnHour: 14,            // "Beer after two?" and he's not stopping: he's back when the fridge opens
+    // How often a mate drops in: planned each morning (seeded, its own hash): 1 or 2 visits, never two arrivals within
+    // minGapMinutes of the last one leaving, at most one from afterHour on. (The random distraction roll no longer
+    // brings mates: a "friend" pick there is passed over, so phones and couriers come as often as before.)
+    perDay: { twoChance: 0.5, fromHour: 8.5, toHour: 16, minGapMinutes: 90, afterHour: 14 },
     beersPerVisitor: 2,        // beers a mate asks for in a day; past it, and past beersPerDay, they ask for a yarn instead
     beersPerDay: 4,            // all mates together
     wanderMin: 4,              // minutes at one spot before moving on to another
