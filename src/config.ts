@@ -228,7 +228,7 @@ export const CONFIG = {
     lateFromHour: 15.5,           // a sheet finished after this is collected next morning…
     morningHour: 8,               // …from this hour…
     morningJitterMinutes: 60,     // …plus up to this much
-    palletCapacity: 6,            // sheets the finished pallet holds; full, the bed can't be cleared and the next cut waits
+    palletCapacity: 16,           // sheets the finished pallet holds; full, the bed can't be cleared and the next cut waits
     slipChance: 0.1,              // they text back "running late, after lunch ok?"…
     slipMinutes: [60, 90] as [number, number], // …and turn up this much later
     honkAfterMinutes: 2,          // a ute left waiting at the roller door honks after this long
@@ -277,7 +277,7 @@ export const CONFIG = {
   // The Lease (src/world/lease.ts): a run of 4 weeks on one seed; the rent's due at the end, in the bank.
   lease: {
     weeks: 4,
-    rentDue: 5400,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
+    rentDue: 5600,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
     // the endings, by the spare at day 20 (cash less the rent): src/world/leaseEnding.ts
     endings: {
       graceShort: 1500,        // short by up to this: "scraped it" — the landlord takes what's there, the rest rides to the next lease

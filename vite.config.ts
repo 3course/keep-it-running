@@ -1,5 +1,9 @@
+import { execSync } from 'node:child_process';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+
+// The commit this build is from: in the corner tag, and in <meta name="build-commit"> so a deploy can be checked.
+const commit = (() => { try { return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim(); } catch { return 'dev'; } })();
 
 // Served from GitHub Pages at https://keepitrunning.fyi/: this (world) build at the root, the main branch's panel
 // prototype at /panel/ (the deploy workflow sets VITE_BASE for each).
@@ -7,7 +11,9 @@ const base = (process.env.VITE_BASE || '/').replace(/\/?$/, '/');
 
 export default defineConfig({
   base,
+  define: { __BUILD_COMMIT__: JSON.stringify(commit) },
   plugins: [
+    { name: 'build-commit', transformIndexHtml: html => html.replace('</head>', `  <meta name="build-commit" content="${commit}" />\n  </head>`) },
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',

@@ -16,4 +16,6 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-export const BUILD_TAG = 'v0.2';
+declare const __BUILD_COMMIT__: string | undefined;
+/** The version and the commit it was built from (vite.config's define; 'dev' outside a git checkout). */
+export const BUILD_TAG = `v0.2 · ${typeof __BUILD_COMMIT__ === 'string' ? __BUILD_COMMIT__ : 'dev'}`;
