@@ -3,7 +3,7 @@ import { FAULTS } from '../data/faults.js';
 import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import type {
-  ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState,
+  ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
 } from './types.js';
 
@@ -605,6 +605,15 @@ export class Game {
   /** Is the extinguisher pointed at the fire? Set every frame from E / the spray button. */
   setSpraying(held: boolean) { this.spraying = held; }
 
+  /** Let go of the trigger (or lost aim) before it was out: the glow flares back and the spraying starts again from nothing. */
+  sprayLetGo(): boolean {
+    const f = this.fire;
+    if (!f || f.sprayed <= 0) return false;
+    f.sprayed = 0;
+    this.say('It flared back up.', 'bad');
+    return true;
+  }
+
   private tickFire() {
     const c = CONFIG.fire;
     const r = this.fireResponse;
@@ -678,6 +687,12 @@ export class Game {
 
   private finishJob() {
     const j = this.current!;
+    if (j.rough) {
+      // cut with the wrong bit (the view's bit rack): the edges are torn and the customer won't take it
+      this.scrapCurrent(`${j.name}: rough edges from the wrong bit. A reject.`);
+      this.current = null; this.machine = 'idle';
+      return;
+    }
     j.status = 'done';
     const late = this.isLate(j);
     j.paidLate = late;
@@ -754,8 +769,18 @@ export class Game {
     this.say(`Phone ringing — ${t.name.toLowerCase()} order, ${sheets} × ${t.material}`, 'info');
   }
 
-  private addOrder(sheets: number, typeId: JobTypeId, big = false) {
-    if (big) { this.addBigJob(sheets, typeId); return; }
+  private addOrder(sheets: number, typeId: JobTypeId, big = false, ready?: OrderPreview) {
+    if (big) { this.addBigJob(sheets, typeId, ready?.jobs); return; }
+    const { jobs, kind, label } = ready ?? this.orderJobs(sheets, typeId);
+    const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
+    this.jobs.push(...jobs);
+    const close = CONFIG.clock.endHour * 60;
+    const when = kind === 'tomorrow' ? `tomorrow ${this.formatTime(close)}` : this.formatTime(jobs[0].deadlineMinute);
+    this.say(`Order in: ${label}, ${sheets} × ${t.material}, due ${when}.`, kind === 'rush' ? 'bad' : 'good');
+  }
+
+  /** The sheets an order call brings, not yet on the board. */
+  private orderJobs(sheets: number, typeId: JobTypeId): OrderPreview {
     const o = CONFIG.jobs.orders;
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
     const name = this.rng.pick(JOB_NAMES);
@@ -765,11 +790,25 @@ export class Game {
       : { day: this.dayIndex + (kind === 'tomorrow' ? 1 : 0), minute: close };
     const label = kind === 'rush' ? `RUSH — ${name}` : name;
     const priceMult = kind === 'rush' ? CONFIG.jobs.rush.priceMult : 1;
+    const jobs: Job[] = [];
     for (let i = 0; i < sheets; i++) {
-      this.jobs.push(this.makeJob(t, sheets > 1 ? `${label} (${i + 1}/${sheets})` : label, due.day, due.minute, { priceMult }));
+      jobs.push(this.makeJob(t, sheets > 1 ? `${label} (${i + 1}/${sheets})` : label, due.day, due.minute, { priceMult }));
     }
-    const when = kind === 'tomorrow' ? `tomorrow ${this.formatTime(close)}` : this.formatTime(due.minute);
-    this.say(`Order in: ${label}, ${sheets} × ${t.material}, due ${when}.`, kind === 'rush' ? 'bad' : 'good');
+    return { jobs, kind, label };
+  }
+
+  /**
+   * Picking up an order call: what's on offer (the sheets, their price and when they're due), for the yes/no card. The
+   * same sheets go on the board if you take it. (The balance sim answers straight away and never calls this.)
+   */
+  previewOrder(id: number): OrderPreview | null {
+    const dist = this.distractions.find(d => d.id === id);
+    if (!dist || dist.kind !== 'phone' || !dist.order) return null;
+    if (!dist.preview) {
+      const t = CONFIG.jobs.types.find(x => x.id === dist.orderType)!;
+      dist.preview = dist.big ? { jobs: this.bigJobJobs(dist.order, t), kind: 'tomorrow', label: 'BIG JOB — Hallam townhouses' } : this.orderJobs(dist.order, dist.orderType!);
+    }
+    return dist.preview;
   }
 
   private tickDistractions() {
@@ -1101,7 +1140,7 @@ export class Game {
           return true;
         }
         this.addRapport(d.phone.answerRapportGain);
-        if (dist.order) this.addOrder(dist.order, dist.orderType!, dist.big);
+        if (dist.order) this.addOrder(dist.order, dist.orderType!, dist.big, dist.preview);
         else if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
         else this.say('Just a quote. Followed up later.');
         return true;
@@ -1187,6 +1226,9 @@ export class Game {
     this.today.looTrips += 1;
     return true;
   }
+
+  /** A hands-on gesture in the shed (the view's one-thumb jobs) spoiled by the beer: it has to be done again. */
+  gestureFumbled(what: string): boolean { return this.fumbled(what); }
 
   /** A finished step that has to be done again: a beer's worth of clumsiness. */
   private fumbled(what: string): boolean {
@@ -1432,18 +1474,22 @@ export class Game {
   }
 
   /** The 20 sheets, all due at close in `dueDays`, at the big-job price. */
-  private addBigJob(sheets: number, typeId: JobTypeId) {
+  private addBigJob(sheets: number, typeId: JobTypeId, ready?: Job[]) {
     const def = this.rareDef('bigJob');
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
-    const dueDay = this.dayIndex + def.dueDays!, close = CONFIG.clock.endHour * 60;
     let value = 0;
-    for (let i = 0; i < sheets; i++) {
-      const j = this.makeJob(t, `BIG JOB — Hallam townhouses (${i + 1}/${sheets})`, dueDay, close, { priceMult: def.priceMult });
+    for (const j of ready ?? this.bigJobJobs(sheets, t)) {
       value += j.price;
       this.jobs.push(j);
     }
     this.say(`Order in: the big job, ${sheets} × ${t.material}, due in ${def.dueDays} days. $${value} of work.`, 'good');
     this.bigJobAnswered(true, sheets, 'taken', value);
+  }
+
+  private bigJobJobs(sheets: number, t: JobType): Job[] {
+    const def = this.rareDef('bigJob');
+    const dueDay = this.dayIndex + def.dueDays!, close = CONFIG.clock.endHour * 60;
+    return Array.from({ length: sheets }, (_, i) => this.makeJob(t, `BIG JOB — Hallam townhouses (${i + 1}/${sheets})`, dueDay, close, { priceMult: def.priceMult }));
   }
 
   private bigJobAnswered(taken: boolean, sheets: number, how: 'taken' | 'declined' | 'missed', value = 0) {

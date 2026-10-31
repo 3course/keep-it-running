@@ -6,10 +6,13 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import { Hints } from '../ui/hints.js';
+import { GesturePad } from '../ui/gesture.js';
 import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { track } from '../analytics.js';
-import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
+import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, uteActions, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
+import { OrderCard } from '../ui/orderCard.js';
+import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
@@ -88,6 +91,11 @@ export class World3D {
   /** Every action done, for tests and debugging: what was tapped and what it said. */
   readonly actionLog: { label: string; said: string; t: number }[] = [];
   private objectHold = false;
+  private thumb = { x: 0, y: 0 };       // where the last finger is (logical px): aims the extinguisher
+  private sprayHeld = false;             // the trigger was down last frame
+  private flareUntil = 0;                // the flames jump while a let-go fire flares back
+  private aimEl!: HTMLDivElement;        // the aim mark over your thumb
+  private sprayRing!: HTMLDivElement;    // how far through putting it out, round the glow
 
   // camera
   private camYaw = 0;
@@ -105,6 +113,11 @@ export class World3D {
   private debugLabels: { el: HTMLDivElement; at: THREE.Vector3 }[] = [];
   private time = 0;
   private hints = new Hints();
+  /** The one-thumb gesture card for hands-on jobs (public for tests); `gestureAt`: the thing it's for (walk away and it closes). */
+  gesture!: GesturePad;
+  /** The yes/no card for an order call you've picked up (public for tests). */
+  orderCard!: OrderCard;
+  private gestureAt: string | null = null;
   private ring = new RingSound();
   private flashRing!: THREE.Group;
   private flash: { id: ObjectId; t: number } | null = null;
@@ -170,6 +183,12 @@ export class World3D {
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
       overtime: () => { this.g.startOvertime(); this.hud.hideEndOfDay(); this.save(); },
     });
+    this.gesture = new GesturePad(this.hud.labels.parentElement!);
+    this.orderCard = new OrderCard(this.hud.labels.parentElement!);
+    uiHooks.orderCard = (d, offer, take, decline) => this.orderCard.show(this.g, d, offer, !!decline.highlight, () => this.runAction(take), () => this.runAction(decline));
+    this.aimEl = document.createElement('div'); this.aimEl.className = 'aim';
+    this.sprayRing = document.createElement('div'); this.sprayRing.className = 'sprayring';
+    this.hud.labels.append(this.aimEl, this.sprayRing);
     this.hud.setPaused(this.paused);
     this.hud.setMuted(this.ring.muted);
     if (gpu.tier === 'low' || gpu.tier === 'bare') this.hud.setTagNote(`${gpu.tier === 'bare' ? 'safe, no shadows' : 'safe'} (${gpu.why})`);
@@ -256,6 +275,9 @@ export class World3D {
     };
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
+    const track = (e: PointerEvent) => { this.thumb = this.hud.toLogical(e.clientX, e.clientY); };
+    window.addEventListener('pointerdown', track, true);
+    window.addEventListener('pointermove', track, true);
     const release = () => {
       this.labelHold = false;
       if (this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
@@ -422,6 +444,11 @@ export class World3D {
     this.updateViewOffset();
     this.updateCamera(dt);
     this.updateVisuals(dt);
+    // a gesture card closes if you walk off from what it's for, or the day stops
+    if (this.gesture.active && (this.paused || this.g.phase !== 'day'
+      || (this.gestureAt && OBJECTS.some(o => o.id === this.gestureAt) && !this.inRange(this.gestureAt as ObjectId)))) { this.gesture.close(); this.gestureAt = null; }
+    // the order card goes if they ring off (or the day's over)
+    if (this.orderCard.showing && (this.paused || this.g.phase !== 'day' || !this.g.distractions.some(d => d.id === this.orderCard.callId))) this.orderCard.close();
     this.updateLabels();
     this.updatePointers();
     this.updateSigns(dt);
@@ -430,7 +457,10 @@ export class World3D {
     this.updateRing();
     if (!this.hud.summaryShowing) {
       this.hud.update(g, todoItems(g, w), w.done);
-      this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? this.hints.current : null);
+      // the first fault: follow the pointer to where it is (cleared on getting there); the first gesture card (cleared doing one)
+      if (g.fault && this.inRange(faultTarget(g, w) ?? 'machine')) this.hints.mark('fault');
+      const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
+      this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? hint : null);
     }
     if (this.outline) this.outline.render(this.renderer, this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
@@ -569,6 +599,8 @@ export class World3D {
     w.newsSeen = today.length;
     // the roller door stays up while you're carrying ply in from the truck
     if (g.truckOnApron?.stage === 'unloading') w.rollerUpUntil = Math.max(w.rollerUpUntil ?? 0, t + 2);
+    // …and while you carry a pickup out to the ute
+    if (w.carrying === 'stack' && w.utePresent && w.rollerUpUntil !== null) w.rollerUpUntil = Math.max(w.rollerUpUntil, t + 2);
     if ((w.shrugs ?? 0) !== this.shrugsSeen) { this.shrugsSeen = w.shrugs ?? 0; this.player.shrug(); this.say('None left'); }
     if (g.sips !== this.sipsSeen) { this.sipsSeen = g.sips; this.player.sip(); }
     if (w.tour && !w.tour.cutStarted && w.bed === 'running') { w.tour.cutStarted = true; this.save(); } // the day proper starts now
@@ -588,16 +620,45 @@ export class World3D {
 
   private canSpray() { return this.w.carrying === 'extinguisher' && !!this.g.fire && this.inRange('exhaust') && !this.paused && this.g.phase === 'day'; }
 
-  /** Game puts a fire out only while its fire response is at the duct and spraying is held. */
+  /** The glow at the top of the exhaust unit, on screen (logical px). */
+  sprayTarget() {
+    const ex = this.built.objects.get('exhaust')!;
+    const p = this.project(new THREE.Vector3(ex.centre.x, ex.def.height + 0.3, ex.centre.z));
+    return { x: p.x, y: p.y, above: WORLD.sprayAimAbove * this.hud.unit, radius: WORLD.sprayAimRadius * this.hud.unit };
+  }
+
+  /**
+   * Game puts a fire out only while its fire response is at the duct and spraying is held. With a thumb: hold the
+   * label (or the unit) and drag so the aim mark above your thumb sits on the glow; it only counts while it's on.
+   * Let go before it's out and it flares back up (Game.sprayLetGo). Desktop E sprays straight at it.
+   */
   private updateSpray() {
     const g = this.g;
-    const want = (this.labelHold || this.objectHold || this.keys.has('e')) && this.canSpray();
+    const can = this.canSpray();
+    const thumbDown = (this.labelHold || this.objectHold) && can;
+    const want = can && (thumbDown || this.keys.has('e'));
+    const t = this.sprayTarget();
+    const aim = { x: this.thumb.x, y: this.thumb.y - t.above };
+    const onTarget = thumbDown ? Math.hypot(aim.x - t.x, aim.y - t.y) <= t.radius : want;
     if (want) {
       if (g.fireResponse?.step !== 'atDuct') g.fireResponse = { step: 'atDuct', remaining: 0 };
-      if (!g.spraying) g.setSpraying(true);
+      if (g.spraying !== onTarget) g.setSpraying(onTarget);
     } else {
+      if (this.sprayHeld && g.fire && g.sprayLetGo()) { this.flareUntil = this.time + WORLD.sprayFlareSeconds; logEvent(this.w, 'Let go too soon: it flared back up'); }
       if (g.fireResponse?.step === 'atDuct') g.fireResponse = null;
       if (g.spraying) g.setSpraying(false);
+    }
+    this.sprayHeld = want && !!g.fire;
+    // the aim mark, and a ring round the glow filling as it goes out
+    this.aimEl.style.display = thumbDown ? 'block' : 'none';
+    this.aimEl.classList.toggle('on', onTarget);
+    if (thumbDown) { this.aimEl.style.left = `${aim.x}px`; this.aimEl.style.top = `${aim.y}px`; }
+    const f = g.fire;
+    this.sprayRing.style.display = can && f ? 'block' : 'none';
+    if (can && f) {
+      this.sprayRing.style.left = `${t.x}px`; this.sprayRing.style.top = `${t.y}px`;
+      this.sprayRing.style.width = this.sprayRing.style.height = `${t.radius * 2}px`;
+      this.sprayRing.style.setProperty('--p', String(Math.min(1, f.sprayed / CONFIG.fire.sprayMinutes[f.stage])));
     }
   }
 
@@ -662,8 +723,8 @@ export class World3D {
         const actions = actionsFor(id, g, w);
         const wanted = want ? actions.find(a => a.key === want && a.run) : undefined;
         const runnable = actions.filter(a => a.run && a.auto !== false);
-        if (wanted) this.doAction(wanted);
-        else if (runnable.length === 1) this.doAction(runnable[0]);
+        if (wanted) this.doAction(wanted, id);
+        else if (runnable.length === 1) this.doAction(runnable[0], id);
       }
     }
     const sp = Math.hypot(this.vel.x, this.vel.z);
@@ -766,12 +827,26 @@ export class World3D {
 
   // ---------- actions and labels ----------
 
-  /** Do an action and always answer it: a hop, and a line in the notepad's recent events. */
-  private doAction(a: Action) {
+  /**
+   * Do an action and always answer it: a hop, and a line in the notepad's recent events. A hands-on one opens its
+   * gesture first and happens when that's done (a beer can spoil it: then it's done again). `at`: what it's on.
+   */
+  private doAction(a: Action, at?: string) {
+    if (this.paused || this.g.phase !== 'day' || !a.run) return;
+    if (a.twoHands && this.g.heldCan) this.putCanDown();
+    if (a.gesture) {
+      this.gestureAt = at ?? null;
+      this.gesture.open(a.gesture, choice => { this.gestureAt = null; this.hints.mark('gesture'); this.runAction(a, choice); }, () => this.g.gestureFumbled(a.label.toLowerCase()),
+        () => { this.gestureAt = null; });
+      return;
+    }
+    this.runAction(a);
+  }
+
+  private runAction(a: Action, choice?: number) {
     if (this.paused || this.g.phase !== 'day' || !a.run) return;
     const before = todoItems(this.g, this.w);
-    if (a.twoHands && this.g.heldCan) this.putCanDown();
-    const said = a.run() || a.done || a.label;
+    const said = a.run(choice) || a.done || a.label;
     this.player.hop();
     this.hints.mark('interact');
     this.actionLog.push({ label: a.label, said, t: this.time });
@@ -790,7 +865,7 @@ export class World3D {
     for (const o of OBJECTS) {
       if (!this.inRange(o.id)) continue;
       const a = actionsFor(o.id, this.g, this.w).find(x => x.run);
-      if (a) { this.doAction(a); return; }
+      if (a) { this.doAction(a, o.id); return; }
     }
   }
 
@@ -823,9 +898,15 @@ export class World3D {
     if (live && this.inspector.visible && Math.hypot(this.inspector.x - this.pos.x, this.inspector.z - this.pos.z) <= WORLD.visitorTalkRange) {
       entries.push({ id: 'inspector', anchor: new THREE.Vector3(this.inspector.x, 1.75, this.inspector.z), acts: inspectorActions(g), status: inspectorStatus(g) });
     }
+    // the customer's ute, when you've carried the stack out to it
+    const ute = this.built.vehicles.ute;
+    if (live && ute.visible && w.carrying === 'stack' && Math.hypot(ute.position.x - this.pos.x, ute.position.z - this.pos.z) <= WORLD.uteReach) {
+      entries.push({ id: 'ute', anchor: new THREE.Vector3(ute.position.x, 1.9, ute.position.z), acts: uteActions(g, w), status: null });
+    }
     const shown = entries.filter(e => e.acts.length || e.status);
     const sig = JSON.stringify(shown.map(e => [e.id, e.acts.map(a => [a.label, !!a.highlight]), e.status, g.spraying]));
-    if (sig !== this.labelSig && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
+    // (never under a thumb that's holding the trigger: the button it pressed has to stay put)
+    if (sig !== this.labelSig && !this.labelHold && !(this.labelPressed && this.time - this.labelPressedAt < 2)) {
       this.labelSig = sig;
       for (const l of this.labelEls) l.el.remove();
       this.labelEls = [];
@@ -842,7 +923,7 @@ export class World3D {
             e.preventDefault(); e.stopPropagation();
             this.labelPressed = true; this.labelPressedAt = this.time;
             if (a.hold) { this.labelHold = true; return; }
-            this.doAction(a);
+            this.doAction(a, id);
             // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
             b.classList.add('tick');
             b.textContent = `✓ ${a.label}`;
@@ -942,7 +1023,7 @@ export class World3D {
       const n = g.stock[CONFIG.jobs.types[col].id];
       stack.children.forEach((s, i) => { s.visible = i < n; });
     });
-    o('finishedPallet').parts.stack.children.forEach((s, i) => { s.visible = i < w.finishedStack; });
+    o('finishedPallet').parts.stack.children.forEach((s, i) => { s.visible = i < w.finishedStack && w.carrying !== 'stack'; }); // in your arms on the way to the ute
     const binFill = o('offcutBin').parts.fill;
     binFill.scale.y = Math.max(0.001, w.offcutBin);
     // extinguishers on their hooks
@@ -1016,7 +1097,8 @@ export class World3D {
     const smoke: 0 | 1 | 2 = fire ? 1 : g.machineDown ? 2 : 0;
     const flames: 0 | 1 | 2 = fire ? (fire.stage === 'duct' ? 2 : fire.lesson || fire.minutes >= CONFIG.fire.smokeOnlyMinutes ? 1 : 0) : 0;
     const nozzle = g.spraying ? new THREE.Vector3(this.pos.x + w.fx * 0.3, 0.7, this.pos.z + w.fy * 0.3) : null;
-    this.effects.update(dt, smoke, flames, nozzle);
+    // a fire let go too soon jumps up for a moment
+    this.effects.update(dt, smoke, flames === 1 && this.time < this.flareUntil ? 2 : flames, nozzle);
     this.lighting?.update(dt, (o('rollerDoor').parts.door.userData.open as number | undefined) ?? 0, flames, this.camera, this.pos);
     if (this.particles) {
       // sparks when a bit-related fault starts (the bit's chipping or let go), a puff when a cut starts
@@ -1263,6 +1345,9 @@ export class World3D {
       const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
       if (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank')) problems.push({ key: 'phone', icon: '📞', pos: at('phone'), ring: true });
       if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
+      // a fault points where it needs you next: the extractor, the bit rack, the skip — not just the machine
+      const ft = faultTarget(g, w);
+      if (ft) problems.push({ key: 'fault', icon: '🔧', pos: at(ft) });
       if (g.truckOnApron || g.distractions.some(d => d.kind === 'courier')) problems.push({ key: 'truck', icon: '🚚', pos: this.built.vehicles.truck.position.clone().setY(1.5) });
       else if (w.utePresent) problems.push({ key: 'ute', icon: '🛻', pos: this.built.vehicles.ute.position.clone().setY(1.2) });
       if (g.distractions.some(d => d.kind === 'friend' && d.ask)) problems.push({ key: 'mate', icon: '🙋', pos: this.built.mate.position.clone().setY(1) });

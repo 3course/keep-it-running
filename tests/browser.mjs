@@ -89,7 +89,7 @@ async function labelTarget(game, text) {
 }
 
 /** Tap a label with a finger. Fails if it isn't showing, is off-screen, or something's on top of it. */
-export async function tapLabel(game, text) {
+export async function tapLabel(game, text, opts = {}) {
   await waitForLabel(game, text);
   const t = await labelTarget(game, text);
   assert.ok(t, `label "${text}" vanished`);
@@ -97,21 +97,94 @@ export async function tapLabel(game, text) {
   assert.ok(t.hit, `label "${text}" is covered by ${t.covering}`);
   const before = await game.eval((g, w, scene) => scene.actionLog.length);
   await game.page.touchscreen.tap(t.x, t.y);
-  const entry = await game.page.waitForFunction(n => window.kirScene.actionLog[n] ?? null, before, { timeout: 2_000 })
+  // a hands-on job opens its gesture card: do it with a thumb (`opts.choice`: which option to pick)
+  const opened = await game.page.waitForFunction(n => window.kirScene.actionLog[n] ? 'ran' : window.kirScene.gesture.active ? 'gesture' : null, before, { timeout: 2_000 })
     .then(h => h.jsonValue()).catch(() => assert.fail(`tapping "${text}" did nothing`));
+  if (opened === 'gesture') await doGesture(game, opts);
+  const entry = await game.page.waitForFunction(n => window.kirScene.actionLog[n] ?? null, before, { timeout: 8_000 })
+    .then(h => h.jsonValue()).catch(() => assert.fail(`"${text}" never happened`));
   assert.equal(entry.label, text, 'the tap ran the label it landed on');
   return entry; // { label, said }
 }
 
-/** Put a finger down on a hold label (spraying) and keep it there; returns a function that lifts it. */
-export async function holdLabel(game, text) {
+/** The open gesture card's kind and the screen centres of its parts. */
+export const gestureNow = game => game.page.evaluate(() => {
+  const card = document.querySelector('#kir-hud .gesture');
+  if (!card) return null;
+  const c = el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, done: el.classList.contains('done') }; };
+  return {
+    kind: card.dataset.kind, parts: [...card.querySelectorAll('[data-g]')].map(c),
+    goal: card.querySelector('.goal') && c(card.querySelector('.goal')),
+  };
+});
+
+/**
+ * Do the open gesture with one thumb (real touch events): hold the ring, tap each target, drag the handle to the goal,
+ * scribble across the docket, or pick option `choice`. Waits for the card to close, unless `fumble` (then it stays).
+ */
+export async function doGesture(game, { choice = 0, early = false } = {}) {
+  const gst = await gestureNow(game);
+  assert.ok(gst, 'a gesture card is open');
+  const cdp = await game.context.newCDPSession(game.page);
+  const touch = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y, id: 1 }] });
+  const stroke = async pts => {
+    await touch('touchStart', pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) { await touch('touchMove', p.x, p.y); await game.page.waitForTimeout(16); }
+    await touch('touchEnd');
+  };
+  const p = gst.parts;
+  if (gst.kind === 'hold') {
+    const secs = await game.page.evaluate(() => window.kirScene.gesture.active.seconds);
+    await touch('touchStart', p[0].x, p[0].y);
+    await game.page.waitForTimeout((early ? secs * 400 : secs * 1000 + 400));
+    await touch('touchEnd');
+  } else if (gst.kind === 'taps') {
+    for (const t of p.filter(x => !x.done)) await game.page.touchscreen.tap(t.x, t.y);
+  } else if (gst.kind === 'drag') {
+    const a = p[0], b = gst.goal, n = 12, k = early ? 0.5 : 1.05;
+    await stroke(Array.from({ length: n + 1 }, (_, i) => ({ x: a.x + (b.x - a.x) * k * i / n, y: a.y + (b.y - a.y) * k * i / n })));
+  } else if (gst.kind === 'sign') {
+    const d = p[0], pts = [];
+    // three passes back and forth along the line, wobbling like handwriting
+    for (let j = 0; j < 3; j++) for (let i = 0; i <= 10; i++) {
+      const u = j % 2 ? 1 - i / 10 : i / 10;
+      pts.push({ x: d.x - d.w * 0.4 + d.w * 0.8 * u, y: d.y + Math.sin(i * 1.7 + j) * d.h * 0.15 });
+    }
+    await stroke(pts);
+  } else if (gst.kind === 'pick') {
+    await game.page.touchscreen.tap(p[choice].x, p[choice].y);
+  }
+  await cdp.detach();
+}
+
+/**
+ * Put a finger down on a hold label (spraying) and keep it there; returns a function that lifts it. `aim`: then drag
+ * the thumb so the aim mark above it sits on the fire's glow (spraying only counts on target).
+ */
+export async function holdLabel(game, text, { aim = false } = {}) {
   await waitForLabel(game, text);
   const t = await labelTarget(game, text);
   assert.ok(t?.onScreen && t.hit, `label "${text}" can't be pressed (${JSON.stringify(t)})`);
   const cdp = await game.context.newCDPSession(game.page);
-  const point = [{ x: t.x, y: t.y, id: 1 }];
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: point });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: t.x, y: t.y, id: 1 }] });
+  if (aim) {
+    const g = await game.page.evaluate(() => window.kirScene.sprayTarget());
+    const to = { x: g.x, y: g.y + g.above };
+    for (let i = 1; i <= 8; i++) {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: t.x + (to.x - t.x) * i / 8, y: t.y + (to.y - t.y) * i / 8, id: 1 }] });
+      await game.page.waitForTimeout(16);
+    }
+  }
   return async () => { await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await cdp.detach(); };
+}
+
+/** Answer the order card that's up: tap ✓ ('take') or ✕ ('decline'). Returns the action log entry. */
+export async function answerCard(game, act) {
+  await game.page.waitForSelector('#kir-hud .ordercard', { timeout: 3_000 });
+  const before = await game.eval((g, w, scene) => scene.actionLog.length);
+  const r = await game.page.evaluate(a => { const b = document.querySelector(`#kir-hud .ordercard [data-act=${a}]`).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, act);
+  await game.page.touchscreen.tap(r.x, r.y);
+  return game.page.waitForFunction(n => window.kirScene.actionLog[n] ?? null, before, { timeout: 2_000 }).then(h => h.jsonValue());
 }
 
 /**

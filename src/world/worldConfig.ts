@@ -44,5 +44,10 @@ export const WORLD = {
   rollerOpenMinutes: 4,                // game minutes the roller door stays up after a pickup or delivery
   offcutsPerSheet: 0.25,               // offcut bin fill per sheet cut (1 = full)
   offcutsEmptyAt: 0.5,                 // bin can be bagged up from this level
+  // spraying the extinguisher: the aim mark sits this far above your thumb, and has to be within this of the glow
+  sprayAimAbove: 70,                   // CSS px (scaled with the HUD)
+  sprayAimRadius: 38,                  // CSS px (scaled with the HUD)
+  sprayFlareSeconds: 1.2,              // the flames jump up this long when you let go too soon
+  uteReach: 3.2,                       // m from the ute's middle: close enough to hand the stack over
   saveKey: 'kir-save-v2',
 } as const;

@@ -1,6 +1,7 @@
 // The notepad: what needs doing now, what can wait, and today's sheets.
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
+import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
@@ -65,7 +66,8 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     add(true, 'fire', 'Put out the exhaust fire', w.carrying === 'extinguisher' || !ext.length ? 'exhaust' : ext);
   }
   if (g.machineDown) add(true, 'down', 'Machine is cooked for today', 'machine');
-  if (g.fault) add(true, `fault-${g.fault.def.id}`, `Sort out the ${g.fault.def.name.toLowerCase()}`, 'machine');
+  // the fault: wherever its next part happens (the extractor, the bit rack, the skip…), not just the machine
+  if (g.fault) add(true, `fault-${g.fault.def.id}`, `Sort out the ${g.fault.def.name.toLowerCase()}`, faultTarget(g, w) ?? 'machine');
   for (const d of g.distractions) {
     if (d.kind === 'courier') add(true, `courier-${d.id}`, 'Sign for the delivery', 'rollerDoor');
     else if (d.kind === 'friend' && d.ask) add(true, `mate-${d.id}`, `${g.mateName(d)} wants a word`); // they come to you
@@ -78,9 +80,11 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     case 'sheet': add(true, 'carry-sheet', 'Load the sheet', 'machine'); break;
     case 'cut': add(true, 'carry-cut', 'Stack the cut sheet', 'finishedPallet'); break;
     case 'scrap': add(true, 'carry-scrap', 'Bin the scrap', 'offcutBin'); break;
-    case 'bag': add(true, 'carry-bag', 'Old bag to the skip', 'skip'); break;
+    case 'bag': if (!g.fault) add(true, 'carry-bag', 'Old bag to the skip', 'skip'); break; // mid-fix, the fault's line leads there
     case 'offcuts': add(true, 'carry-offcuts', 'Offcuts to the skip', 'skip'); break;
     case 'debris': add(true, 'carry-debris', 'Slats to the skip', 'skip'); break;
+    case 'bit': if (fixStep(g.fault)?.needs !== 'bit') add(false, 'carry-bit', 'Put the bit back on the rack', 'bitRack'); break;
+    case 'newBag': if (fixStep(g.fault)?.needs !== 'newBag') add(false, 'carry-newbag', 'Put the new bag back', 'bags'); break;
     case 'extinguisher': if (!g.fire) {
       const empty: ObjectId[] = HOOKS.filter(h => hookThere(g, h.hook) && !onHook(g, w, h.hook)).map(h => h.id);
       add(false, 'carry-ext', 'Hang the extinguisher back up', empty);
@@ -93,7 +97,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (g.wear.spoilboard < low) add(false, 'spoilboard', 'New spoilboard', 'machine');
   if (w.oldBagWaiting) add(false, 'oldbag', 'Old bag out of the extractor', 'extractor');
   if (w.offcutBin >= offcutsBagAt(g)) add(false, 'offcuts', 'Empty the offcut bin', 'offcutBin');
-  if (w.utePresent) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'rollerDoor');
+  // a pickup: the stack off the finished pallet, out through the roller door to the ute
+  if (w.utePresent && w.carrying === 'stack') add(true, 'pickup', `Take the stack out to the ute (${w.finishedStack})`, 'rollerDoor');
+  else if (w.utePresent && w.finishedStack > 0) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'finishedPallet');
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
   if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.nextUp() && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
   // work on the board with no ply for it, and nothing for it on order

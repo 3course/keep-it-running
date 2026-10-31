@@ -34,7 +34,12 @@ export interface Job {
   paidLate: boolean;
   chipRisk: number;
   type: JobTypeId;
+  /** Cut with the wrong bit for its board (the view's bit rack): it comes off the machine a reject. */
+  rough?: boolean;
 }
+
+/** An order call's sheets before you say yes (Game.previewOrder). */
+export interface OrderPreview { jobs: Job[]; kind: 'today' | 'tomorrow' | 'rush'; label: string }
 
 export interface FaultStep {
   label: string;
@@ -97,6 +102,7 @@ export interface Distraction {
   orderType?: JobTypeId;  // phone: what kind of job the order is
   customer?: string;      // phone: who's calling with the order
   big?: boolean;          // phone: the big-job call (a rare event)
+  preview?: OrderPreview; // phone: the sheets on offer, once you've picked up (Game.previewOrder)
   // friend: a mate visiting (CONFIG.visitors)
   mate?: string;          // which mate (src/data/mates.ts)
   ask?: VisitorAsk | null; // what they've come up to you to say; null while they wander

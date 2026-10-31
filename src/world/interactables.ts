@@ -6,15 +6,22 @@
 // says what happened — `done` is the line it leaves in the notepad's recent events.
 import { CONFIG, type ConsumableKey } from '../config.js';
 import type { Game } from '../sim/Game.js';
-import type { Distraction } from '../sim/types.js';
+import type { Distraction, OrderPreview } from '../sim/types.js';
+import type { GestureSpec } from '../ui/gesture.js';
+import { faultAt, fixActions, fixStep, putBackActions } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { absMinute, HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
 import { WORLD } from './worldConfig.js';
 
 export interface Action {
   label: string;
-  /** Tap to do it. Return a line to say what happened instead of `done` (e.g. it couldn't be done after all). */
-  run?: () => string | void;
+  /**
+   * Tap to do it. Return a line to say what happened instead of `done` (e.g. it couldn't be done after all).
+   * `choice`: which option a pick gesture landed on.
+   */
+  run?: (choice?: number) => string | void;
+  /** Hands-on: tapping the label opens this one-thumb gesture, and `run` happens when it's done. */
+  gesture?: GestureSpec;
   hold?: boolean;     // hold to do it (spraying)
   /** false: never done automatically on arrival — it costs money or is a choice. Tap the label. */
   auto?: boolean;
@@ -37,11 +44,18 @@ function canBin(g: Game): Action[] {
 
 const money = (n: number) => `$${Math.round(n)}`;
 
-/** UI the actions can open (set by the 3D view). */
-export const uiHooks = { orderPly: () => {} };
+/** UI the actions can open (set by the 3D view): the ply order form, and the yes/no card for an order call. */
+export const uiHooks = {
+  orderPly: () => {},
+  orderCard: (_d: Distraction, _offer: OrderPreview, _take: Action, _decline: Action) => {},
+};
 
-function faultActions(g: Game): Action[] {
+/** The fault, where it is: work out what it is and pick a fix there; then each step where that step happens. */
+function faultActions(id: ObjectId, g: Game, w: WorldState): Action[] {
   const f = g.fault!;
+  if (!g.canAct) return [];
+  if (f.phase === 'step') return fixActions(id, g, w);
+  if (id !== faultAt(f)) return [];
   switch (f.phase) {
     case 'diagnose':
       return f.def.diagnoses.filter(d => !f.triedDiagnoses.includes(d.id)).map(d => ({ label: d.label, done: `Checked: ${d.label.toLowerCase()}`, run: () => { g.diagnose(d.id); } }));
@@ -50,10 +64,6 @@ function faultActions(g: Game): Action[] {
         const mins = p.steps.reduce((s, x) => s + x.minutes, 0), cost = p.steps.reduce((s, x) => s + x.cost, 0);
         return { label: `${p.label} (~${mins}m${cost ? ', ' + money(cost) : ''})`, done: `Plan: ${p.label.toLowerCase()}`, run: () => { g.choosePath(p.id); } };
       });
-    case 'step': {
-      const step = f.path!.steps[f.stepIndex];
-      return [{ label: `Do: ${step.label}`, done: `Started: ${step.label.toLowerCase()}`, run: () => { g.doStep(); } }];
-    }
     default:
       return [];
   }
@@ -68,10 +78,14 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
   if (g.phase !== 'day') return [];
   const empty = w.carrying === null;
   const c = CONFIG.consumables;
+  // a fault being fixed takes over wherever its next part happens (and what you fetched for it goes back if it's gone)
+  if (g.fault && id !== 'machine') { const fx = faultActions(id, g, w); if (fx.length) return fx; }
+  const back = putBackActions(id, g, w);
+  if (back.length) return back;
   switch (id) {
     case 'machine': {
       if (g.machineDown) return [];
-      if (g.fault) return g.canAct ? faultActions(g) : [];
+      if (g.fault) return faultActions('machine', g, w);
       const a: Action[] = [];
       if (w.bed === 'empty' && w.carrying === 'sheet') a.push({ label: 'Load sheet', done: 'Sheet on the bed', run: () => { w.bed = 'placed'; w.carrying = null; } });
       if (w.bed === 'placed') a.push({ label: 'Clamp', done: 'Sheet clamped', run: () => { w.bed = 'clamped'; } });
@@ -101,7 +115,11 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return [{ label: 'Grab a sheet', done: 'None left — order ply', run: () => { w.shrugs = (w.shrugs ?? 0) + 1; } }];
     }
     case 'finishedPallet':
-      return w.carrying === 'cut' ? [{ label: 'Stack it', done: 'Cut sheet stacked for pickup', run: () => { w.carrying = null; w.finishedStack += 1; w.utePresent = true; } }] : [];
+      if (w.carrying === 'cut') return [{ label: 'Stack it', done: 'Cut sheet stacked for pickup', run: () => { w.carrying = null; w.finishedStack += 1; w.utePresent = true; } }];
+      if (w.carrying === 'stack') return [{ label: 'Put the stack back', done: 'Stack back on the pallet', run: () => { w.carrying = null; } }];
+      // the customer's ute is out the front: carry the stack out to it
+      if (empty && w.utePresent && w.finishedStack > 0) return [{ label: `Pick up the stack (${w.finishedStack})`, twoHands: true, key: 'pickup', done: 'Got the stack', run: () => { w.carrying = 'stack'; } }];
+      return [];
     case 'offcutBin': {
       const a: Action[] = [];
       if (w.carrying === 'scrap') a.push({ label: 'Bin the scrap', done: 'Scrap binned', run: () => { w.carrying = null; w.offcutBin = Math.min(1, w.offcutBin + 2 * WORLD.offcutsPerSheet); } });
@@ -154,15 +172,16 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       const doorUp = w.rollerUpUntil !== null;
       if (truck?.stage === 'waiting' && g.canAct) {
         if (!doorUp) a.push({ label: 'Open the roller door', key: 'ply-sign', done: 'Roller door up', run: () => { w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
-        else a.push({ label: 'Sign for the ply', key: 'ply-sign', done: 'Signed for the ply', run: () => { if (!g.signDelivery(truck.id, true)) return "Couldn't sign"; } });
+        else a.push({ label: 'Sign for the ply', key: 'ply-sign', gesture: { kind: 'sign', icon: '🧾' }, done: 'Signed for the ply', run: () => { if (!g.signDelivery(truck.id, true)) return "Couldn't sign"; } });
       }
       if (truck?.stage === 'unloading' && empty) {
         a.push({ label: `Grab a bundle (${truck.bundles.length} left)`, twoHands: true, key: 'ply-unload', done: 'Grabbed a bundle of ply', run: () => { w.carrying = 'bundle'; } });
       }
       const courier = g.distractions.find(d => d.kind === 'courier');
-      if (courier && g.canAct) a.push({ label: 'Sign for delivery', done: 'Signed for the delivery', run: () => { if (g.respond(courier.id, 'sign')) w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
-      if (w.utePresent && w.finishedStack > 0 && !truck) a.push({ label: `Open for pickup (${w.finishedStack})`, done: `${w.finishedStack} sheet${w.finishedStack > 1 ? 's' : ''} picked up`, run: () => {
-        w.finishedStack = 0; w.utePresent = false; w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes;
+      if (courier && g.canAct) a.push({ label: 'Sign for delivery', gesture: { kind: 'sign', icon: '🧾' }, done: 'Signed for the delivery', run: () => { if (g.respond(courier.id, 'sign')) w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes; } });
+      // a pickup: the door goes up so the stack can go out to the ute
+      if (w.utePresent && w.finishedStack > 0 && !truck && !doorUp) a.push({ label: 'Open the roller door', key: 'pickup', done: 'Roller door up', run: () => {
+        w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes;
       } });
       return a;
     }
@@ -170,14 +189,18 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       if (!g.canAct) return [];
       const a: Action[] = [];
       for (const d of g.distractions) {
-        if (d.kind === 'phone' && d.order && d.big) {
-          // the big job (a rare event): a lot of good work, if there's room for it
-          const days = CONFIG.rareEvent.events.find(e => e.id === 'bigJob')!.dueDays;
-          a.push({ label: `Take the big job (${d.order} sheets, ${days} days)`, key: `phone-${d.id}`, done: `Took the big job: ${d.order} sheets`, run: () => { g.respond(d.id, 'answer'); } });
-          a.push({ label: 'Turn it down', auto: false, highlight: g.overCommitted, done: `Turned down the big job`, run: () => { g.respond(d.id, 'decline'); } });
-        } else if (d.kind === 'phone' && d.order) {
-          a.push({ label: `Take the order (${d.order} sheets)`, key: `phone-${d.id}`, done: `Took a ${d.order}-sheet order`, run: () => { g.respond(d.id, 'answer'); } });
-          a.push({ label: 'Turn it down', auto: false, highlight: g.overCommitted, done: `Turned down ${d.order} sheets`, run: () => { g.respond(d.id, 'decline'); } });
+        if (d.kind === 'phone' && d.order) {
+          // pick up the handset: the card shows what's on offer (board, price, when it's due), then yes or no
+          const take: Action = d.big
+            ? { label: 'Take the big job', done: `Took the big job: ${d.order} sheets`, run: () => { if (!g.respond(d.id, 'answer')) return 'They rang off'; } }
+            : { label: 'Take it', done: `Took a ${d.order}-sheet order`, run: () => { if (!g.respond(d.id, 'answer')) return 'They rang off'; } };
+          const decline: Action = { label: 'Turn it down', highlight: g.overCommitted, done: d.big ? 'Turned down the big job' : `Turned down ${d.order} sheets`,
+            run: () => { if (!g.respond(d.id, 'decline')) return 'They rang off'; } };
+          a.push({ label: 'Pick up', key: `phone-${d.id}`, done: 'Picked up', run: () => {
+            const offer = g.previewOrder(d.id);
+            if (!offer) return 'They rang off';
+            uiHooks.orderCard(d, offer, take, decline);
+          } });
         } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => { g.respond(d.id, 'answer'); } });
         else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, done: 'Talked the bank round', run: () => { g.respond(d.id, 'answer'); } });
       }
@@ -205,6 +228,13 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
 
 /** A line of close-up detail shown on an object when you're next to it (machine display, timers). */
 export function statusFor(id: ObjectId, g: Game, w: WorldState): string | null {
+  // the fault: what it looks like where it is, and how the step's going where it's being done
+  const f = g.fault;
+  if (f && id !== 'machine') {
+    const st = fixStep(f);
+    if (st && st.at === id && f.phase === 'working') return `${f.busyLabel} (${f.busyRemaining}m)`;
+    if (id === faultAt(f) && !st) return f.phase === 'wrongCall' ? `${f.def.symptom}\n${f.busyLabel} (${f.busyRemaining}m)` : f.def.symptom;
+  }
   switch (id) {
     case 'machine': {
       if (g.machineDown) return 'Dead for today.';
@@ -258,6 +288,15 @@ export function visitorActions(g: Game, d: Distraction): Action[] {
 /** What a visiting mate's up to, shown over them when you're close (what they've come to say is in their speech bubble). */
 export function visitorStatus(g: Game, d: Distraction): string | null {
   return d.engaged ? `${g.mateName(d)}: yarning, ${d.chat}m to go` : null;
+}
+
+/** The customer's ute out the front, when you're beside it with the stack: hand it over. */
+export function uteActions(g: Game, w: WorldState): Action[] {
+  if (g.phase !== 'day' || w.carrying !== 'stack' || !w.utePresent) return [];
+  const n = w.finishedStack;
+  return [{ label: `Hand it over (${n})`, gesture: { kind: 'taps', icon: '🤝', n: 1 }, done: `${n} sheet${n > 1 ? 's' : ''} picked up`, run: () => {
+    w.finishedStack = 0; w.utePresent = false; w.carrying = null;
+  } }];
 }
 
 /** The council inspector (a rare event), when you're next to them: they're waiting to be shown round. */

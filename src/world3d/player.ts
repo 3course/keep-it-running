@@ -8,6 +8,7 @@ import { boxAt, toon } from './build.js';
 
 const CARRY_COLOUR: Record<Carry, number> = {
   sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460, bundle: 0xc9a46a, debris: 0x7f858b, // debris: busted roller-door slats
+  bit: 0xc8c8c8, newBag: 0xf4efe0, stack: 0xe9d6ac,
 };
 
 export class PlayerView {
@@ -91,7 +92,9 @@ export class PlayerView {
     (this.carryMesh.material as THREE.MeshToonMaterial).color.setHex(CARRY_COLOUR[c]);
     if (c === 'extinguisher') { this.carryMesh.scale.set(0.45, 5, 0.6); this.carryMesh.position.set(0.22, 0.45, -0.12); }
     else if (c === 'bundle') { this.carryMesh.scale.set(2.4, 4, 2.6); this.carryMesh.position.set(0, 1.27, 0); } // a strapped bundle overhead
-    else if (c === 'bag' || c === 'offcuts') { this.carryMesh.scale.set(1, 5, 1.2); this.carryMesh.position.set(0, 0.5, -0.3); }
+    else if (c === 'bit') { this.carryMesh.scale.set(0.15, 2.5, 0.2); this.carryMesh.position.set(0.24, 0.6, -0.16); } // in one hand
+    else if (c === 'stack') { this.carryMesh.scale.set(2.4, 3, 2.6); this.carryMesh.position.set(0, 1.22, 0); }
+    else if (c === 'bag' || c === 'offcuts' || c === 'newBag') { this.carryMesh.scale.set(1, 5, 1.2); this.carryMesh.position.set(0, 0.5, -0.3); }
     else { this.carryMesh.scale.set(2.4, 1, 2.6); this.carryMesh.position.set(0, 1.18, 0); } // sheets go overhead
   }
 

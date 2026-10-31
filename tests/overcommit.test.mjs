@@ -11,7 +11,7 @@ after(() => server.close());
 const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { CONFIG } = await server.ssrLoadModule('/src/config.ts');
 const { todoItems } = await server.ssrLoadModule('/src/world/todo.ts');
-const { actionsFor } = await server.ssrLoadModule('/src/world/interactables.ts');
+const { actionsFor, uiHooks } = await server.ssrLoadModule('/src/world/interactables.ts');
 const { newWorld } = await server.ssrLoadModule('/src/world/state.ts');
 const PER = CONFIG.jobs.warnMinutesPerSheet, CLOSE = CONFIG.clock.endHour * 60;
 
@@ -71,7 +71,11 @@ describe("board's full", () => {
       g.distractions = [{ id: 1, kind: 'phone', title: '', line: '', remaining: 30, engaged: false, order: 2, orderType: 'formwork', customer: 'Mick' }];
       g.callbacks = [{ id: 2, customer: 'Kerry', sheets: 3, orderType: 'joinery', expiresMinute: g.minute + 60 }];
       const acts = actionsFor('phone', g, newWorld(g));
-      const decline = acts.find(a => a.label === 'Turn it down'), ringBack = acts.find(a => a.label === 'Ring Kerry, turn it down');
+      // the order call's yes/no is on the card you get picking up
+      let card = null;
+      uiHooks.orderCard = (d, offer, take, decline) => { card = { take, decline }; };
+      acts.find(a => a.label === 'Pick up').run();
+      const decline = card.decline, ringBack = acts.find(a => a.label === 'Ring Kerry, turn it down');
       assert.equal(!!decline.highlight, hot, `order call, ${today} due`);
       assert.equal(!!ringBack.highlight, hot, `voicemail, ${today} due`);
       for (const a of acts.filter(x => x !== decline && x !== ringBack)) assert.ok(!a.highlight, `${a.label} is never highlighted`);

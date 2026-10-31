@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, describe, it } from 'node:test';
-import { advance, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, answerCard, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -95,12 +95,14 @@ const CASES = {
     await startFire(game);
     await game.eval((g, w) => { w.carrying = 'extinguisher'; w.hooks.wall = false; w.extinguisherFrom = 'wall'; });
     await walkTo(game, 'exhaust');
-    const lift = await holdLabel(game, 'Hold to spray');
+    // the thumb on the label, then dragged so the aim mark sits on the glow
+    const lift = await holdLabel(game, 'Hold to spray', { aim: true });
     try {
-      await game.page.waitForFunction(() => window.kir.spraying, null, { timeout: 2_000 }).catch(() => assert.fail('holding the label should spray'));
+      await game.page.waitForFunction(() => window.kir.spraying, null, { timeout: 2_000 }).catch(() => assert.fail('holding the label, aimed at the glow, should spray'));
       assert.equal((await game.eval(g => g.fireResponse))?.step, 'atDuct', 'at the duct, spraying');
     } finally { await lift(); }
     await game.page.waitForFunction(() => !window.kir.spraying, null, { timeout: 2_000 }).catch(() => assert.fail('lifting the finger should stop spraying'));
+    assert.equal(await game.eval(g => g.fire.sprayed), 0, 'let go before it was out: it flared back up');
     await waitForLabel(game, 'Hold to spray');
   },
 
@@ -340,11 +342,17 @@ describe("the board's full", () => {
       assert.deepEqual(await setBoard(game, 6, 6), [6, 6, false]);
       await game.eval(g => { g.spawnOrderCall(2); });
       await walkTo(game, 'phone');
-      await waitForLabel(game, 'Turn it down');
-      assert.deepEqual(await hot(game), [], 'room for it: nothing highlighted');
+      // pick up: the card's ✕ glows only when there's no room for the work
+      const noHot = () => game.page.evaluate(() => document.querySelector('#kir-hud .ordercard .no').classList.contains('hot'));
+      await tapLabel(game, 'Pick up');
+      assert.equal(await noHot(), false, 'room for it: nothing highlighted');
+      await answerCard(game, 'decline');
+      await game.eval(g => { g.busy = null; });
       assert.equal((await setBoard(game, 7, 6))[2], true);
-      await game.page.waitForFunction(() => [...document.querySelectorAll('#kir-hud .lbl button.hot')].some(b => b.textContent === 'Turn it down'), null, { timeout: 3_000 });
-      assert.deepEqual(await hot(game), ['Turn it down'], 'only "Turn it down"');
+      await game.eval(g => { g.spawnOrderCall(2); });
+      await tapLabel(game, 'Pick up');
+      assert.equal(await noHot(), true, 'board full: "Turn it down" glows');
+      assert.deepEqual(await hot(game), [], 'and nothing else');
       assert.ok((await game.eval((g, w, s) => s.hud.pad.textContent)).includes("Board's full: 7 due today, time for about 6"), 'and the notepad says so');
     } finally { await game.close(); }
   });
@@ -392,7 +400,9 @@ describe('rare events and milestones in the shed', () => {
     try {
       await landRare(game, 'bigJob');
       await walkTo(game, 'phone');
-      assert.equal((await tapLabel(game, 'Take the big job (20 sheets, 3 days)')).said, 'Took the big job: 20 sheets');
+      await tapLabel(game, 'Pick up');
+      assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .ordercard').textContent), /BIG JOB[\s\S]*× 20/, 'the card shows the job');
+      assert.equal((await answerCard(game, 'take')).said, 'Took the big job: 20 sheets');
       assert.equal(await game.eval(g => g.jobs.filter(j => j.name.startsWith('BIG JOB')).length), 20);
     } finally { await game.close(); }
   });

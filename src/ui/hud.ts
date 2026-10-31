@@ -94,6 +94,14 @@ const CSS = `
 #kir-hud .lbl button.hot { background: #e8644a; color: #fff8ec; box-shadow: 0 0 0 3px rgba(232,100,74,.45); animation: kir-hot 1.2s ease-in-out infinite; }
 @keyframes kir-hot { 50% { box-shadow: 0 0 0 7px rgba(232,100,74,.15); } }
 #kir-hud .lbl button.held { background: #8fd37a; }
+#kir-hud .aim { position: absolute; width: ${F(30)}; height: ${F(30)}; transform: translate(-50%,-50%); border: 3px solid #fff8ec; border-radius: 50%;
+  box-shadow: 0 0 0 2px #14110f; pointer-events: none; display: none; }
+#kir-hud .aim::before, #kir-hud .aim::after { content: ''; position: absolute; background: #fff8ec; left: 50%; top: 50%; transform: translate(-50%,-50%); }
+#kir-hud .aim::before { width: 3px; height: 160%; } #kir-hud .aim::after { width: 160%; height: 3px; }
+#kir-hud .aim.on { border-color: #8fd37a; }
+#kir-hud .sprayring { position: absolute; transform: translate(-50%,-50%); border-radius: 50%; pointer-events: none; display: none;
+  background: conic-gradient(rgba(143,211,122,.85) calc(var(--p, 0) * 1turn), rgba(255,248,236,.25) 0);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%); mask: radial-gradient(circle, transparent 62%, #000 64%); }
 #kir-hud .lbl button.tick { background: #8fd37a; animation: kir-tick .35s ease-out; }
 @keyframes kir-tick { 0% { transform: scale(1); } 40% { transform: scale(1.12); } 100% { transform: scale(1); } }
 #kir-hud .lbl .status { font: ${F(16)} 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.8); padding: 5px 8px; border-radius: 6px;

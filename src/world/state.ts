@@ -1,9 +1,11 @@
+import type { JobTypeId } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import { MACHINE_SPOT, START_TILE, type ObjectId } from './layout.js';
 import { WORLD } from './worldConfig.js';
 
 /** What the player can be carrying. One thing at a time. */
-export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle' | 'debris';
+export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle' | 'debris'
+  | 'bit' | 'newBag' | 'stack'; // a bit (or collet) from the rack, a new extractor bag, the finished stack for the ute
 
 /**
  * The physical shed: the things the economy (Game) doesn't model — where you are, what's in your hands,
@@ -15,6 +17,7 @@ export interface WorldState {
   px: number; py: number;        // player position in metres on the floor (x, z)
   fx: number; fy: number;        // facing (unit vector on the floor, x and z)
   carrying: Carry | null;
+  bitFor?: JobTypeId | null; // the board the bit in your hand suits (fixing a dull bit)
   extinguisherFrom: Hook | null;   // which hook the carried extinguisher came off
   hooks: { wall: boolean; shed: boolean; exhaust?: boolean }; // extinguishers hanging up (exhaust: once bought)
   /** The bed: empty → sheet placed → clamped → Game loads and cuts → done (or scrap) → unloaded. */
