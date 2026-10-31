@@ -26,6 +26,7 @@ import { PlayerView } from './player.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
 import { perf } from './perf.js';
+import { applyTextures, type SheetLooks } from './detail.js';
 import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
 
@@ -310,6 +311,8 @@ export class World3D {
 
   /** Internal render resolution as a multiple of WORLD.renderScale: the tier's, or ?res=; stepped down if frames are slow. */
   private resMult = 1;
+  /** Sheet materials by job type, when the tier has textures. */
+  private looks: SheetLooks | null = null;
   private get renderScale() { return WORLD.renderScale * this.resMult; }
   private lastFrameAt = 0;
   private slowChecks = 0;
@@ -416,6 +419,8 @@ export class World3D {
   /** Everything in the 3D scene, built from the shed's data and the current state. Run again after a lost context. */
   private buildScene() {
     this.built = buildWorld(this.scene, this.tier.pointLights);
+    // the tier's extra detail, on top of the plain world (the low tier gets none of it)
+    this.looks = this.tier.detail.textures ? applyTextures(this.built, this.built.grid) : null;
 
     // light from the upper left, soft warm fill
     this.scene.add(new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4));
@@ -872,7 +877,11 @@ export class World3D {
     const m = o('machine'), mp = m.parts;
     const onBed = w.bed !== 'empty';
     mp.sheet.visible = onBed;
-    ((mp.sheet as THREE.Mesh).material as THREE.MeshToonMaterial).color.setHex(w.bed === 'scrap' ? 0x9a5a4a : 0xd6bc8a);
+    if (this.looks) {
+      // the sheet on the bed looks like what it is: formply, MDF or acrylic (or ruined)
+      const job = g.current ?? (g.inHand !== null ? g.jobs.find(j => j.id === g.inHand) : undefined) ?? g.nextUp();
+      (mp.sheet as THREE.Mesh).material = w.bed === 'scrap' ? this.looks.scrap : job ? this.looks.byType[job.type] : this.looks.plywood;
+    } else ((mp.sheet as THREE.Mesh).material as THREE.MeshToonMaterial).color.setHex(w.bed === 'scrap' ? 0x9a5a4a : 0xd6bc8a);
     mp.clamps.visible = w.bed === 'clamped' || w.bed === 'running' || w.bed === 'done';
     const prog = g.current && w.bed === 'running' ? g.current.progress / g.current.cutMinutes : w.bed === 'done' ? 1 : 0;
     mp.cut.visible = prog > 0.02;
