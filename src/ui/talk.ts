@@ -6,7 +6,7 @@ const CSS = `
 #kir-hud .talk { position: absolute; transform: translate(-50%, -100%); max-width: ${F(250)}; width: max-content; z-index: 6; pointer-events: none;
   background: #fbfaf4; color: #14110f; border: 3px solid #14110f; border-radius: 16px; padding: ${F(7)} ${F(11)}; font: ${F(17)}/1.25 'Courier New', monospace;
   box-shadow: 0 4px 0 rgba(20,17,15,.35); transition: opacity .2s; }
-#kir-hud .talk::after { content: ''; position: absolute; left: 50%; bottom: -12px; transform: translateX(-50%); border: 9px solid transparent; border-top-color: #14110f; }
+#kir-hud .talk::after { content: ''; position: absolute; left: var(--tail, 50%); bottom: -12px; transform: translateX(-50%); border: 9px solid transparent; border-top-color: #14110f; }
 #kir-hud .talk .nm { display: block; font-size: ${F(12)}; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #8a4f32; margin-bottom: 2px; }
 #kir-hud .talk.you { background: #fff1c9; }
 #kir-hud .talk.phone { background: #dff1ff; border-style: dashed; }
@@ -50,15 +50,19 @@ export class Talk {
     b.dataset.who = who;
     b.innerHTML = `<span class="nm">${esc(name)}</span>${esc(text)}`;
     b.style.display = 'block';
-    // the others' last words stay up, faded
-    for (const [k, o] of this.bubbles) if (k !== who) o.classList.add('dim');
+    // one voice at a time: the others' bubbles go
+    for (const [k, o] of this.bubbles) if (k !== who) o.style.display = 'none';
   }
 
   /** Follow a speaker on screen (CSS px of the top of their head). Off screen: hide. */
   place(who: string, x: number, y: number, visible = true) {
     const b = this.bubbles.get(who);
     if (!b) return;
-    b.style.left = `${Math.round(x)}px`; b.style.top = `${Math.round(y)}px`;
+    // kept on screen; the tail still points at whoever's talking
+    const vw = this.parent.clientWidth || window.innerWidth, half = b.offsetWidth / 2, pad = 8;
+    const cx = Math.max(half + pad, Math.min(vw - half - pad, x));
+    b.style.left = `${Math.round(cx)}px`; b.style.top = `${Math.round(Math.max(b.offsetHeight + pad, y))}px`;
+    b.style.setProperty('--tail', `${Math.round(Math.max(16, Math.min(b.offsetWidth - 16, half + (x - cx))))}px`);
     if (!visible) b.style.display = 'none';
   }
 

@@ -225,7 +225,7 @@ export class Night {
       case 'late': return d.late > 0;
       case 'pickup': return d.sheets > 0 && d.designs.length > 0;
       case 'busy': return d.sheets >= 6;
-      case 'quiet': return d.sheets <= 2;
+      case 'quiet': return d.sheets >= 1 && d.sheets <= 2;
       case 'scrap': return d.scrapped > 0;
       case 'jess': return d.jessIn;
       case 'fullTime': return d.fullTimeToday;

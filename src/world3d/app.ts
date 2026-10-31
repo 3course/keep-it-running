@@ -36,6 +36,12 @@ import { JobCard } from '../ui/jobCard.js';
 import { designById, designForJob, type Design } from '../designs/index.js';
 import type { MadeEntry } from '../ui/summary.js';
 import type { Job } from '../sim/types.js';
+import { KnockOff } from './knockoff.js';
+import { Sfx } from './sfx.js';
+import type { DayFacts } from '../people/night.js';
+import { people } from '../people/state.js';
+import { PEOPLE } from '../people/config.js';
+import { GIFT_PHRASE } from '../people/lines/customers.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
 import { perf } from './perf.js';
@@ -155,6 +161,10 @@ export class World3D {
   jobCard!: JobCard;
   private cutShown = { job: -1, t: 0 }; // how far through the toolpath the head's shown (it only goes forward)
   private skipEl!: HTMLDivElement;
+  /** Knock-off beers at 5 (public for tests). */
+  knockoff!: KnockOff;
+  readonly sfx = new Sfx();
+  private hemi!: THREE.HemisphereLight;
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
   constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
@@ -209,6 +219,7 @@ export class World3D {
     Object.assign(this.skipEl.style, { position: 'absolute', left: '50%', bottom: 'calc(110px + env(safe-area-inset-bottom, 0px))', transform: 'translateX(-50%)',
       padding: '4px 12px', borderRadius: '14px', background: 'rgba(20,17,15,.6)', color: '#efe6d8', font: '14px sans-serif', pointerEvents: 'none', display: 'none', zIndex: '6' });
     this.hud.labels.parentElement!.appendChild(this.skipEl);
+    this.makeKnockOff();
     this.aimEl = document.createElement('div'); this.aimEl.className = 'aim';
     this.sprayRing = document.createElement('div'); this.sprayRing.className = 'sprayring';
     this.hud.labels.append(this.aimEl, this.sprayRing);
@@ -265,6 +276,8 @@ export class World3D {
   private bindInput(canvas: HTMLCanvasElement) {
     canvas.addEventListener('pointerdown', e => {
       this.ring.unlock(); // audio may only start after a gesture
+      this.sfx.unlock();
+      if (this.knockoff.inScene) return; // the bubbles take the taps
       if (this.reveal.active) { this.reveal.skip(); this.skipEl.style.display = 'none'; e.preventDefault(); return; } // a tap skips the reveal, and only that
       if (this.paused || this.g.phase !== 'day') return;
       canvas.setPointerCapture(e.pointerId);
@@ -445,8 +458,8 @@ export class World3D {
       this.pos = { x: w.px, z: w.py }; this.vel = { x: 0, z: 0 }; this.stopWalking();
       this.save();
     }
-    if (g.phase === 'endOfDayPrompt') { if (!this.hud.endOfDayShowing) this.hud.showEndOfDay(g); }
-    else if (this.hud.endOfDayShowing) this.hud.hideEndOfDay();
+    // 5pm: no overtime any more — a mate at the roller door, and a choice: a beer, or home
+    if (g.phase === 'endOfDayPrompt') this.knockoff.atFive();
 
     this.updateSpray();
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
@@ -468,6 +481,10 @@ export class World3D {
     this.updateTrail(dt);
     this.updateViewOffset();
     this.updateCamera(dt);
+    // the knock-off shot takes the camera; then the bubbles are placed by where it really is
+    this.knockoff.applyCamera(this.camera, this.camLook, dt);
+    this.camera.updateMatrixWorld();
+    this.knockoff.update(dt, this.paused);
     if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
@@ -508,7 +525,7 @@ export class World3D {
     this.sawdust = this.tier.detail.decals ? new Sawdust(this.scene) : null;
 
     // light from the upper left, soft warm fill
-    const hemi = new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4);
+    const hemi = this.hemi = new THREE.HemisphereLight(0xfff1dc, 0x7a6a52, 1.4);
     this.scene.add(hemi);
     this.sun = new THREE.DirectionalLight(0xfff0d8, 2.6);
     this.sun.castShadow = this.tier.shadows;
@@ -572,6 +589,7 @@ export class World3D {
     try {
       this.scene = new THREE.Scene();
       this.buildScene();
+      this.knockoff.talk.clear(); this.makeKnockOff();
     } catch (e) { this.contextLost = false; this.fail(e); return; }
     this.contextLost = false;
     this.last = 0;
@@ -628,6 +646,41 @@ export class World3D {
     this.reveal.start(d, sheet, sp.height / 2, bedScale(d, sp.width, sp.depth), this.camera);
     this.skipEl.style.display = 'block';
   }
+
+  private makeKnockOff() {
+    this.knockoff = new KnockOff({
+      scene: this.scene, g: this.g, w: this.w, pointLights: this.tier.pointLights, talkParent: this.hud.labels.parentElement!,
+      project: v => this.project(v), setHud: v => this.hud.setHudVisible(v), hidePlayer: () => {},
+      lights: { hemi: this.hemi, sun: this.sun, lighting: this.lighting }, sfx: this.sfx,
+      facts: () => this.dayFacts(),
+      cut: (design, by, beers, done) => this.afterHoursCut(design, by, beers, done),
+      knockOff: () => { this.g.knockOff(); },
+      save: () => this.save(),
+    });
+  }
+
+  /** What happened today, for the knock-off chat. */
+  dayFacts(): DayFacts {
+    const g = this.g, w = this.w, p = people(w), d = g.today;
+    const made = (w.made ?? []).map(m => designById(m.design)).filter((x): x is Design => !!x);
+    const gift = [...p.gifts].reverse().find(x => x.dayIndex === g.dayIndex);
+    return {
+      sheets: d.sheetsDone, late: d.sheetsLate, scrapped: d.sheetsScrapped, fires: d.firesSpot,
+      designs: made.map(x => x.name), customers: made.map(x => x.customer.replace(/[,(].*$/, '').trim()),
+      gift: gift ? { phrase: GIFT_PHRASE[gift.kind], from: gift.from } : null,
+      jess: PEOPLE.partTimer.name, jessIn: this.jessIn, fullTimeToday: p.fullTimeDay === g.dayIndex,
+      keepsake: p.keepsakes.length ? p.keepsakes[p.keepsakes.length - 1].design.name.toLowerCase() : null,
+    };
+  }
+
+  /** Is the part-timer in today? (Her days at first; every day once she's full time.) */
+  get jessIn() {
+    const p = people(this.w);
+    return p.fullTime || (PEOPLE.partTimer.days as readonly number[]).includes(this.g.day);
+  }
+
+  /** The after-hours cut (tracing): placeholder until the tracing view exists. */
+  afterHoursCut(_design: string, _by: string, _beers: number, done: (accuracy: number) => void) { done(0.6); }
 
   /** Keep the physical shed in step with what the economy just did. */
   private syncWorld() {
@@ -741,7 +794,7 @@ export class World3D {
 
   private move(dt: number) {
     const g = this.g, w = this.w;
-    const frozen = this.paused || g.phase !== 'day' || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
+    const frozen = this.paused || g.phase !== 'day' || this.knockoff?.inScene || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
     let tx = 0, tz = 0;
     if (!frozen) {
       // screen-relative input (keyboard or stick) → world, using the camera's yaw
@@ -1204,7 +1257,7 @@ export class World3D {
     this.player.setCan(held ? (held.fill > 0 ? 'full' : 'empty') : null);
     this.updateCans();
     this.hud.setCanChip(held && g.phase === 'day' ? (held.fill > 0 ? 'Put the beer down' : 'Put the empty down') : null);
-    this.player.setVisible(w.toiletUntil === null);
+    this.player.setVisible(w.toiletUntil === null && !this.knockoff.inScene);
     this.player.update(dt, this.pos.x, this.pos.z, this.vel.x, this.vel.z);
   }
 

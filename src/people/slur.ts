@@ -24,6 +24,7 @@ function roughen(word: string, r: number): string {
   // keep the first and last letters; mess with the middle
   if (word.length < 4) return word.length === 3 && r < 0.3 ? word[0] + word[1] + word[1] + word[2] : word;
   const mid = 1 + Math.floor(r * 997) % (word.length - 2);
+  if (!/[A-Za-z]/.test(word[mid]) || !/[A-Za-z]/.test(word[mid + 1] ?? '')) return word; // letters only, never an apostrophe
   const kind = Math.floor(r * 7919) % 3;
   if (kind === 0) return word.slice(0, mid) + word[mid + 1] + word[mid] + word.slice(mid + 2);       // swap
   if (kind === 1) return word.slice(0, mid) + word[mid] + word.slice(mid);                            // double

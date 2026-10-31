@@ -2,6 +2,7 @@ import type { JobTypeId } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import { MACHINE_SPOT, START_TILE, type ObjectId } from './layout.js';
 import { WORLD } from './worldConfig.js';
+import type { PeopleState } from '../people/state.js';
 
 /** What the player can be carrying. One thing at a time. */
 export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle' | 'debris'
@@ -41,6 +42,8 @@ export interface WorldState {
   tour?: { visited: ObjectId[]; cutStarted: boolean } | null;
   /** Today's finished sheets and the design each was (src/designs), oldest first: the day summary's "Made today". */
   made?: { job: number; design: string }[];
+  /** The people side (src/people/state.ts): the part-timer, knock-off nights, gifts, keepsakes, the morning's cans. */
+  people?: PeopleState;
 }
 
 export const absMinute = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
