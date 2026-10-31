@@ -20,6 +20,7 @@ import { WORLD } from '../world/worldConfig.js';
 import { buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
+import { Particles } from './particles.js';
 import { VisitorWalker } from './visitor.js';
 import { InspectorWalker } from './inspector.js';
 import { PlayerView } from './player.js';
@@ -42,6 +43,11 @@ export class World3D {
   private built!: BuiltWorld;
   private player!: PlayerView;
   private effects!: Effects;
+  particles: Particles | null = null;    // mid/high tiers (public for tests)
+  private lastFault: string | null = null;
+  private wasCutting = false;
+  private spindleAt = new THREE.Vector3();
+  private drawSize = new THREE.Vector2();
   private hud: Hud;
   private sun!: THREE.DirectionalLight;
   private tier: TierSettings;
@@ -439,6 +445,9 @@ export class World3D {
     this.player.yaw = Math.atan2(-this.w.fx, -this.w.fy);
     const ex = this.built.objects.get('exhaust')!;
     this.effects = new Effects(this.scene, new THREE.Vector3(ex.centre.x, ex.def.height + 0.15, ex.centre.z), this.tier.pointLights);
+    const lvl = this.tier.detail.particles;
+    this.particles = lvl ? new Particles(this.scene, new THREE.Vector3(ex.centre.x, ex.def.height + 0.15, ex.centre.z), lvl) : null;
+    this.lastFault = this.g.fault?.def.id ?? null; this.wasCutting = this.g.machine === 'cutting';
     this.buildDebug();
     this.buildFlashRing();
     this.trail = new Trail(this.scene);
@@ -986,6 +995,17 @@ export class World3D {
     const flames: 0 | 1 | 2 = fire ? (fire.stage === 'duct' ? 2 : fire.lesson || fire.minutes >= CONFIG.fire.smokeOnlyMinutes ? 1 : 0) : 0;
     const nozzle = g.spraying ? new THREE.Vector3(this.pos.x + w.fx * 0.3, 0.7, this.pos.z + w.fy * 0.3) : null;
     this.effects.update(dt, smoke, flames, nozzle);
+    if (this.particles) {
+      // sparks when a bit-related fault starts (the bit's chipping or let go), a puff when a cut starts
+      const faultId = g.fault?.def.id ?? null;
+      const bitBreak = faultId !== null && faultId !== this.lastFault && g.fault!.def.consumable === 'bit';
+      const cutting = g.machine === 'cutting';
+      const head = mp.gantry.children[1];
+      head.getWorldPosition(this.spindleAt); this.spindleAt.y -= 0.15;
+      this.renderer.getDrawingBufferSize(this.drawSize);
+      this.particles.update(dt, { flames, bitBreak, cutStart: cutting && !this.wasCutting, cutting, spindle: this.spindleAt }, this.drawSize.y / 2);
+      this.lastFault = faultId; this.wasCutting = cutting;
+    }
 
     this.updateFlash(dt);
 
