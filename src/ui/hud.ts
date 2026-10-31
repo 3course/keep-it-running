@@ -246,9 +246,11 @@ export class Hud {
     this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
     this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p>
-      <button class="layout">Move things round</button><button class="resetlayout">Put everything back as built</button></div>`;
+      <button class="layout">Move things round</button><button class="resetlayout">Put everything back as built</button>
+      <button class="daily">Today's daily</button></div>`;
     this.pausedEl.addEventListener('click', () => this.cb.togglePause());
     this.pausedEl.querySelector('.layout')!.addEventListener('click', e => { e.stopPropagation(); this.cb.togglePause(); this.cb.layout?.(); });
+    this.pausedEl.querySelector('.daily')!.addEventListener('click', e => { e.stopPropagation(); location.search = new URLSearchParams(location.search).has('daily') ? '' : '?daily=1'; });
     const reset = this.pausedEl.querySelector<HTMLButtonElement>('.resetlayout')!;
     reset.addEventListener('click', e => { e.stopPropagation(); this.cb.resetLayout?.(); reset.textContent = 'Back as built.'; window.setTimeout(() => { reset.textContent = 'Put everything back as built'; }, 2000); });
     this.labels = el('div', { className: 'labels' });

@@ -48,6 +48,8 @@ import { DennisView } from './dennisView.js';
 import { fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { showLetter } from '../ui/letterCard.js';
+import { recordDaily } from '../world/daily.js';
+import { renderDailyCard } from '../ui/dailyCard.js';
 import { renderWeekend } from '../ui/weekend.js';
 import { startOver } from '../world/save.js';
 import type { Reckoning } from './knockoff.js';
@@ -704,6 +706,7 @@ export class World3D {
     }) : undefined;
     const week = () => renderWeekSummary(this.hud.showSummary(), g, done, weekend, l ? 'Friday. Payday.' : 'Week closed');
     if (g.phase === 'weekSummary') { week(); return; }
+    if (this.mode === 'daily') { renderDailyCard(this.hud.showSummary(), recordDaily(g, this.w)); return; }
     renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday(), this.dayPeople());
   }
 
@@ -1850,7 +1853,7 @@ export class World3D {
     this.save();
   }
   get isPaused() { return this.paused; }
-  private save() { writeSave(this.g, this.w); }
+  private save() { if (this.mode !== 'daily') writeSave(this.g, this.w); } // the daily keeps nothing but its result
 
   // ---------- test hooks (window.kirScene) ----------
 
