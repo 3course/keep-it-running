@@ -52,6 +52,8 @@ export interface WorldState {
   layoutDay?: number;
   /** The Lease this run is (src/world/lease.ts); absent in the daily. */
   lease?: import('./lease.js').LeaseState;
+  /** Mornings at the cafe (the barista knows your order from the third). */
+  cafeVisits?: number;
   /** Days Dennis came in for his coffee. */
   dennisCoffeeDay?: number[];
   /** Metres walked today, for the summary. */

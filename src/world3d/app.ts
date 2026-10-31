@@ -45,6 +45,7 @@ import { Gratitude } from './gratitude.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
 import { DennisView } from './dennisView.js';
+import { Cafe } from './cafe.js';
 import { fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { showLetter } from '../ui/letterCard.js';
@@ -187,6 +188,8 @@ export class World3D {
   peopleDay!: PeopleDay;
   /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
   gratitude!: Gratitude;
+  /** The cafe before work (public for tests). */
+  cafe!: Cafe;
   /** Dennis the accountant, in the shed (public for tests). */
   dennisView!: DennisView;
   /** Layout mode (public for tests). */
@@ -331,7 +334,7 @@ export class World3D {
       if (this.reveal.active) { this.reveal.skip(); this.skipEl.style.display = 'none'; e.preventDefault(); return; } // a tap skips the reveal, and only that
       if (this.layoutEditor.active) { canvas.setPointerCapture(e.pointerId); this.layoutEditor.pointer('down', e); return; } // shoving things round
       if (this.tracing.active) { canvas.setPointerCapture(e.pointerId); this.tracing.pointer('down', e); return; } // after-hours: your finger's the pencil
-      if (this.knockoff.inScene) return; // the bubbles take the taps
+      if (this.knockoff.inScene || this.cafe.active) return; // the bubbles take the taps
       if (this.paused || this.g.phase !== 'day') return;
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
@@ -526,7 +529,7 @@ export class World3D {
 
     this.updateSpray();
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
-    if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active) {
+    if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active && !this.cafe.holdsClock) {
       this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
       let ticked = false;
       while (this.acc >= CONFIG.clock.realMsPerGameMinute && g.phase === 'day') {
@@ -553,6 +556,7 @@ export class World3D {
     this.knockoff.applyCamera(this.camera, this.camLook, dt);
     this.tracing.applyCamera(this.camera, dt);
     this.layoutEditor.applyCamera(this.camera, dt);
+    this.cafe.applyCamera(this.camera, dt);
     if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
     this.camera.updateMatrixWorld();
     this.knockoff.update(dt, this.paused);
@@ -561,6 +565,8 @@ export class World3D {
     this.layoutEditor.update();
     this.dennisView.update(this.paused || this.knockoff.inScene ? 0 : dt);
     this.offerLayout();
+    this.cafe.offer();
+    this.cafe.update(dt, this.paused);
     // the Lease's week-3 wobble, set off on its day
     const lease = this.w.lease;
     if (lease && g.phase === 'day' && fireWobble(lease, g, people(this.w))) {
@@ -840,7 +846,7 @@ export class World3D {
   private layoutChip: HTMLButtonElement | null = null;
   private offerLayout() {
     const g = this.g, ed = this.layoutEditor;
-    const open = g.phase === 'day' && !tourActive(this.w) && !this.paused && !ed.active && g.minute < CONFIG.clock.startHour * 60 + 30 && !g.current
+    const open = g.phase === 'day' && !tourActive(this.w) && !this.paused && !ed.active && !this.cafe?.active && g.minute < CONFIG.clock.startHour * 60 + 30 && !g.current
       && g.dayIndex > 1 && this.layoutOffered !== g.dayIndex;
     if (open && !this.layoutChip) {
       const b = this.layoutChip = document.createElement('button');
@@ -881,6 +887,10 @@ export class World3D {
       project: v => this.project(v), commit: (plan, minutes) => this.commitLayout(plan, minutes), free: () => this.g.dayIndex <= 1,
       closed: () => this.hud.setHudVisible(true),
     });
+    this.cafe?.dispose();
+    this.cafe = new Cafe({ scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, project: v => this.project(v),
+      setHud: on => this.hud.setHudVisible(on), sfx: this.sfx, jessIn: () => this.jessIn,
+      arrive: () => { this.pos = { x: 6.5 * C, z: 16.5 * C }; this.vel = { x: 0, z: 0 }; this.stopWalking(); }, save: () => this.save() });
     this.dennisView?.dispose();
     this.dennisView = new DennisView({ scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, project: v => this.project(v), save: () => this.save() });
     uiHooks.dennis = () => this.dennisView.pitch();
@@ -1026,7 +1036,7 @@ export class World3D {
 
   private move(dt: number) {
     const g = this.g, w = this.w;
-    const frozen = this.paused || g.phase !== 'day' || this.knockoff?.inScene || this.layoutEditor?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
+    const frozen = this.paused || g.phase !== 'day' || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
     let tx = 0, tz = 0;
     if (!frozen) {
       // screen-relative input (keyboard or stick) → world, using the camera's yaw
