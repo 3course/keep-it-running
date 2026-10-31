@@ -4,7 +4,7 @@ import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
 import { dennisAnswer, dennisCallMult, dennisDecide, dennisFaultMult, dennisFireMult, dennisJoineryMult, dennisPowerTrip, dennisRentMult, dennisRouterDay,
   dennisStartDay, dennisTick, newDennis, type Bet, type DennisState } from './dennis.js';
-import type { Fortune, LayoutEffects, WalkIn } from './types.js';
+import type { Fortune, LayoutEffects, Pickup, WalkIn } from './types.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
@@ -27,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, pickups: 0, palletBlocked: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
   };
 }
 
@@ -60,6 +60,12 @@ export class Game {
   /** The cafe: a large coffee speeds tasks until this minute; the sparky you shouted resets the breaker on the house. */
   coffeeUntil = 0;
   sparkyFavour = false;
+  /** Finished sheets waiting on their customers (CONFIG.pickup), and the ones collected recently. Plain data. */
+  pickups: Pickup[] = [];
+  /** Sheets on the finished pallet, waiting for pickup (cleared off the bed; full, the bed can't be cleared). */
+  pallet = 0;
+  /** The world hands the stack over by hand; the sim (and Game-only tests) hand over the moment the ute's there. */
+  servesPickups = false;
   /** Today's walk-ins at the roller door (CONFIG.economy.walkIn*): plain data. */
   walkIns: WalkIn[] = [];
   /** The world serves walk-ins by hand; the sim (and Game-only tests) take every one as it comes. */
@@ -534,6 +540,8 @@ export class Game {
 
     this.tickBeer();
     this.tickWalkIns();
+    this.tickPickups();
+    if (this.palletFull && (this.bedFull || !CONFIG.chores)) this.today.palletBlocked = (this.today.palletBlocked ?? 0) + 1;
 
     // you, busy
     if (this.busy) {
@@ -876,7 +884,7 @@ export class Game {
     // on Dennis's terms (or his invoice): the pay waits on the bet
     const held = CONFIG.dennis.enabled ? this.dennis.bets.find(b => b.status === 'open' && b.jobs?.includes(j.id)) : undefined;
     if (held) { held.held += pay; this.say(`${j.name} delivered: paid when ${CONFIG.dennis.name}'s ${held.kind === 'terms' ? 'terms come due' : 'invoice clears'}.`); }
-    else this.earn(pay, `${j.name}${late ? ` (late, ${Math.round(CONFIG.economy.latePayFraction * 100)}%)` : ''}`);
+    this.textCustomer(j, held ? 0 : pay); // paid when they pick it up
     // the edge-bander's share, in its ledger line: edged panels pay the premium
     if (j.type === 'joinery' && CONFIG.dennis.enabled && dennisJoineryMult(this) > 1) {
       const bander = this.dennis.bets.find(b => b.kind === 'bandsaw' && (b.status === 'open' || b.status === 'won' || b.status === 'lost') && (b.until ?? -1) >= this.dayIndex);
@@ -1064,6 +1072,7 @@ export class Game {
   loadNextSheet(clamps: number = CONFIG.chore.clamp.clamps): boolean {
     if (this.phase !== 'day' || !this.canAct || this.machine !== 'idle' || this.fault) return false;
     if (this.bedFull) return false; // no room on the bed for a sheet
+    if (!CONFIG.chores && this.palletFull) return false; // nowhere to put it when it's done
     const next = this.takeSheet();
     if (!next) return false;
     // the board goes on today's books now, as it's used
@@ -1087,6 +1096,8 @@ export class Game {
 
   // ---------- chores (CONFIG.chore) ----------
 
+  /** The finished pallet's full: the bed can't be cleared till someone picks up. */
+  get palletFull(): boolean { return this.pallet >= CONFIG.pickup.palletCapacity; }
   /** The bed's holding as many finished boards as it takes: they have to go to the finished pallet before another sheet. */
   get bedFull(): boolean { return CONFIG.chores && this.bedPile >= CONFIG.chore.stack.bedHolds; }
   /** The compressor's hiss has dropped: it's due a drain. */
@@ -1108,7 +1119,7 @@ export class Game {
 
   /** Every sheet off the machine, good or ruined: offcuts in the bin (or on the floor), and the compressor runs on. */
   private afterSheet(good: boolean) {
-    if (!CONFIG.chores) return;
+    if (!CONFIG.chores) { if (good) this.pallet += 1; return; }
     if (good) this.bedPile += 1;
     this.compressorSheets += 1;
     if (this.offcutBin >= 1 - 1e-9) {
@@ -1120,7 +1131,10 @@ export class Game {
   /** Carry the finished boards off the bed to the finished pallet (`walked`: the view walked it; no time here). */
   clearBed(walked = false): boolean {
     if (this.phase !== 'day' || !this.canAct || this.bedPile <= 0) return false;
-    this.bedPile = 0;
+    const room = CONFIG.pickup.palletCapacity - this.pallet;
+    if (room <= 0) { this.say("The finished pallet's full: nowhere to stack till someone picks up.", 'bad'); return false; }
+    const moved = Math.min(room, this.bedPile);
+    this.pallet += moved; this.bedPile -= moved;
     if (!walked) this.busy = { label: 'boards to the finished pallet', remaining: this.walkMinutes(this.laid(CONFIG.chore.stack.unloadMinutes, this.layout.stackMinutes) + (this.offcutPile > 0 ? CONFIG.chore.offcuts.pileSlowMinutes : 0)) };
     return true;
   }
@@ -1778,6 +1792,76 @@ export class Game {
     }
   }
 
+  // ---------- customer pickup (CONFIG.pickup) ----------
+
+  /** A seeded roll for a sheet (its own stream: the day's rng isn't touched). */
+  private roll(id: number, salt: number): number {
+    let h = Math.imul(this.seed ^ 0x6d2b79f5, 0x9e3779b1) ^ Math.imul(id + 1, 0x85ebca6b) ^ Math.imul(salt + 1, 0xc2b2ae35);
+    h ^= h >>> 15; h = Math.imul(h, 0x2c1b3c6d); h ^= h >>> 12; h = Math.imul(h, 0x297a2d39); h ^= h >>> 15;
+    return (h >>> 0) / 4294967296;
+  }
+  private get absNow() { return this.dayIndex * 1440 + this.minute; }
+  /** The order a sheet belongs to: "Bar front — Footscray (2/3)" → "Bar front — Footscray". */
+  private orderOf(j: Job) { return j.name.replace(/\s*\(\d+\/\d+\)$/, ''); }
+
+  /** Off the machine: text the customer. They'll come lead + jitter later, or at their deadline if that's later; after
+   * the cutoff, next morning. A sheet of an order whose ute's still on its way rides along with it. */
+  private textCustomer(j: Job, pay: number) {
+    const P = CONFIG.pickup, now = this.absNow, order = this.orderOf(j);
+    const ride = this.pickups.find(p => p.status === 'waiting' && p.order === order);
+    const closeOf = (abs: number) => Math.floor(abs / 1440) * 1440 + CONFIG.clock.endHour * 60;
+    const morning = (day: number) => day * 1440 + P.morningHour * 60 + Math.round(this.roll(j.id, 2) * P.morningJitterMinutes);
+    // the lead time, or the deadline if that's later ("by close" means they come before close)
+    let due = Math.max(now + P.leadMinutes + Math.round(this.roll(j.id, 1) * P.jitterMinutes), Math.min(this.dueAt(j), closeOf(this.dueAt(j)) - P.beforeCloseMinutes));
+    if (this.minute >= P.lateFromHour * 60) due = Math.max(due, morning(this.dayIndex + 1));
+    if (due >= closeOf(due)) due = morning(Math.floor(due / 1440) + 1);
+    if (ride) {
+      ride.jobs.push(j.id); ride.pay += pay; ride.dueAt = Math.max(ride.dueAt, due);
+      return;
+    }
+    const p: Pickup = { id: j.id, order, jobs: [j.id], pay, textedAt: now, dueAt: due, slipped: false, status: 'waiting' };
+    // now and then they text back: running late
+    if (this.roll(j.id, 3) < P.slipChance) {
+      p.slipped = true;
+      p.dueAt += P.slipMinutes[0] + Math.round(this.roll(j.id, 4) * (P.slipMinutes[1] - P.slipMinutes[0]));
+      if (p.dueAt >= closeOf(p.dueAt)) p.dueAt = morning(Math.floor(p.dueAt / 1440) + 1);
+    }
+    this.pickups.push(p);
+  }
+
+  /** The ute's at the roller door when it's due (in working hours); the sim hands over there and then. */
+  private tickPickups() {
+    const now = this.absNow;
+    for (const p of this.pickups) {
+      if (p.status !== 'waiting' || p.dueAt > now) continue;
+      p.status = 'here'; p.hereAt = now;
+      this.say(`${p.order}: the customer's ute is at the roller door.`, 'good');
+      if (!this.servesPickups) this.handOver(p.id);
+    }
+  }
+
+  /** The utes at the roller door now. */
+  get pickupsHere(): Pickup[] { return this.pickups.filter(p => p.status === 'here'); }
+  /** Sheets waiting on the pallet for a ute that's at the door. */
+  get sheetsHere(): number { return this.pickupsHere.reduce((s, p) => s + p.jobs.length, 0); }
+
+  /** Hand the stack over (one pickup, or every ute at the door): paid now; the sheets come off the pallet (or the bed).
+   * Returns the sheets handed over. */
+  handOver(id?: number): number {
+    let n = 0;
+    for (const p of this.pickupsHere.filter(x => id === undefined || x.id === id)) {
+      const k = p.jobs.length, fromPallet = Math.min(this.pallet, k);
+      this.pallet -= fromPallet; this.bedPile = Math.max(0, this.bedPile - (k - fromPallet));
+      p.status = 'done'; p.doneAt = this.absNow;
+      this.today.pickups = (this.today.pickups ?? 0) + 1;
+      if (p.pay > 0) this.earn(p.pay, `${p.order}: picked up`);
+      n += k;
+    }
+    // the board only needs a few days of them
+    this.pickups = this.pickups.filter(p => p.status !== 'done' || (p.doneAt ?? 0) > this.absNow - 3 * 1440);
+    return n;
+  }
+
   // ---------- walk-ins (CONFIG.economy.walkIn*) ----------
 
   /** On the hour: a walk-in at the roller door, if the day's tracking under the floor (or it's the regular's turn). */
@@ -1922,6 +2006,8 @@ export class Game {
     if (this.dockBlocked) { this.rare!.phase = 'done'; this.rare!.outcome = 'blocked'; this.say("Slats still in the doorway at knock-off. The landlord's handyman sorts it overnight."); }
     if (this.rare?.id === 'council' && this.rare.phase !== 'done' && this.rare.phase !== 'scheduled') this.finishCouncil(this.rare.touring === true);
     if (this.rare && this.rare.phase !== 'scheduled') this.rareLog.push({ day: this.dayIndex, id: this.rare.id, outcome: this.rare.outcome ?? 'unresolved' });
+    // a ute left at the door goes home; they'll be back in the morning
+    for (const p of this.pickupsHere) { p.status = 'waiting'; p.dueAt = (this.dayIndex + 1) * 1440 + CONFIG.pickup.morningHour * 60 + Math.round(this.roll(p.id, 5) * CONFIG.pickup.morningJitterMinutes); }
     // the floor on the day: the walk-ins you served come back to collect and square up
     this.settleWalkIns();
     if (CONFIG.dennis.enabled) {

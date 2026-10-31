@@ -193,7 +193,9 @@ describe('the rest, by hand', () => {
   it('pickup: carry the finished stack out to the ute and hand it over', async () => {
     const game = await freshGame(env);
     try {
-      await game.eval((g, w) => { w.tour = null; w.finishedStack = 3; w.utePresent = true; g.deliveries = []; }); // no ply truck in the way
+      // a customer's ute at the door for three sheets on the pallet (no ply truck in the way)
+      await game.eval((g, w) => { w.tour = null; w.finishedStack = 3; g.pallet = 3; g.deliveries = [];
+        g.pickups.push({ id: 9001, order: 'Bar front', jobs: [9001, 9002, 9003], pay: 600, textedAt: 0, dueAt: 0, slipped: false, status: 'here', hereAt: g.dayIndex * 1440 + g.minute }); });
       await walkTo(game, 'finishedPallet');
       await tapLabel(game, 'Pick up the stack (3)');
       assert.equal(await game.eval((g, w) => w.carrying), 'stack');
@@ -203,7 +205,8 @@ describe('the rest, by hand', () => {
       await game.eval((g, w, s) => { const u = s.built.vehicles.ute.position; s.walkToPoint(u.x - 1.4, u.z); });
       await waitForLabel(game, 'Hand it over (3)', 15_000);
       assert.equal((await tapLabel(game, 'Hand it over (3)')).said, '3 sheets picked up');
-      assert.deepEqual(await game.eval((g, w) => [w.finishedStack, w.utePresent, w.carrying]), [0, false, null]);
+      await game.page.waitForFunction(() => !window.kirScene.w.utePresent);
+      assert.deepEqual(await game.eval((g, w) => [w.finishedStack, w.carrying, g.pallet, g.pickupsHere.length]), [0, null, 0, 0]);
     } finally { await game.close(); }
   });
 });

@@ -21,6 +21,7 @@ function shed(seed = 1) {
   g.minute = 8 * 60;
   for (const t of CONFIG.jobs.types) { g.stock[t.id] = 20; g.stockValue[t.id] = 20 * t.boardCost; }
   g.deliveries = []; g.distractions = []; g.orderCalls = [];
+  g.servesPickups = true; // customers wait at the door (CONFIG.pickup): nobody takes boards off the bed mid-test
   g.maybeFault = () => {}; g.maybeFire = () => {}; g.maybeDistraction = () => {};
   for (let i = 0; i < 12; i++) g.jobs.push({ ...g.jobs[0], id: 500 + i, status: 'queued', dueDay: g.dayIndex + 1, progress: 0 });
   return g;
@@ -100,9 +101,10 @@ describe('chores, on Game', () => {
   it('with CONFIG.chores off, none of it', () => {
     CONFIG.chores = false;
     try {
-      const g = shed(); always(g);
+      const g = shed(); always(g); g.servesPickups = false; // the customers take theirs as they come
       for (let i = 0; i < 8; i++) assert.equal(cutOne(g, 0).status, 'done');
       assert.deepEqual([g.bedPile, g.offcutBin, g.offcutPile, g.compressorSheets], [0, 0, 0, 0]);
+      g.pallet = 0; // the finished pallet isn't a chore (CONFIG.pickup): eight sheets have filled it
       assert.equal(g.loadNextSheet(), true);
       assert.equal(g.loadingRemaining, CONFIG.jobs.loadMinutes);
     } finally { CONFIG.chores = true; }

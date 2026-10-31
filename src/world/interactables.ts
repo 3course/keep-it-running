@@ -116,8 +116,9 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       // the finished boards piled on the bed, off to the finished pallet in one go
       if (g.bedPile > 0 && empty) a.push({ label: `Carry the boards off (${g.bedPile})`, key: 'unload', twoHands: true, done: 'Boards off the bed', run: () => {
         const n = g.bedPile;
+        if (g.palletFull) return "Finished pallet's full: wait for a pickup";
         if (!g.clearBed(true)) return 'Not right now';
-        w.carrying = 'cut'; w.carryCount = n;
+        w.carrying = 'cut'; w.carryCount = n - g.bedPile;
       } });
       if (w.bed === 'done' && empty) a.push({ label: 'Unload', twoHands: true, done: 'Cut sheet off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'cut'; } });
       if (w.bed === 'scrap' && empty) a.push({ label: 'Clear the scrap', twoHands: true, done: 'Scrap off the bed', run: () => { w.bed = 'empty'; w.bedJobId = null; w.carrying = 'scrap'; } });
@@ -141,7 +142,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       return [{ label: 'Grab a sheet', done: 'None left — order ply', run: () => { w.shrugs = (w.shrugs ?? 0) + 1; } }];
     }
     case 'finishedPallet':
-      if (w.carrying === 'cut') return [{ label: 'Stack it', done: 'Cut sheets stacked for pickup', run: () => { w.carrying = null; w.finishedStack += w.carryCount ?? 1; w.carryCount = undefined; w.utePresent = true; } }];
+      if (w.carrying === 'cut') return [{ label: 'Stack it', done: 'Cut sheets stacked for pickup', run: () => { w.carrying = null; w.finishedStack += w.carryCount ?? 1; w.carryCount = undefined; } }];
       if (w.carrying === 'stack') return [{ label: 'Put the stack back', done: 'Stack back on the pallet', run: () => { w.carrying = null; } }];
       // the customer's ute is out the front: carry the stack out to it
       if (empty && w.utePresent && w.finishedStack > 0) return [{ label: `Pick up the stack (${w.finishedStack})`, twoHands: true, key: 'pickup', done: 'Got the stack', run: () => { w.carrying = 'stack'; } }];
@@ -339,9 +340,10 @@ export function visitorStatus(g: Game, d: Distraction): string | null {
 /** The customer's ute out the front, when you're beside it with the stack: hand it over. */
 export function uteActions(g: Game, w: WorldState): Action[] {
   if (g.phase !== 'day' || w.carrying !== 'stack' || !w.utePresent) return [];
-  const n = w.finishedStack;
+  const n = Math.min(w.finishedStack, g.sheetsHere) || g.sheetsHere;
   return [{ label: `Hand it over (${n})`, gesture: { kind: 'taps', icon: '🤝', n: 1 }, done: `${n} sheet${n > 1 ? 's' : ''} picked up`, run: () => {
-    w.finishedStack = 0; w.utePresent = false; w.carrying = null;
+    const k = g.handOver();
+    w.finishedStack = Math.max(0, w.finishedStack - k); w.carrying = null; // anyone else's sheets go back on the pallet
   } }];
 }
 

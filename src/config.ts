@@ -219,6 +219,21 @@ export const CONFIG = {
     ],
   },
 
+  // Customer pickup: a finished sheet waits on the finished pallet till the customer's ute comes for it, and the money
+  // lands then, not when the cut finishes. You text them as it comes off the machine.
+  pickup: {
+    leadMinutes: 60,              // they turn up this long after the text…
+    jitterMinutes: 60,            // …plus up to this much more (seeded)
+    beforeCloseMinutes: 30,       // a "by close" deadline: they come this long before close
+    lateFromHour: 15.5,           // a sheet finished after this is collected next morning…
+    morningHour: 8,               // …from this hour…
+    morningJitterMinutes: 60,     // …plus up to this much
+    palletCapacity: 6,            // sheets the finished pallet holds; full, the bed can't be cleared and the next cut waits
+    slipChance: 0.1,              // they text back "running late, after lunch ok?"…
+    slipMinutes: [60, 90] as [number, number], // …and turn up this much later
+    honkAfterMinutes: 2,          // a ute left waiting at the roller door honks after this long
+  },
+
   // Ply on the pallet is real stock, one line per job type. You order it; a truck brings it.
   supply: {
     orderSizes: [4, 8, 12],         // sheets per order

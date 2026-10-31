@@ -2,6 +2,7 @@
 // this file only decides where you are, what you see, and turns taps into Game calls.
 // Portrait, one thumb: hold and drag on the lower half for the stick, tap a thing to walk to it and
 // use it, hold on the exhaust unit (or its label) to spray. WASD + E on desktop.
+import { pickupTime } from '../world/todo.js';
 import type { FortuneKind } from '../world/leaseWeeks.js';
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
@@ -232,6 +233,7 @@ export class World3D {
     this.g.layout = effectsOf(measure(this.plan));
     this.g.worldWalks = true;
     this.g.servesWalkIns = true; // walk-ins wait at the roller door for your answer
+    this.g.servesPickups = true; // a customer's ute waits at the roller door for you to carry the stack out
     this.solid = solidCells(); // solid objects and the big clutter
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);
@@ -738,6 +740,25 @@ export class World3D {
     return [...out.values()];
   }
 
+  /** Pickups, in the shed: each new one is a text (a line on the notepad: "Texted Sam, picking up ~11:30"), a slip is
+   * their reply, and a ute left waiting at the roller door honks. Names come off the job's design, kept in the save. */
+  private pickupNews() {
+    const g = this.g, w = this.w, names = (w.pickupNames ??= {});
+    for (const p of g.pickups) {
+      if (names[p.id]) continue;
+      const j = g.jobs.find(x => x.id === p.jobs[0]);
+      names[p.id] = j ? designForJob(j).customer.replace(/[,(].*$/, '').trim() : p.order;
+      logEvent(w, `Texted ${names[p.id]}, picking up ~${pickupTime(g, p.dueAt)}`);
+    }
+    const now = absMinute(g);
+    for (const p of g.pickupsHere) {
+      const waited = now - (p.hereAt ?? now);
+      const last = this.honked.get(p.id);
+      if (waited >= CONFIG.pickup.honkAfterMinutes && (last === undefined || now - last >= 10)) { this.honked.set(p.id, now); this.sfx.honk(); this.say('🛻 Beep beep!'); }
+    }
+  }
+  private honked = new Map<number, number>(); // pickup → when it last honked (absolute minute): again every ten
+
   /** The Lease's line in the summary, and on day 20 (once it's been reckoned) the ending card. */
   private leaseSummary(): DayPeople['lease'] {
     const l = this.w.lease, g = this.g;
@@ -960,7 +981,9 @@ export class World3D {
     const t = absMinute(g);
     if (w.toiletUntil !== null && t >= w.toiletUntil) w.toiletUntil = null;
     if (w.rollerUpUntil !== null && t >= w.rollerUpUntil && !this.onRollerTiles()) w.rollerUpUntil = null;
-    if (w.finishedStack === 0) w.utePresent = false;
+    // the customer's ute is out the front only when it's actually there (Game.pickups); you text them as a sheet's done
+    w.utePresent = g.pickupsHere.length > 0;
+    this.pickupNews();
     // stock news from the economy goes on the notepad: "4 sheets of formply left", "Out of MDF."
     const today = g.log.filter(l => l.dayIndex === g.dayIndex);
     for (const l of today.slice(w.newsSeen ?? 0)) {
@@ -1311,7 +1334,7 @@ export class World3D {
     const ute = this.built.vehicles.ute;
     if (live && ute.visible && w.carrying === 'stack' && Math.hypot(ute.position.x - this.pos.x, ute.position.z - this.pos.z) <= WORLD.uteReach) {
       // handing the stack over: the customer sees what they got
-      const acts = uteActions(g, w).map(a => ({ ...a, run: (c?: number) => { const n = w.finishedStack; const r = a.run?.(c); this.peopleDay.pickup(n); return r; } }));
+      const acts = uteActions(g, w).map(a => ({ ...a, run: (c?: number) => { const before = w.finishedStack + (w.carryCount ?? 0); const r = a.run?.(c); this.peopleDay.pickup(Math.max(1, before - w.finishedStack)); return r; } }));
       entries.push({ id: 'ute', anchor: new THREE.Vector3(ute.position.x, 1.9, ute.position.z), acts, status: null });
     }
     const shown = entries.filter(e => e.acts.length || e.status);

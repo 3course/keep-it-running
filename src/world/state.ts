@@ -46,6 +46,8 @@ export interface WorldState {
   made?: { job: number; design: string }[];
   /** How many of today's `made` have gone out in a customer's ute (their reactions are for those). */
   pickedUp?: number;
+  /** Who each pickup is (Game.pickups id → the customer's name, off the job's design), for the texts on the notepad. */
+  pickupNames?: Record<number, string>;
   /** The factory floor as you've laid it out (src/world/layoutPlan.ts); missing: as built. */
   layout?: Partial<import('./layoutPlan.js').Plan>;
   /** The day the layout last changed (a mate'll have something to say about it). */

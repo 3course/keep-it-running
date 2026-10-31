@@ -782,7 +782,7 @@ function leaseStudy() {
   }
   // where the money goes over a lease, per script (mean of seeds)
   if (args.includes('breakdown')) {
-    const keys: (keyof DayStats)[] = ['revenue', 'materials', 'labour', 'consumables', 'fixes', 'beer', 'mateBeer', 'fees', 'deliveryFees', 'overdraftFees', 'latePayLost', 'lostJobsValue', 'choreBoards', 'walkIns', 'walkInCount', 'sheetsDone', 'sheetsScrapped', 'sheetsLate', 'sheetsLost', 'sheetsMissed', 'firesDuct', 'firesExtractor'];
+    const keys: (keyof DayStats)[] = ['revenue', 'materials', 'labour', 'consumables', 'fixes', 'beer', 'mateBeer', 'fees', 'deliveryFees', 'overdraftFees', 'latePayLost', 'lostJobsValue', 'choreBoards', 'walkIns', 'walkInCount', 'pickups', 'palletBlocked', 'sheetsDone', 'sheetsScrapped', 'sheetsLate', 'sheetsLost', 'sheetsMissed', 'firesDuct', 'firesExtractor'];
     for (const sc of SCRIPTS) {
       const runs = seeds.map(seed => playLease(sc, seed).weeks.flat());
       console.log(`${sc.name.padEnd(10)} ` + keys.map(k => `${k}=${Math.round(runs.reduce((a, days) => a + days.reduce((b, d) => b + (d[k] ?? 0), 0), 0) / runs.length)}`).join(' '));

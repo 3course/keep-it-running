@@ -52,7 +52,7 @@ const CASES = {
     await game.eval((g, w) => { w.carrying = 'cut'; });
     await walkTo(game, 'finishedPallet');
     assert.equal((await tapLabel(game, 'Stack it')).said, 'Cut sheets stacked for pickup');
-    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.finishedStack, w.utePresent]), [null, 1, true]);
+    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.finishedStack, w.utePresent]), [null, 1, false], 'the ute comes later (CONFIG.pickup), not the moment you stack');
   },
 
   async offcutBin(game) {

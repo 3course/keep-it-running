@@ -17,6 +17,12 @@ export const TOUR: { id: ObjectId; text: string }[] = [
   { id: 'plyPallet', text: 'Grab a sheet' },
 ];
 
+/** "11:30", or "tomorrow ~8:40" for a pickup on another day (absolute minutes). */
+export function pickupTime(g: Game, abs: number): string {
+  const day = Math.floor(abs / 1440), t = g.formatTime(abs - day * 1440);
+  return day === g.dayIndex ? t : day === g.dayIndex + 1 ? `tomorrow ${t}` : `in ${day - g.dayIndex} days, ${t}`;
+}
+
 export const tourActive = (w: WorldState) => !!w.tour && !w.tour.cutStarted;
 
 export function todoItems(g: Game, w: WorldState): TodoItem[] {
@@ -121,8 +127,14 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (w.oldBagWaiting) add(false, 'oldbag', 'Old bag out of the extractor', 'extractor');
   if (!g.offcutPile && g.offcutBin >= offcutsBagAt(g)) add(g.offcutBin >= 1, 'offcuts', g.offcutBin >= 1 ? 'Offcut bin is full: empty it' : 'Empty the offcut bin', 'offcutBin');
   // a pickup: the stack off the finished pallet, out through the roller door to the ute
-  if (w.utePresent && w.carrying === 'stack') add(true, 'pickup', `Take the stack out to the ute (${w.finishedStack})`, 'rollerDoor');
-  else if (w.utePresent && w.finishedStack > 0) add(false, 'pickup', `Ute's here for a pickup (${w.finishedStack})`, 'finishedPallet');
+  if (w.utePresent && w.carrying === 'stack') add(true, 'pickup', `Take the stack out to the ute (${g.sheetsHere})`, 'rollerDoor');
+  else if (w.utePresent) add(true, 'pickup', `Ute's here for a pickup (${g.sheetsHere})`, 'finishedPallet');
+  if (g.palletFull) add(true, 'palletfull', "Finished pallet's full: the bed can't be cleared till someone picks up", 'finishedPallet');
+  // who's coming, and when (you texted them as the sheet came off; some text back running late)
+  for (const p of g.pickups.filter(x => x.status === 'waiting')) {
+    const who = w.pickupNames?.[p.id] ?? p.order;
+    add(false, `pickup-${p.id}`, p.slipped ? `${who}: "running late, after lunch ok?" Now ~${pickupTime(g, p.dueAt)}` : `Texted ${who}, picking up ~${pickupTime(g, p.dueAt)}`, 'finishedPallet');
+  }
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
   if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.nextUp() && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
   // work on the board with no ply for it, and nothing for it on order

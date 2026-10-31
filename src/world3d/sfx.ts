@@ -52,6 +52,19 @@ export class Sfx {
     const rg = r.ctx.createGain(); this.env(rg, t, 0.12, 0.8, 1.6); rum.connect(lp).connect(rg).connect(r.out); rum.start(t);
   }
 
+  /** A ute's horn out the front: two short honks. */
+  honk() {
+    const r = this.ready(); if (!r) return;
+    const t = r.ctx.currentTime;
+    for (const dt of [0, 0.32]) {
+      for (const f of [392, 494]) {
+        const o = r.ctx.createOscillator(); o.type = 'square'; o.frequency.value = f;
+        const lp = r.ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1400;
+        const g = r.ctx.createGain(); this.env(g, t + dt, 0.07, 0.01, 0.2); o.connect(lp).connect(g).connect(r.out); o.start(t + dt); o.stop(t + dt + 0.25);
+      }
+    }
+  }
+
   /** A dog a few yards over: woof woof. */
   dog() {
     const r = this.ready(); if (!r) return;

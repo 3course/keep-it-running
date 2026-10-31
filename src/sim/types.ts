@@ -193,6 +193,9 @@ export type MilestoneId = 'sparkArrestor' | 'secondBitRack';
 /** A run of days the Lease dealt (src/world/leaseWeeks.ts): each field neutral at 1. Read by order calls and the supplier. */
 export interface Fortune { calls: number; rushMult: number; plyMult: number; priceMult: number; walkIns: number; until: number }
 
+/** A customer coming for their finished sheets (Game.pickups): plain data. Times are absolute minutes (dayIndex × 1440 + minute). */
+export interface Pickup { id: number; order: string; jobs: number[]; pay: number; textedAt: number; dueAt: number; slipped: boolean; status: 'waiting' | 'here' | 'done'; hereAt?: number; doneAt?: number }
+
 /** Someone at the roller door with a small job (Game.walkIns). Which design it is is the world's business. */
 export interface WalkIn { id: number; minute: number; status: 'waiting' | 'served' | 'left'; paid: number }
 
@@ -236,6 +239,8 @@ export interface DayStats {
   sheetsLifted: number;    // ruined: the compressor wasn't drained
   choreBoards: number;     // what those ruined boards cost
   walkInCount: number;     // walk-ins served (paid at close)
+  pickups: number;         // customers who came for their sheets today
+  palletBlocked: number;   // minutes the bed sat full of finished boards with the finished pallet full
   walkIns: number;         // the counter's walk-ins (the day's floor): not counted toward a best day
   binOverflows: number;    // times the offcut bin spilled onto the floor
   // after 5 (the view's knock-off beers, src/people): never touched by the balance sim
