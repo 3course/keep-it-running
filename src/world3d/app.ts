@@ -44,11 +44,13 @@ import { PeopleDay } from './peopleDay.js';
 import { Gratitude } from './gratitude.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
+import { DennisView } from './dennisView.js';
 import { DEFAULT_PLAN, applyPlan, clonePlan, effectsOf, fullPlan, measure, STATION_IDS, type Plan } from '../world/layoutPlan.js';
 import { Sfx } from './sfx.js';
 import type { DayFacts } from '../people/night.js';
 import { people } from '../people/state.js';
 import { PEOPLE } from '../people/config.js';
+import { dennisJessDay } from '../sim/dennis.js';
 import { GIFT_PHRASE } from '../people/lines/customers.js';
 import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
@@ -177,6 +179,8 @@ export class World3D {
   peopleDay!: PeopleDay;
   /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
   gratitude!: Gratitude;
+  /** Dennis the accountant, in the shed (public for tests). */
+  dennisView!: DennisView;
   /** Layout mode (public for tests). */
   layoutEditor!: LayoutEditor;
   /** The day the "move anything round?" offer last went up. */
@@ -538,6 +542,7 @@ export class World3D {
     this.tracing.update(this.paused ? 0 : dt);
     this.peopleDay.update(dt, this.paused || this.knockoff.inScene || this.layoutEditor.active);
     this.layoutEditor.update();
+    this.dennisView.update(this.paused || this.knockoff.inScene ? 0 : dt);
     this.offerLayout();
     this.gratitude.update(people(this.w), this.g.dayIndex, this.planNow);
     this.updateVisuals(dt);
@@ -762,14 +767,20 @@ export class World3D {
     this.labelSig = '';
   }
 
-  /** Start of each day (after the first walk-round): "Move anything round?" — yes opens layout mode. */
+  /** Start of each day (after the first walk-round): a chip under the clock, "Move anything round?" — tap it for layout mode. */
+  private layoutChip: HTMLButtonElement | null = null;
   private offerLayout() {
     const g = this.g, ed = this.layoutEditor;
-    const open = g.phase === 'day' && !tourActive(this.w) && !this.paused && !ed.active && g.minute < CONFIG.clock.startHour * 60 + 30 && !g.current;
-    if (open && this.layoutOffered !== g.dayIndex && g.dayIndex > 1) {
-      this.layoutOffered = g.dayIndex;
-      ed.talk.ask([{ text: 'Move anything round?' }, { text: 'Not today', cls: 'home' }], i => { if (i === 0) this.enterLayout(); });
-    } else if (!open && ed.talk.asking && !ed.active) ed.talk.hideReplies();
+    const open = g.phase === 'day' && !tourActive(this.w) && !this.paused && !ed.active && g.minute < CONFIG.clock.startHour * 60 + 30 && !g.current
+      && g.dayIndex > 1 && this.layoutOffered !== g.dayIndex;
+    if (open && !this.layoutChip) {
+      const b = this.layoutChip = document.createElement('button');
+      b.className = 'layoutchip'; b.textContent = 'Move anything round?';
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + env(safe-area-inset-right, 0px))', top: 'calc(118px + env(safe-area-inset-top, 0px))', zIndex: '6',
+        font: "14px 'Courier New', monospace", padding: '6px 10px', background: '#fff1c9', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
+      b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.enterLayout(); });
+      this.hud.labels.parentElement!.appendChild(b);
+    } else if (!open && this.layoutChip) { this.layoutChip.remove(); this.layoutChip = null; }
   }
 
   private makeKnockOff() {
@@ -799,6 +810,10 @@ export class World3D {
       project: v => this.project(v), commit: (plan, minutes) => this.commitLayout(plan, minutes), free: () => this.g.dayIndex <= 1,
       closed: () => this.hud.setHudVisible(true),
     });
+    this.dennisView?.dispose();
+    this.dennisView = new DennisView({ scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, project: v => this.project(v), save: () => this.save() });
+    uiHooks.dennis = () => this.dennisView.pitch();
+    uiHooks.ledger = () => this.dennisView.showLedger();
     this.peopleDay?.dispose();
     this.peopleDay = new PeopleDay({
       scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, walkable: this.walkable,
@@ -824,7 +839,7 @@ export class World3D {
   /** Is the part-timer in today? (Her days at first; every day once she's full time.) */
   get jessIn() {
     const p = people(this.w);
-    return p.fullTime || (PEOPLE.partTimer.days as readonly number[]).includes(this.g.day);
+    return p.fullTime || (PEOPLE.partTimer.days as readonly number[]).includes(this.g.day) || dennisJessDay(this.g);
   }
 
 
@@ -1349,7 +1364,7 @@ export class World3D {
       o(h.id).parts.can.visible = onHook(g, w, h.hook);
     }
     // phone jiggles while it rings
-    const ringing = g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
+    const ringing = g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank') || g.dennisRinging;
     const hs = o('phone').parts.handset;
     hs.rotation.z = ringing ? Math.sin(this.time * 40) * 0.2 : 0;
     hs.position.y = (hs.userData.baseY as number) + (ringing ? Math.abs(Math.sin(this.time * 20)) * 0.04 : 0);
@@ -1659,7 +1674,7 @@ export class World3D {
       el.style.display = vis ? 'block' : 'none';
       if (vis) { el.style.left = `${p.x.toFixed(1)}px`; el.style.top = `${p.y.toFixed(1)}px`; }
     });
-    const ringing = this.g.phase === 'day' && this.g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
+    const ringing = this.g.phase === 'day' && (this.g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank') || this.g.dennisRinging);
     this.spillLevel += ((ringing ? 1 : 0) - this.spillLevel) * Math.min(1, 3 * dt);
     for (const d of this.built.doorways) {
       if (!d.spill) continue;
@@ -1738,7 +1753,7 @@ export class World3D {
   /** The phone, heard from where you are: panned toward the office, quieter further away. */
   private updateRing() {
     const g = this.g;
-    const ringing = g.phase === 'day' && !this.paused && !this.hud.summaryShowing && g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank');
+    const ringing = g.phase === 'day' && !this.paused && !this.hud.summaryShowing && (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank') || g.dennisRinging);
     const ph = this.built.objects.get('phone')!.centre;
     const dx = ph.x - this.pos.x, dz = ph.z - this.pos.z, dist = Math.hypot(dx, dz) || 1;
     const right = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };

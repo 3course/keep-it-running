@@ -5,6 +5,7 @@
 // the work by turn ~8), a tram, a dog, a can cracking. Ring someone and they walk in through the door with more beers
 // and the shot widens to three. "Wind it up" and the camera goes back to the shed, and the day's done.
 import * as THREE from 'three';
+import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import { friendById, pickFriend } from '../people/friends.js';
 import { SCRIPTS } from '../people/dialogue/index.js';
@@ -155,7 +156,9 @@ export class KnockOff {
     const g = this.d.g, w = this.d.w, p = people(w);
     if (this.mode !== 'off' || this.doneDay === g.dayIndex) return;
     this.doneDay = g.dayIndex;
-    const id = this.friend = pickFriend(p.lastFriend, g.dayIndex);
+    // now and then it's the accountant at the door instead of one of the mates
+    const accountant = CONFIG.dennis.enabled && g.dayIndex > 2 && g.dayIndex % CONFIG.dennis.knockOffEvery === 3;
+    const id = this.friend = pickFriend(p.lastFriend, g.dayIndex, accountant);
     const f = this.figure(id, { shirt: friendById(id).shirt, ...LOOKS[id] });
     f.setSeated(false);
     f.root.position.copy(SPOT.door);
@@ -217,7 +220,9 @@ export class KnockOff {
     const n = this.night!;
     const l = this.queue.shift();
     if (l) {
-      const shown = slur(l.text, n.beers, `${this.d.g.dayIndex}|${n.turn}|${l.text.length}`);
+      // a lightweight's lines go first (Dennis)
+      const lw = l.who === 'you' ? 1 : friendById(l.who).lightweight ?? 1;
+      const shown = slur(l.text, Math.round(n.beers * lw), `${this.d.g.dayIndex}|${n.turn}|${l.text.length}`);
       this.talk.say(l.who, l.phone ? `📱 ${l.name}` : l.name, shown, l.who === 'you' ? 'you' : l.phone ? 'phone' : '');
       const fig = this.figures.get(l.phone ? 'you' : l.who);
       if (fig) { if (l.who !== 'you' && !l.phone) fig.setExpr(l.expr); fig.talking = 1.2; }

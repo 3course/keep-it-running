@@ -51,6 +51,10 @@ const money = (n: number) => `$${Math.round(n)}`;
 /** UI the actions can open (set by the 3D view): the ply order form, and the yes/no card for an order call. */
 export const uiHooks = {
   orderPly: () => {},
+  /** Dennis on the line: his pitch and your answer (the view shows it). */
+  dennis: () => {},
+  /** Dennis's ledger, on the office wall. */
+  ledger: () => {},
   orderCard: (_d: Distraction, _offer: OrderPreview, _take: Action, _decline: Action) => {},
 };
 
@@ -234,7 +238,10 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => { g.respond(d.id, 'answer'); } });
         else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, done: 'Talked the bank round', run: () => { g.respond(d.id, 'answer'); } });
       }
+      if (g.dennisRinging) a.unshift({ label: `Answer (${CONFIG.dennis.name})`, key: 'dennis', done: `On the phone to ${CONFIG.dennis.name}`, run: () => { if (!g.answerDennis()) return 'He rang off'; uiHooks.dennis(); } });
       a.push({ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() });
+      // Dennis's ledger hangs by the phone
+      if (g.dennis.bets.some(b => b.status !== 'pitched')) a.push({ label: `Read ${CONFIG.dennis.name}'s ledger`, auto: false, done: `Read ${CONFIG.dennis.name}'s ledger`, run: () => uiHooks.ledger() });
       for (const cb of g.callbacks) {
         a.push({ label: `Call ${cb.customer} back (${cb.big ? 'big job, ' : ''}${cb.sheets} sheets)`, key: `callback-${cb.id}`, done: `Rang ${cb.customer} back`, run: () => { g.callBack(cb.id); } });
         a.push({ label: `Ring ${cb.customer}, turn it down`, auto: false, highlight: g.overCommitted, done: `Turned ${cb.customer} down`, run: () => { g.callBack(cb.id, 'decline'); } });

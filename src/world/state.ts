@@ -50,6 +50,8 @@ export interface WorldState {
   layout?: Partial<import('./layoutPlan.js').Plan>;
   /** The day the layout last changed (a mate'll have something to say about it). */
   layoutDay?: number;
+  /** Days Dennis came in for his coffee. */
+  dennisCoffeeDay?: number[];
   /** Metres walked today, for the summary. */
   walkedToday?: number;
   /** The people side (src/people/state.ts): the part-timer, knock-off nights, gifts, keepsakes, the morning's cans. */

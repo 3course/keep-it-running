@@ -21,6 +21,7 @@ import { offcutsBagAt } from '../world/state.js';
 import { WORLD } from '../world/worldConfig.js';
 import { Talk } from '../ui/talk.js';
 import { Figure } from './figures.js';
+import { dennisJessDay } from '../sim/dennis.js';
 import { measure, type Plan } from '../world/layoutPlan.js';
 import { JESS_LAYOUT, type LayoutGripe } from '../people/lines/layout.js';
 import type { Sfx } from './sfx.js';
@@ -79,7 +80,7 @@ export class PeopleDay {
 
   get p(): PeopleState { return people(this.d.w); }
   /** In today? Her two days at first, every day once she's full time. */
-  get jessDay() { return this.p.fullTime || (J.days as readonly number[]).includes(this.d.g.day); }
+  get jessDay() { return this.p.fullTime || (J.days as readonly number[]).includes(this.d.g.day) || dennisJessDay(this.d.g); } // Dennis's bet: her extra days
 
   // ---------- every frame ----------
 

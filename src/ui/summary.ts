@@ -85,6 +85,7 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
     + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
     + row('&nbsp;&nbsp;Other costs', money(-other), 'dim') + overdraft
     + ((d.afterHours ?? 0) > 0 ? row('&nbsp;&nbsp;After hours (boards)', money(-d.afterHours), 'dim') : '')
+    + ((d.bets ?? 0) > 0 ? row(`&nbsp;&nbsp;${CONFIG.dennis.name}'s bets (costs, losses)`, money(-d.bets), 'dim bets') : '')
     + row('Operating profit', money(d.revenue - d.costs), d.revenue - d.costs >= 0 ? 'good' : 'bad')
     + row('Operating margin', pct(margin), mcls) + lost
     + ((d.canRefund ?? 0) > 0 ? row('Can refund (10c a can)', `+$${d.canRefund.toFixed(2)}`, 'good can-refund') : '') + row('Capex (upgrades)', money(-d.upgrades), 'dim')

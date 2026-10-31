@@ -36,6 +36,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     else add(true, 'ply-unload', `Unload the ply (${truck.bundles.length} bundle${truck.bundles.length > 1 ? 's' : ''} left)`, 'rollerDoor');
   }
 
+  // Dennis on the line
+  if (g.dennisRinging) add(true, 'dennis', `Phone's ringing (${CONFIG.dennis.name})`, 'phone');
+
   // the layout put the compressor on the extractor's circuit: the breaker
   if (g.powerTripped) add(true, 'breaker', "Power's tripped: reset the breaker", 'switchboard');
 
