@@ -22,6 +22,7 @@ import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { Particles } from './particles.js';
 import { ShedLighting } from './lighting.js';
+import { Outline } from './outline.js';
 import { VisitorWalker } from './visitor.js';
 import { InspectorWalker } from './inspector.js';
 import { PlayerView } from './player.js';
@@ -46,6 +47,8 @@ export class World3D {
   private effects!: Effects;
   particles: Particles | null = null;    // mid/high tiers (public for tests)
   lighting: ShedLighting | null = null;
+  outline: Outline | null = null;        // high tier: the ink line pass
+  private outlineDropped = false;        // the frame-rate guard turned it off; it stays off
   private lastFault: string | null = null;
   private wasCutting = false;
   private spindleAt = new THREE.Vector3();
@@ -195,6 +198,7 @@ export class World3D {
     this.vw = aw; this.vh = ah;
     const rw = Math.round(aw * this.renderScale), rh = Math.round(ah * this.renderScale);
     this.renderer.setSize(rw, rh, false);
+    this.outline?.setSize(rw, rh);
     perf.size = `${rw}×${rh}`; perf.resMult = this.resMult;
     const aspect = aw / ah;
     this.camera.aspect = aspect;
@@ -345,6 +349,13 @@ export class World3D {
         console.info(`[Keep It Running] frames at ${r.median.toFixed(1)} ms (target ${this.tier.targetMs.toFixed(1)}): resolution ×${this.resMult} → ×${next}`);
         this.resMult = next;
         this.fit();
+      } else if (this.outline) {
+        // already at the base resolution and still slow: the ink line's the next thing to go
+        perf.stepDowns.push(`outline off at ${r.median.toFixed(1)} ms`);
+        console.info(`[Keep It Running] frames at ${r.median.toFixed(1)} ms at base resolution: outline off`);
+        this.outline.dispose();
+        this.outline = null;
+        this.outlineDropped = true;
       }
     }
     this.slowChecks = 0;
@@ -421,7 +432,8 @@ export class World3D {
       this.hud.update(g, todoItems(g, w), w.done);
       this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? this.hints.current : null);
     }
-    this.renderer.render(this.scene, this.camera);
+    if (this.outline) this.outline.render(this.renderer, this.scene, this.camera);
+    else this.renderer.render(this.scene, this.camera);
   }
 
   // ---------- renderer health ----------
@@ -429,6 +441,11 @@ export class World3D {
   /** Everything in the 3D scene, built from the shed's data and the current state. Run again after a lost context. */
   private buildScene() {
     this.built = buildWorld(this.scene, this.tier.pointLights);
+    this.outline?.dispose(); this.outline = null;
+    if (this.tier.detail.outline && !this.outlineDropped) {
+      const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
+      this.outline = new Outline(size.x, size.y);
+    }
     // the tier's extra detail, on top of the plain world (the low tier gets none of it)
     this.looks = this.tier.detail.textures ? applyTextures(this.built, this.built.grid) : null;
     this.sawdust = this.tier.detail.decals ? new Sawdust(this.scene) : null;

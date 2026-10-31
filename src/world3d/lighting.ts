@@ -46,8 +46,8 @@ export class ShedLighting {
     const poolMat = additive(poolTex, 0.24);
     for (const [x, z] of TUBES) {
       // a pale reflector with a bright tube down each side, on two chains; its own materials so it can fade alone
-      const housing = new THREE.MeshBasicMaterial({ color: 0xc9ced3, transparent: true });
-      const tube = new THREE.MeshBasicMaterial({ color: 0xf6fdff, transparent: true });
+      const housing = new THREE.MeshBasicMaterial({ color: 0xc9ced3, transparent: true, depthWrite: false });
+      const tube = new THREE.MeshBasicMaterial({ color: 0xf6fdff, transparent: true, depthWrite: false });
       const g = new THREE.Group();
       g.add(new THREE.Mesh(new THREE.BoxGeometry(TUBE.len, 0.05, 0.12), housing));
       for (const s of [-1, 1]) {
