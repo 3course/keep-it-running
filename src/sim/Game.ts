@@ -2,6 +2,7 @@ import { CONFIG, type ConsumableKey, type JobType, type JobTypeId, type RareEven
 import { FAULTS } from '../data/faults.js';
 import { MATES, SHOP_TALK, mateById } from '../data/mates.js';
 import { Rng } from './rng.js';
+import type { LayoutEffects } from './types.js';
 import type {
   ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
@@ -24,7 +25,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0,
   };
 }
 
@@ -40,6 +41,12 @@ export class Game {
   dayIndex = 1;     // days since the start; never resets, so job due dates survive the week rollover
   minute = CONFIG.clock.startHour * 60; // minutes since midnight
   overtime = false;
+  /** What the factory layout does (src/world/layoutPlan.ts). Neutral: the default layout. */
+  layout: LayoutEffects = NEUTRAL_LAYOUT;
+  /** The 3D world walks its own walks: layout walking minutes only apply when Game times the walks itself (the sim). */
+  worldWalks = false;
+  /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
+  powerTripped = false;
 
   // economy
   cash = CONFIG.economy.startingCash;
@@ -178,16 +185,42 @@ export class Game {
     return this.looSince === null ? 0 : Math.min(b.looSlowMax, b.looSlowStep * Math.floor((this.minute - this.looSince) / b.looEveryMinutes));
   }
   /** Walking speed as a fraction of sober, comfortable speed. */
-  walkMult(): number { return (1 - this.beerSlow) * (1 - this.looSlow); }
+  walkMult(): number { return (1 - this.beerSlow) * (1 - this.looSlow) * this.layout.walkMult; }
   private walkMinutes(m: number) { return Math.ceil(m / this.walkMult()); }
+  /** A walk Game times itself, longer or shorter for the layout (not when the world walks it). */
+  private laid(m: number, delta: number) {
+    if (this.worldWalks || !delta) return m;
+    const extra = Math.max(1 - m, delta);
+    this.today.layoutMinutes = (this.today.layoutMinutes ?? 0) + Math.max(0, extra);
+    return Math.max(1, Math.round(m + extra));
+  }
+
+  /** Move things round at the start of the day: costs time (it's heavy), not money. */
+  layoutShuffle(minutes: number) {
+    if (this.phase !== 'day' || minutes <= 0) return;
+    this.busy = { label: 'shoving things round', remaining: Math.round(minutes) };
+    this.today.layoutMinutes = (this.today.layoutMinutes ?? 0) + Math.round(minutes);
+    this.say(`Moved things round: ${Math.round(minutes)} min.`);
+  }
+
+  /** The breaker's back on. `walked`: the world walked to the switchboard. */
+  resetPower(walked = false): boolean {
+    if (!this.powerTripped || !this.canAct) return false;
+    this.powerTripped = false;
+    if (!walked) this.busy = { label: 'resetting the breaker', remaining: Math.max(1, Math.round(this.layout.switchboardMinutes)) };
+    if (this.machine === 'paused' && this.current && !this.fault && !this.replacing) this.machine = 'cutting';
+    this.say('Breaker back on.');
+    return true;
+  }
   /** Minutes to swap a consumable (the bag rack makes the bag quicker). */
   private replaceMinutes(key: ConsumableKey) {
-    if (key === 'bit' && this.hasMilestone('secondBitRack')) return CONFIG.milestone.bitSwapMinutes;
-    return key === 'filter' && this.upgrades.has('bagRack') ? this.upgradeEffect('bagRack') : CONFIG.consumables[key].replaceMinutes;
+    const base = key === 'bit' && this.hasMilestone('secondBitRack') ? CONFIG.milestone.bitSwapMinutes
+      : key === 'filter' && this.upgrades.has('bagRack') ? this.upgradeEffect('bagRack') : CONFIG.consumables[key].replaceMinutes;
+    return this.laid(base, key === 'filter' ? this.layout.filterMinutes : key === 'bit' ? this.layout.bitMinutes : 0);
   }
   /** A walk to or from the fire: shorter with an extinguisher hanging by the exhaust. */
   private fireWalk(m: number) {
-    return this.walkMinutes(this.upgrades.has('exhaustExtinguisher') ? Math.max(1, m * this.upgradeEffect('exhaustExtinguisher')) : m);
+    return this.walkMinutes(this.laid(this.upgrades.has('exhaustExtinguisher') ? Math.max(1, m * this.upgradeEffect('exhaustExtinguisher')) : m, this.layout.fireWalkMinutes));
   }
   get queued(): Job[] { return this.jobs.filter(j => j.status === 'queued'); }
 
@@ -412,7 +445,7 @@ export class Game {
         this.wear[this.replacing.key] = 1;
         this.say(`New ${this.replacing.key} fitted.`, 'good');
         this.replacing = null;
-        if (this.machine === 'paused' && this.current) this.machine = 'cutting';
+        if (this.machine === 'paused' && this.current && !this.powerTripped) this.machine = 'cutting';
       }
     }
 
@@ -434,6 +467,11 @@ export class Game {
       if (r && this.current.progress >= r.at && !this.current.ruinedBy) this.ruinSheet(r.by);
       else if (this.current.progress >= this.current.cutMinutes) this.finishJob();
       else this.maybeFault(false);
+      // a compressor on the extractor's circuit trips the power now and then (only rolled when the layout's like that)
+      if (this.layout.powerTripPerMinute > 0 && this.machine === 'cutting' && !this.powerTripped && this.rng.chance(this.layout.powerTripPerMinute)) {
+        this.powerTripped = true; this.machine = 'paused';
+        this.say('Power tripped. The breaker at the switchboard.', 'bad');
+      }
       this.maybeLessonFire();
       this.maybeFire();
     }
@@ -489,6 +527,8 @@ export class Game {
     }
     if (def.id === 'chipping' && this.current) w *= this.current.chipRisk;
     if (def.id === 'extraction' && this.upgrades.has('extractor')) w *= this.upgradeEffect('extractor');
+    if (def.id === 'extraction') w *= this.layout.extractionFaultMult;
+    if (def.id === 'chipping') w *= this.layout.chipMult;
     if (def.id === 'partLifted' && this.upgrades.has('vacuumZone')) w *= this.upgradeEffect('vacuumZone');
     return w;
   }
@@ -644,7 +684,7 @@ export class Game {
       if (f.sprayed >= c.sprayMinutes[f.stage]) { this.extinguish(); return; }
     }
     // it spreads at today's breakdown rate: not at all on the first days
-    f.heat += this.breakdownMult * (f.lesson ? c.lesson.escalationMult : 1);
+    f.heat += this.breakdownMult * (f.lesson ? c.lesson.escalationMult : 1) * this.layout.fireSpreadMult;
     if (f.stage === 'spot' && f.heat >= c.ductFireAfterMinutes) {
       f.stage = 'duct';
       this.today.firesDuct += 1;
@@ -914,7 +954,7 @@ export class Game {
     next.status = 'cutting';
     this.current = next;
     this.machine = 'loading';
-    let load: number = CONFIG.jobs.loadMinutes;
+    let load: number = this.laid(CONFIG.jobs.loadMinutes, this.layout.loadMinutes);
     if (CONFIG.chores) {
       const ch = CONFIG.chore;
       load += clamps * ch.clamp.minutesPerClamp + (this.offcutPile > 0 ? ch.offcuts.pileSlowMinutes : 0);
@@ -954,14 +994,14 @@ export class Game {
     if (this.offcutBin >= 1 - 1e-9) {
       if (this.offcutPile === 0) { this.today.binOverflows += 1; this.say("The offcut bin's full: offcuts all over the floor round it.", 'bad'); }
       this.offcutPile = CONFIG.chore.offcuts.pileTrips;
-    } else this.offcutBin = Math.min(1, this.offcutBin + 1 / this.binSheets);
+    } else this.offcutBin = Math.min(1, this.offcutBin + this.layout.binFillMult / this.binSheets);
   }
 
   /** Carry the finished boards off the bed to the finished pallet (`walked`: the view walked it; no time here). */
   clearBed(walked = false): boolean {
     if (this.phase !== 'day' || !this.canAct || this.bedPile <= 0) return false;
     this.bedPile = 0;
-    if (!walked) this.busy = { label: 'boards to the finished pallet', remaining: this.walkMinutes(CONFIG.chore.stack.unloadMinutes + (this.offcutPile > 0 ? CONFIG.chore.offcuts.pileSlowMinutes : 0)) };
+    if (!walked) this.busy = { label: 'boards to the finished pallet', remaining: this.walkMinutes(this.laid(CONFIG.chore.stack.unloadMinutes, this.layout.stackMinutes) + (this.offcutPile > 0 ? CONFIG.chore.offcuts.pileSlowMinutes : 0)) };
     return true;
   }
 
@@ -969,7 +1009,7 @@ export class Game {
   emptyOffcutBin(walked = false): boolean {
     if (this.phase !== 'day' || !this.canAct || this.offcutBin <= 0) return false;
     this.offcutBin = 0;
-    if (!walked) this.busy = { label: 'offcuts to the skip', remaining: this.walkMinutes(CONFIG.chore.offcuts.tripMinutes) };
+    if (!walked) this.busy = { label: 'offcuts to the skip', remaining: this.walkMinutes(this.laid(CONFIG.chore.offcuts.tripMinutes, this.layout.binTripMinutes)) };
     return true;
   }
 
@@ -986,7 +1026,7 @@ export class Game {
   drainCompressor(walked = false): boolean {
     if (this.phase !== 'day' || !this.canAct || this.compressorSheets <= 0) return false;
     this.compressorSheets = 0;
-    if (!walked) this.busy = { label: 'draining the compressor', remaining: CONFIG.chore.compressor.drainMinutes };
+    if (!walked) this.busy = { label: 'draining the compressor', remaining: this.laid(CONFIG.chore.compressor.drainMinutes, this.layout.drainMinutes) };
     this.say('Compressor drained. The hiss is back up.');
     return true;
   }
@@ -1123,7 +1163,7 @@ export class Game {
     const d = this.deliveries.find(x => x.id === id);
     if (!d || d.stage !== 'unloading' || !d.bundles.length || this.phase !== 'day' || !this.canAct || this.dockBlocked) return false;
     for (const t of d.bundles.shift()!) this.addStock(d, t);
-    if (!walked) this.busy = { label: 'unloading ply', remaining: this.walkMinutes(CONFIG.supply.unloadTripMinutes) };
+    if (!walked) this.busy = { label: 'unloading ply', remaining: this.walkMinutes(this.laid(CONFIG.supply.unloadTripMinutes, this.layout.unloadTripMinutes)) };
     if (!d.bundles.length) {
       this.deliveries = this.deliveries.filter(x => x.id !== id);
       this.say(`Ply's on the pallet: ${CONFIG.jobs.types.map(t => `${this.stock[t.id]} ${this.stockWord(t.id)}`).join(', ')}.`, 'good');
@@ -1555,7 +1595,7 @@ export class Game {
       ...(this.extinguisherAway || this.fireResponse !== null ? ['the extinguisher off its hook'] : []),
     ];
     r.phase = 'done'; r.touring = false;
-    if (r.pausedCut && this.machine === 'paused' && this.current && !this.replacing) this.machine = 'cutting';
+    if (r.pausedCut && this.machine === 'paused' && this.current && !this.replacing && !this.powerTripped) this.machine = 'cutting';
     if (faults.length) {
       r.outcome = 'fined';
       this.spend(def.penalty, 'fees', 'council fine');
@@ -1711,7 +1751,7 @@ export class Game {
     if (this.rare && this.rare.phase !== 'scheduled') this.rareLog.push({ day: this.dayIndex, id: this.rare.id, outcome: this.rare.outcome ?? 'unresolved' });
     this.updateMilestones();
     this.story = this.storyOfTheDay();
-    this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = [];
+    this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = []; this.powerTripped = false;
     this.fire = null; this.fireResponse = null; this.spraying = false;
     const ply = this.plyOnHand;
     this.today.plyOnHandValue = Math.round(ply.value);
@@ -1751,3 +1791,9 @@ export class Game {
     this.startDay();
   }
 }
+
+/** The default layout: changes nothing. */
+export const NEUTRAL_LAYOUT: LayoutEffects = {
+  loadMinutes: 0, stackMinutes: 0, unloadTripMinutes: 0, filterMinutes: 0, bitMinutes: 0, fireWalkMinutes: 0, drainMinutes: 0, binTripMinutes: 0,
+  binFillMult: 1, extractionFaultMult: 1, chipMult: 1, fireSpreadMult: 1, walkMult: 1, powerTripPerMinute: 0, beerTemptation: 1, switchboardMinutes: 1,
+};

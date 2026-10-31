@@ -233,6 +233,19 @@ export interface DayStats {
   // after 5 (the view's knock-off beers, src/people): never touched by the balance sim
   afterHours: number;      // boards used cutting things for fun after knock-off
   canRefund: number;       // container deposit back on bags of empties (income, not revenue)
+  layoutMinutes: number;   // minutes the layout cost today: shoving things round, longer walks than the default
+}
+
+/**
+ * What the factory's layout does (src/world/layoutPlan.ts measures a plan and works these out). Minutes are added to
+ * walks Game times itself (the sim's walks; the 3D world really walks them instead); the rest apply everywhere. The
+ * default layout's effects are all zero / one: it plays exactly as the game did before layouts.
+ */
+export interface LayoutEffects {
+  loadMinutes: number; stackMinutes: number; unloadTripMinutes: number; filterMinutes: number; bitMinutes: number;
+  fireWalkMinutes: number; drainMinutes: number; binTripMinutes: number;
+  binFillMult: number; extractionFaultMult: number; chipMult: number; fireSpreadMult: number; walkMult: number;
+  powerTripPerMinute: number; beerTemptation: number; switchboardMinutes: number;
 }
 
 export interface LogEntry {

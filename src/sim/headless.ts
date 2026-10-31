@@ -12,6 +12,9 @@ import { Game, type Phase } from './Game.js';
 import { CONFIG } from '../config.js';
 import type { DayStats } from './types.js';
 import type { JobTypeId, UpgradeId } from '../config.js';
+import type { LayoutEffects } from './types.js';
+import { NEUTRAL_LAYOUT } from './Game.js';
+import { PRESETS, effectsOf, measure } from '../world/layoutPlan.js';
 
 type Policy = (g: Game) => void;
 
@@ -157,7 +160,14 @@ function sloppyChores(g: Game): boolean {
 }
 const sloppyClamps = (g: Game) => (g.rng.chance(0.5) ? CLAMPS - 2 : CLAMPS - 1);
 
+/** The breaker: competent resets it straight away, average soon after, sloppy when they notice. True: that's this minute. */
+function resetsPower(g: Game, chance: number): boolean {
+  if (!g.powerTripped || !g.canAct || !g.rng.chance(chance)) return false;
+  return g.resetPower();
+}
+
 const competent: Policy = (g) => {
+  if (g.powerTripped && resetsPower(g, 1)) return;
   // a fire beats everything: drop what you're doing and go
   if (g.fire && !g.fireResponse) g.fightFire();
   g.setSpraying(g.fireResponse?.step === 'atDuct');
@@ -205,6 +215,7 @@ const competent: Policy = (g) => {
 const sloppyIgnores = new WeakMap<Game, Map<number, boolean>>();
 
 const sloppy: Policy = (g) => {
+  if (g.powerTripped && resetsPower(g, 0.3)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (sloppyRare(g)) return;
   if (g.fire) {
@@ -239,6 +250,8 @@ const sloppy: Policy = (g) => {
   // a can at 2pm and another at 4pm, or as soon after as they're free (the empty goes in the bin first); the loo once it's really slowing them down
   const due = (g.minute >= 16 * 60 ? 2 : g.minute >= 14 * 60 ? 1 : 0) - g.beersToday;
   if (due > 0 && g.canAct) { if (g.heldCan) g.binCan(); g.buyBeer(); }
+  // the fridge in sight of the router (the layout): an extra can on a hot arvo
+  else if (g.layout.beerTemptation > 1 && g.minute >= 14 * 60 && g.beersToday < 3 && g.canAct && g.rng.chance((g.layout.beerTemptation - 1) * 0.01)) { if (g.heldCan) g.binCan(); g.buyBeer(); }
   if (g.needLoo && g.looSlow >= 0.15) g.useToilet();
   if (sloppyChores(g)) return;
   if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet(CONFIG.chores ? sloppyClamps(g) : CLAMPS);
@@ -293,6 +306,7 @@ function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
  * usually makes the right call once it does, and sometimes lets chores slide (puts off swaps, gets to trucks and the next sheet late).
  */
 const average: Policy = (g) => {
+  if (g.powerTripped && resetsPower(g, 0.6)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (g.fire && averageReacts(g, `fire-${g.fire.id}`, 20, 60) && g.fightFire()) return;
   if (averageRare(g)) return;
@@ -391,6 +405,7 @@ interface Upgrading { buying?: boolean; owned?: readonly UpgradeId[] }
 /** Play `weeks` weeks of a new game starting on `firstDay`; the result is the last of them (`weeks`: every week's days). */
 function playWeek(script: Script, seed: number, firstDay: number, weeks = 1, up: Upgrading = {}): WeekResult & { weeks: DayStats[][]; refused: number } {
   const g = new Game(seed, firstDay);
+  g.layout = simLayout; // `-- layouts`: the factory laid out a given way (default: as built)
   // count the ply orders the supplier refused for want of money (an insolvent business can't restock)
   let refused = 0;
   const quote = g.plyQuote.bind(g);
@@ -479,13 +494,43 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
 }
 
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
+/** The layout every game in this run plays on. */
+let simLayout: LayoutEffects = NEUTRAL_LAYOUT;
 // `-- baseline`: rare events and milestones off, as the economy was before them (the frozen baseline)
 if (args.includes('baseline')) Object.assign(CONFIG as unknown as Record<string, boolean>, { rareEvents: false, milestones: false });
 // `-- nochores`: the chores without teeth, as the economy was before them
 if (args.includes('nochores')) Object.assign(CONFIG as unknown as Record<string, boolean>, { chores: false });
 console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'}, chores ${CONFIG.chores ? 'on' : 'off'})`);
 if (args[2] === 'upgrades') upgradeStudy();
+else if (args[2] === 'layouts') layoutStudy();
 else defaultReport();
+
+/**
+ * `npm run sim -- layouts [seeds]`: the three preset layouts (src/world/layoutPlan.ts) on the same seeds, steady-state week.
+ * Margins for competent and sloppy per preset; a flag if any preset beats another by more than 8 points (the
+ * trade-offs would be too weak: one layout would just be best).
+ */
+function layoutStudy() {
+  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 10 }, (_, i) => i + 1);
+  const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const pct = (v: number) => `${(v * 100).toFixed(1)}%`.padStart(6);
+  const out: Record<string, Record<string, number>> = {};
+  console.log(`\nLayouts: steady-state week, ${seeds.length} seeds. Mean operating margin.`);
+  console.log(`${'preset'.padEnd(10)} | ${SCRIPTS.map(s => s.name.padStart(9)).join(' ')} | load stack bag duct fire clutter circuit fridge path`);
+  for (const [name, plan] of Object.entries(PRESETS)) {
+    const m = measure(plan);
+    simLayout = effectsOf(m);
+    out[name] = {};
+    for (const sc of SCRIPTS) out[name][sc.name] = mean(seeds.map(seed => margin(playWeek(sc, seed, STEADY_FROM).g.week)));
+    console.log(`${name.padEnd(10)} | ${SCRIPTS.map(s => pct(out[name][s.name]).padStart(9)).join(' ')} | ${[m.load, m.stack, m.bagTrip, m.duct, m.fire].map(x => x.toFixed(1)).join(' ')} ${m.clutter} ${m.sharedCircuit ? 'shared' : 'own'} ${m.fridgeInSight ? 'seen' : 'hidden'} ${m.clearPath ? 'clear' : 'blocked'}`);
+  }
+  simLayout = NEUTRAL_LAYOUT;
+  for (const sc of ['competent', 'sloppy']) {
+    const vals = Object.values(out).map(r => r[sc]);
+    const spread = Math.max(...vals) - Math.min(...vals);
+    console.log(`${sc}: best − worst preset = ${(spread * 100).toFixed(1)} points — ${spread > 0.08 ? 'FLAG: one layout is just better (trade-offs too weak)' : 'ok (no layout strictly best)'}`);
+  }
+}
 
 /** The usual run: no upgrades, 5 seeds (`-- seeds=20` for more), week 1, week 2 and steady state. */
 function defaultReport() {

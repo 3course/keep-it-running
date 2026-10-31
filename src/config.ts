@@ -236,6 +236,25 @@ export const CONFIG = {
   },
 
   // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
+  // The factory layout (src/world/layoutPlan.ts): what moving things round does. All relative to the default layout.
+  layout: {
+    metresPerMinute: 2.5,         // a game minute is a real second; you walk 3 m/s, a bit less with stops and turns
+    maxDuctMetres: 7,             // the extractor's duct won't reach the router from further than this
+    pickupsPerStack: 0.5,         // a pickup trip for every other stack you carry off
+    binFillPerMetre: 0.03,        // offcut bin near the router: you bin more as you go, so it fills faster
+    suctionPerMetre: 0.08,        // a longer duct: weaker suction, more extraction faults…
+    suctionChipPerMetre: 0.025,   // …and a few more chipped edges
+    fireSpreadPerMetre: 0.09,     // a shorter duct: a fire in it reaches the machine faster
+    clutterFree: 3,               // stations right round the router before it's cluttered…
+    clutterPenalty: 0.04,         // …each one past that, slower walking
+    blockedPathMult: 0.94,        // no clear metre-wide run dock → router → finished pallet: everyone walks slower
+    circuitReachMetres: 3.5,      // compressor this close to the switchboard: on the extractor and heater's circuit…
+    powerTripPerMinute: 0.004,    // …and it trips the power now and then while cutting
+    fridgeSightMetres: 8,         // the fridge in sight of the router (no wall between, this close)…
+    beerTemptation: 1.6,          // …"Grab one" comes up this much more after 2pm
+    moveMinutesFirstDayFree: true,
+  },
+
   beer: {
     canRefund: 0.10,               // container deposit back per empty (knock-off cans, taken back in bags)
     cost: 8,
