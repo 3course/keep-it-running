@@ -22,6 +22,8 @@ import type { Sfx } from './sfx.js';
 import { boxAt, toon } from './build.js';
 import { LsgVignette } from './lsg.js';
 import { MATE_LAYOUT } from '../people/lines/layout.js';
+import { PEOPLE } from '../people/config.js';
+const PEOPLE_SHIRT = { jess: PEOPLE.partTimer.shirt };
 import { fullPlan, shift } from '../world/layoutPlan.js';
 
 /** How each mate looks up close (their shirt is the one they always wear: src/data/mates.ts). */
@@ -70,13 +72,20 @@ export interface KnockOffDeps {
   knockOff: () => void;
   save: () => void;
   canvas: HTMLCanvasElement;
+  /** Friday (the Lease): knock-off's a group night — someone else turns up without being rung. */
+  groupNight: () => boolean;
+  /** Day 20 of the Lease: the reckoning instead of a mate at the door. Null: an ordinary night. */
+  reckoning: () => Reckoning | null;
   /** Post-processing allowed (the rare late one's soft, saturated picture). */
   rich: boolean;
   /** Today's pieces (design ids). */
   designs: () => string[];
 }
 
-type Mode = 'off' | 'door' | 'leaving' | 'night' | 'ending' | 'cutting' | 'lsg';
+type Mode = 'off' | 'door' | 'leaving' | 'night' | 'ending' | 'cutting' | 'lsg' | 'reckoning';
+
+/** The reckoning: everyone who's part of the shed, and what each of them says. */
+export interface Reckoning { people: ('eggby' | 'courtney' | 'tim' | 'dennis' | 'jess')[]; lines: { who: string; name: string; text: string; expr?: 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated' }[] }
 
 export class KnockOff {
   mode: Mode = 'off';
@@ -143,7 +152,7 @@ export class KnockOff {
 
   get active() { return this.mode !== 'off'; }
   /** The scene owns the camera and the player (no walking, no labels). */
-  get inScene() { return this.mode === 'night' || this.mode === 'ending' || this.mode === 'cutting' || this.mode === 'lsg'; }
+  get inScene() { return this.mode === 'night' || this.mode === 'ending' || this.mode === 'cutting' || this.mode === 'lsg' || this.mode === 'reckoning'; }
   /** Tests: offer the rare late one as soon as it's allowed. */
   forceLsg = false;
   /** The rare late one (public for tests). */
@@ -156,6 +165,8 @@ export class KnockOff {
     const g = this.d.g, w = this.d.w, p = people(w);
     if (this.mode !== 'off' || this.doneDay === g.dayIndex) return;
     this.doneDay = g.dayIndex;
+    const rk = this.d.reckoning();
+    if (rk) { this.reckon(rk); return; }
     // now and then it's the accountant at the door instead of one of the mates
     const accountant = CONFIG.dennis.enabled && g.dayIndex > 2 && g.dayIndex % CONFIG.dennis.knockOffEvery === 3;
     const id = this.friend = pickFriend(p.lastFriend, g.dayIndex, accountant);
@@ -191,6 +202,11 @@ export class KnockOff {
     const you = this.figure('you', YOU);
     you.root.position.copy(SPOT.you);
     this.night = new Night({ dayIndex: g.dayIndex, host: id, facts: this.d.facts(), people: people(w), forceLsg: this.forceLsg });
+    // Friday (the Lease): payday, and a group night — another mate's on their way without being rung
+    if (this.d.groupNight()) {
+      const other = (['eggby', 'courtney', 'tim'] as const).find(x => x !== id && x !== people(w).lastFriend) ?? (['eggby', 'courtney', 'tim'] as const).find(x => x !== id)!;
+      this.night.calling = { who: other, at: 2 };
+    }
     // moved things round lately? they've got thoughts (mostly wrong)
     if (w.layoutDay !== undefined && g.dayIndex - w.layoutDay <= 1) this.night.lead(MATE_LAYOUT[id][g.dayIndex % MATE_LAYOUT[id].length]);
     this.mode = 'night';
@@ -276,6 +292,7 @@ export class KnockOff {
       this.talk.place(id, p.x, p.y, !p.behind);
     }
     if (this.mode === 'leaving' && this.t >= this.endAt) { this.finish(false); return; }
+    if (this.mode === 'reckoning') { this.reckonUpdate(dt); return; }
     if (this.mode === 'door') return;
     // the friend you rang, walking in from the door to their crate
     if (this.walkIn) {
@@ -394,6 +411,53 @@ export class KnockOff {
     this.d.setHud(true);
     this.d.save();
     this.d.knockOff();
+  }
+
+  // ---------- the reckoning (day 20 of the Lease) ----------
+
+  private reckonQueue: Reckoning['lines'] = [];
+  private reckon(rk: Reckoning) {
+    const w = this.d.w, g = this.d.g;
+    this.mode = 'reckoning';
+    w.rollerUpUntil = absMinute(g) + 600;
+    this.d.setHud(false); this.d.hidePlayer(true);
+    this.set.visible = true;
+    for (const c of this.set.children) if (c.name.startsWith('crate')) c.visible = true;
+    // you on your crate, two mates on the others, everyone else standing round them
+    const you = this.figure('you', YOU); you.root.position.copy(SPOT.you);
+    const seats = [SPOT.host, SPOT.guest];
+    const stand = [new THREE.Vector3(14.15, 0, 16.1), new THREE.Vector3(13.7, 0, 15.5), new THREE.Vector3(14.2, 0, 15.2), new THREE.Vector3(13.2, 0, 15.6)]; // behind the crates, by the door
+    rk.people.forEach((id, i) => {
+      const look = id === 'jess' ? { shirt: PEOPLE_SHIRT.jess, hair: 'pony' as const, hairColour: 0x6a3a22, canColour: 0xf4efe0 } : { shirt: friendById(id).shirt, ...LOOKS[id] };
+      const f = this.figure(id, look);
+      if (i < seats.length) { f.setSeated(true); f.root.position.copy(seats[i]); } else { f.setSeated(false); f.root.position.copy(stand[(i - seats.length) % stand.length]); }
+    });
+    this.base = { sky: (this.d.scene.background as THREE.Color | null)?.clone() ?? null, hemi: this.d.lights.hemi.intensity, sun: this.d.lights.sun.intensity, hemiColour: this.d.lights.hemi.color.clone() };
+    this.applyLight(0.6);
+    // a wide shot: everyone
+    const look = new THREE.Vector3(13.5, 1.0, 17.05);
+    this.shot.look.copy(look); this.shot.pos.copy(look).addScaledVector(CAM_DIR, 5.4);
+    for (const [, f] of this.figures) { const p = f.root.position; f.root.rotation.y = Math.atan2(-(this.shot.pos.x - p.x), -(this.shot.pos.z - p.z)); }
+    this.weightTo = 1;
+    this.reckonQueue = [...rk.lines];
+    this.lineLeft = 1.2;
+    this.d.sfx.crack();
+    this.talk.onTap = () => { this.lineLeft = Math.min(this.lineLeft, 0.05); };
+  }
+
+  private reckonUpdate(dt: number) {
+    if (this.talk.asking) return;
+    this.lineLeft -= dt;
+    if (this.lineLeft > 0) return;
+    const l = this.reckonQueue.shift();
+    if (l) {
+      this.talk.say(l.who, l.name, l.text, l.who === 'you' ? 'you' : l.who === 'landlord' ? 'phone' : '');
+      const f = this.figures.get(l.who);
+      if (f) { f.setExpr(l.expr ?? 'relaxed'); f.talking = 1.4; }
+      this.lineLeft = Math.min(4.6, Math.max(1.8, 1 + l.text.length * 0.05));
+      return;
+    }
+    this.talk.ask([{ text: 'Wind it up.', cls: 'wind' }], () => { this.mode = 'ending'; this.endAt = this.t + 0.8; });
   }
 
   // ---------- after hours ----------

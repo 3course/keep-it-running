@@ -39,6 +39,13 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   // Dennis on the line
   if (g.dennisRinging) add(true, 'dennis', `Phone's ringing (${CONFIG.dennis.name})`, 'phone');
 
+  // the Lease: the rent, from day 1
+  const l = w.lease;
+  if (l) {
+    const day = g.dayIndex - l.startDayIndex + 1, of = CONFIG.lease.weeks * CONFIG.week.days;
+    if (day <= of) add(false, 'lease', `Rent: $${l.rentDue.toLocaleString('en-AU')} by day ${of} · day ${day} · $${Math.round(g.cash).toLocaleString('en-AU')} in the bank`);
+  }
+
   // the layout put the compressor on the extractor's circuit: the breaker
   if (g.powerTripped) add(true, 'breaker', "Power's tripped: reset the breaker", 'switchboard');
 

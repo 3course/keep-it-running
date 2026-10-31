@@ -15,6 +15,8 @@ export interface MadeEntry { design: Design; count: number; after: string | null
 export interface DayPeople {
   lastNight: { who: string; beers: number; quote: string; quoteBy: string; dontAsk?: boolean } | null;
   afterHours: MadeEntry[];
+  /** The Lease: day of 20, the rent, what's in the bank; on day 20, the ending card. */
+  lease?: { day: number; of: number; rent: number; cash: number; ending?: { headline: string; lines: string[]; again: () => void } };
   /** Metres walked today, and the minutes the layout cost (negative: it saved them). */
   walking?: { metres: number; layoutMinutes: number };
 }
@@ -85,6 +87,7 @@ function pnl(d: DayStats, ply: { value: number; sheets: number }): string {
     + row('&nbsp;&nbsp;Labour', money(-d.labour), 'dim')
     + row('&nbsp;&nbsp;Other costs', money(-other), 'dim') + overdraft
     + ((d.afterHours ?? 0) > 0 ? row('&nbsp;&nbsp;After hours (boards)', money(-d.afterHours), 'dim') : '')
+    + ((d.coffee ?? 0) > 0 ? row('&nbsp;&nbsp;Coffee', money(-d.coffee), 'dim coffee') : '')
     + ((d.bets ?? 0) > 0 ? row(`&nbsp;&nbsp;${CONFIG.dennis.name}'s bets (costs, losses)`, money(-d.bets), 'dim bets') : '')
     + row('Operating profit', money(d.revenue - d.costs), d.revenue - d.costs >= 0 ? 'good' : 'bad')
     + row('Operating margin', pct(margin), mcls) + lost
@@ -126,6 +129,8 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
   el.innerHTML = `
     <h1>End of day ${d.day}</h1>
     <p class="sub">Cash ${money(g.cash)} · Rapport ${g.rapport}</p>
+    ${ppl?.lease?.ending ? `<section class="ending"><h2>The Lease</h2><h1>${escapeHtml(ppl.lease.ending.headline)}</h1>${ppl.lease.ending.lines.map(l => `<p>${escapeHtml(l)}</p>`).join('')}<button class="again">Start another lease</button></section>` : ''}
+    ${ppl?.lease && !ppl.lease.ending ? `<p class="story leaseline"><b>The Lease:</b> day ${ppl.lease.day} of ${ppl.lease.of}. Rent ${money(ppl.lease.rent)} due on day ${ppl.lease.of}; ${money(ppl.lease.cash)} in the bank${ppl.lease.cash >= ppl.lease.rent ? ' — on track.' : ` — ${money(ppl.lease.rent - ppl.lease.cash)} to go.`}</p>` : ''}
     ${g.story ? `<p class="story"><b>Story of the day:</b> ${escapeHtml(g.story)}</p>` : ''}
     ${ppl?.lastNight?.dontAsk ? `<p class="story lastnight"><b>Last night:</b> don't ask.</p>` : ppl?.lastNight ? `<p class="story lastnight"><b>Last night:</b> ${escapeHtml(ppl.lastNight.who)}, ${ppl.lastNight.beers} beer${ppl.lastNight.beers === 1 ? '' : 's'} each. “${escapeHtml(ppl.lastNight.quote)}” — ${escapeHtml(ppl.lastNight.quoteBy)}</p>` : ''}
     <section><h2>P&amp;L</h2>${pnl(d, { value: d.plyOnHandValue, sheets: d.plyOnHandSheets })}</section>
@@ -146,6 +151,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
     ${onResetHints ? '<a class="reset">Reset hints</a>' : ''}
     <a class="startover ${g.cash < 0 ? 'debt' : ''}">${g.cash < 0 ? "Drowning in debt? Start over with a clean slate" : 'Start over'}</a>`;
   wireStartOver(el, g);
+  el.querySelector('.again')?.addEventListener('click', () => ppl?.lease?.ending?.again());
   el.querySelectorAll<HTMLButtonElement>('button[data-upg]').forEach(b => b.addEventListener('click', () => {
     if (g.buyUpgrade(b.dataset.upg as UpgradeId)) { onChange(); renderDaySummary(el, g, onNext, onChange, onResetHints, made, ppl); }
   }));
@@ -159,11 +165,12 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
   });
 }
 
-export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) {
+/** `weekend`: between weeks of a lease, Saturday and Sunday come first (it calls `next` on Monday). `title`: the heading. */
+export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void, weekend?: (next: () => void) => void, title = 'Week closed') {
   const total = g.week.reduce<DayStats>((acc, d) => {
     for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k] ?? 0; // a day saved before a field existed
     return acc;
-  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0 });
+  }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
   const last = g.week[g.week.length - 1]; // stock is a snapshot at close, not a sum
   total.costs += g.weekOverheads;
@@ -173,7 +180,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
     : wm >= 0.15 ? 'A real business, just. One bad week from not being one.'
     : 'Alive, but you worked a week for very little. Scrap and overtime are the usual suspects.';
   el.innerHTML = `
-    <h1>Week closed</h1>
+    <h1>${title}</h1>
     <p class="sub ${g.cash >= 0 ? 'money' : 'bad'}">Cash in the bank: ${money(g.cash)}</p>
     <section><h2>Week P&amp;L</h2>${pnl(total, { value: last?.plyOnHandValue ?? 0, sheets: last?.plyOnHandSheets ?? 0 })}<p class="dim small">Fees include ${money(g.weekOverheads)} weekly overheads.</p></section>
     <section><h2>By day</h2><div class="row dim small"><span>Day · Rev · Cost</span><span>Margin · Done · Scrap</span></div>
@@ -185,5 +192,6 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void) 
     <button class="next">${g.cash < 0 ? 'Run another week (still in debt)' : 'Run another week'}</button>
     <a class="startover ${g.cash < 0 ? 'debt' : ''}">${g.cash < 0 ? 'Start over with a clean slate' : 'Start over'}</a>`;
   wireStartOver(el, g);
-  el.querySelector('.next')!.addEventListener('click', () => { g.nextWeek(); onNext(); });
+  const next = () => { g.nextWeek(); onNext(); };
+  el.querySelector('.next')!.addEventListener('click', () => (weekend ? weekend(next) : next()));
 }

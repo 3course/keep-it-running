@@ -27,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
   };
 }
 
@@ -49,6 +49,13 @@ export class Game {
   worldWalks = false;
   /** Dennis the accountant: his calls, bets and ledger (src/sim/dennis.ts). Plain data. */
   dennis: DennisState = newDennis();
+  /** The Lease's wobble (src/world/lease.ts): ply prices up, or a big customer gone quiet. Neutral unless it's happened. */
+  supplyCostMult = 1;
+  callMult = 1;
+  callMultUntil = 0;              // dayIndex the quiet spell lasts to
+  /** The cafe: a large coffee speeds tasks until this minute; the sparky you shouted resets the breaker on the house. */
+  coffeeUntil = 0;
+  sparkyFavour = false;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
   powerTripped = false;
 
@@ -223,6 +230,24 @@ export class Game {
   /** Yes, no, or give me a minute. */
   decideDennis(choice: 'yes' | 'no' | 'later'): boolean { return dennisDecide(this, choice); }
 
+  // ---------- the cafe before work, the Saturday market (the view calls these; the balance sim never does) ----------
+
+  /** A coffee on the way in: what it costs, and what it does (large: quicker till 11; shouting the sparky: a favour). */
+  buyCoffee(kind: 'regular' | 'large' | 'shout') {
+    const c = CONFIG.cafe, cost = kind === 'regular' ? c.regular : kind === 'large' ? c.large : c.regular * 2;
+    this.today.coffee ??= 0;
+    this.spend(cost, 'coffee');
+    if (kind === 'large') this.coffeeUntil = c.largeUntilHour * 60;
+    if (kind === 'shout') this.sparkyFavour = true;
+  }
+  /** A lead overheard at the cafe: it rings at this minute as an order, warm. */
+  leadCall(minute: number, sheets: number) {
+    this.orderCalls.push({ minute, sheets });
+    this.orderCalls.sort((a, b) => a.minute - b.minute);
+  }
+  /** Saturday at the market: a piece sold (not the shed's revenue: it's yours). */
+  marketSale(amount: number) { if (amount > 0) this.cash += Math.round(amount); }
+
   /** Move things round at the start of the day: costs time (it's heavy), not money. */
   layoutShuffle(minutes: number) {
     if (this.phase !== 'day' || minutes <= 0) return;
@@ -235,7 +260,8 @@ export class Game {
   resetPower(walked = false): boolean {
     if (!this.powerTripped || !this.canAct) return false;
     this.powerTripped = false;
-    if (!walked) this.busy = { label: 'resetting the breaker', remaining: Math.max(1, Math.round(this.layout.switchboardMinutes)) };
+    if (!walked && !this.sparkyFavour) this.busy = { label: 'resetting the breaker', remaining: Math.max(1, Math.round(this.layout.switchboardMinutes)) };
+    if (this.sparkyFavour) { this.sparkyFavour = false; this.say('The sparky you shouted came over and reset it. Cheers.'); }
     if (this.machine === 'paused' && this.current && !this.fault && !this.replacing) this.machine = 'cutting';
     this.say('Breaker back on.');
     return true;
@@ -305,6 +331,7 @@ export class Game {
   stepDurationMult(): number {
     const c = CONFIG.competence;
     let m = 1 + (c.max - this.competence) / c.durationPenaltyDivisor;
+    if (this.minute < this.coffeeUntil) m *= 1 - CONFIG.cafe.largeSpeedup; // a large coffee, till 11
     if (this.friendPresent) m *= CONFIG.faults.attentionSplitDurationMult;
     return m / (1 - this.beerSlow);
   }
@@ -381,6 +408,8 @@ export class Game {
       calls.push({ minute: Math.round(this.rng.range(from, to)), sheets: sheets() });
     }
     calls.sort((a, b) => a.minute - b.minute);
+    // the Lease's wobble: a big customer's gone quiet (fewer calls for a few days)
+    if (this.callMult < 1 && this.dayIndex <= this.callMultUntil) calls.splice(Math.max(1, Math.round(calls.length * this.callMult)));
     // reputation: sheets lost yesterday cost calls today (latest calls go first; the guaranteed first call stays)
     const keep = Math.max(o.callsMin, calls.length - this.lostYesterday * o.lostJobCallPenalty);
     if (keep < calls.length) this.say(`Word's got around about yesterday. Fewer calls today.`, 'bad');
@@ -1125,7 +1154,7 @@ export class Game {
     if (this.phase !== 'day') return { error: 'Supplier is closed.' };
     if (!(s.orderSizes as readonly number[]).includes(qty)) return { error: 'They sell it in 4s.' };
     const t = CONFIG.jobs.types.find(x => x.id === type)!;
-    let boards = Math.round(t.boardCost * this.materialMult()) * qty;
+    let boards = Math.round(t.boardCost * this.materialMult() * this.supplyCostMult) * qty;
     if (this.courierPenaltyPending) boards = Math.round(boards * (1 + CONFIG.distractions.courier.ignoredMaterialPenalty));
     const fee = qty >= s.freeDeliveryFrom ? 0 : s.deliveryFee;
     // the supplier won't take you past the overdraft limit

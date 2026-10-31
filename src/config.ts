@@ -236,6 +236,25 @@ export const CONFIG = {
   },
 
   // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
+  // The cafe before work (src/world3d/cafe.ts): the coffee's real money; a large one makes you a bit quicker till 11.
+  cafe: {
+    name: 'Little Bird',
+    barista: 'Mai',
+    regular: 5, large: 6.5,
+    largeSpeedup: 0.05, largeUntilHour: 11,
+    maxSeconds: 90,             // real seconds before you head back regardless
+    leadHour: 10,               // an overheard job lead rings at this hour
+  },
+
+  // The Lease (src/world/lease.ts): a run of 4 weeks on one seed; the rent's due at the end, in the bank.
+  lease: {
+    weeks: 4,
+    rentDue: 6500,              // the landlord's letter: in the bank by the end of day 20 (npm run sim -- --lease: competent ~88%)
+    wobbleWeek: 3,              // the week a wobble comes (drawn from the pool, not scripted)
+    priceRise: 1.15,            // the wobble: ply up this much for the rest of the lease
+    quietCalls: 0.6, quietDays: 3, // the wobble: a big customer goes quiet — this share of order calls for these days
+  },
+
   // Dennis, the accountant (src/sim/dennis.ts): one calculated risk a call, at most a call a day, none on day 1. Each bet
   // has an honest stated chance (`hit`) and a stated gain; losses hurt. Money in $; days are game days.
   dennis: {

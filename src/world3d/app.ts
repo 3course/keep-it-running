@@ -45,6 +45,12 @@ import { Gratitude } from './gratitude.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
 import { DennisView } from './dennisView.js';
+import { fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
+import { LEASE_LINES } from '../people/lines/lease.js';
+import { showLetter } from '../ui/letterCard.js';
+import { renderWeekend } from '../ui/weekend.js';
+import { startOver } from '../world/save.js';
+import type { Reckoning } from './knockoff.js';
 import { DEFAULT_PLAN, applyPlan, clonePlan, effectsOf, fullPlan, measure, STATION_IDS, type Plan } from '../world/layoutPlan.js';
 import { Sfx } from './sfx.js';
 import type { DayFacts } from '../people/night.js';
@@ -195,7 +201,7 @@ export class World3D {
   private hemi!: THREE.HemisphereLight;
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
-  constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo) {
+  constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo, readonly mode: 'lease' | 'daily' = 'lease') {
     this.tier = TIERS[gpu.tier];
     this.renderer = new THREE.WebGLRenderer({ antialias: this.tier.antialias, powerPreference: this.tier.powerPreference });
     this.renderer.setPixelRatio(1);
@@ -254,6 +260,15 @@ export class World3D {
       padding: '4px 12px', borderRadius: '14px', background: 'rgba(20,17,15,.6)', color: '#efe6d8', font: '14px sans-serif', pointerEvents: 'none', display: 'none', zIndex: '6' });
     this.hud.labels.parentElement!.appendChild(this.skipEl);
     this.makeKnockOff();
+    // the Lease: its letter on the first day (the rent's on the notepad from now on)
+    if (mode === 'lease') {
+      this.w.lease ??= newLease(g);
+      const l = this.w.lease;
+      if (!l.letterRead && leaseDay(l, g) === 1) {
+        const f = { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord };
+        showLetter(this.hud.labels.parentElement!, `From ${LEASE_LINES.landlord}`, LEASE_LINES.letter.map(x => fillRun(x, f)), () => { l.letterRead = true; this.save(); });
+      }
+    }
     this.aimEl = document.createElement('div'); this.aimEl.className = 'aim';
     this.sprayRing = document.createElement('div'); this.sprayRing.className = 'sprayring';
     this.hud.labels.append(this.aimEl, this.sprayRing);
@@ -544,6 +559,13 @@ export class World3D {
     this.layoutEditor.update();
     this.dennisView.update(this.paused || this.knockoff.inScene ? 0 : dt);
     this.offerLayout();
+    // the Lease's week-3 wobble, set off on its day
+    const lease = this.w.lease;
+    if (lease && g.phase === 'day' && fireWobble(lease, g, people(this.w))) {
+      const f = { ...runFacts(lease, g, people(this.w)), landlord: LEASE_LINES.landlord };
+      logEvent(this.w, fillRun(LEASE_LINES.wobbles[lease.wobble.kind][g.dayIndex % LEASE_LINES.wobbles[lease.wobble.kind].length], f));
+      this.save();
+    }
     this.gratitude.update(people(this.w), this.g.dayIndex, this.planNow);
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
@@ -673,7 +695,14 @@ export class World3D {
     this.hud.setHudVisible(false);
     const g = this.g;
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
-    const week = () => renderWeekSummary(this.hud.showSummary(), g, done);
+    const l = this.w.lease;
+    if (l && gt.phase === 'daySummary') recordDay(l, g);
+    const weekend = l && !leaseOver(l, g) && leaseDay(l, g) < leaseLength() ? (next: () => void) => renderWeekend(this.hud.showSummary(), {
+      week: Math.ceil(leaseDay(l, g) / CONFIG.week.days), pieces: () => people(this.w).keepsakes,
+      sell: (k, price) => { const p = people(this.w); p.keepsakes = p.keepsakes.filter(x => x !== k); g.marketSale(price); l.sold.push({ name: k.design.name, price, dayIndex: g.dayIndex }); this.save(); },
+      fill: t => fillRun(t, { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord }), monday: () => { next(); },
+    }) : undefined;
+    const week = () => renderWeekSummary(this.hud.showSummary(), g, done, weekend, l ? 'Friday. Payday.' : 'Week closed');
     if (g.phase === 'weekSummary') { week(); return; }
     renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday(), this.dayPeople());
   }
@@ -691,6 +720,22 @@ export class World3D {
     return [...out.values()];
   }
 
+  /** The Lease's line in the summary, and on day 20 (once it's been reckoned) the ending card. */
+  private leaseSummary(): DayPeople['lease'] {
+    const l = this.w.lease, g = this.g;
+    if (!l || leaseDay(l, g) > leaseLength()) return undefined;
+    const base = { day: leaseDay(l, g), of: leaseLength(), rent: l.rentDue, cash: Math.round(projectedCash(g)) };
+    if (!l.ending || base.day !== base.of) return base;
+    const p = people(this.w), f = runFacts(l, g, p), L = g.dennis.bets.filter(b => b.status === 'won' || b.status === 'lost');
+    return { ...base, ending: {
+      headline: LEASE_LINES.endings[l.ending].headline,
+      lines: [`Rent ${f.rent} · in the bank ${f.cash}.`, `Best day: ${f.best} (${f.bestAmount}). Worst: ${f.worst} (${f.worstAmount}).`,
+        `${PEOPLE.partTimer.name}: ${p.fullTime ? 'full time' : 'part time'}. Gifts on the walls: ${f.gifts}. Favourite piece: ${f.piece}.`,
+        L.length ? `${CONFIG.dennis.name}: ${f.won} of ${f.total} came good (${f.net}).` : `${CONFIG.dennis.name} never got a yes.`],
+      again: () => startOver(g.cash, g.dayIndex),
+    } };
+  }
+
   /**
    * Walking today, and the minutes the layout cost against the one it was built with: the shoving at the start of the
    * day, plus each load, stack, pickup and bundle's walk being longer (or shorter) than it was.
@@ -703,6 +748,26 @@ export class World3D {
     return { metres: Math.round(this.w.walkedToday ?? 0), layoutMinutes: Math.round((d.layoutMinutes ?? 0) + extra / mpm) };
   }
 
+  /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
+  reckoning(): Reckoning | null {
+    const l = this.w.lease, g = this.g;
+    if (!l || leaseDay(l, g) !== leaseLength()) return null;
+    const p = people(this.w), cash = projectedCash(g), ending = outcome(cash, l.rentDue);
+    const f = { ...runFacts(l, g, p), landlord: LEASE_LINES.landlord };
+    const E = LEASE_LINES.endings[ending], pick = (xs: string[], k: number) => fillRun(xs[(g.seed + k) % xs.length], f);
+    const who: Reckoning['people'] = ['eggby', 'courtney', 'tim'];
+    if (p.fullTime || p.trust > 0) who.push('jess');
+    if (g.dennis.bets.some(b => b.status === 'won' || b.status === 'lost' || b.status === 'open')) who.push('dennis');
+    const name = (id: string) => (id === 'jess' ? PEOPLE.partTimer.name : id === 'dennis' ? CONFIG.dennis.name : friendById(id as FriendId).name);
+    const lines: Reckoning['lines'] = [{ who: 'you', name: 'You', text: pick(E.you, 0) }];
+    who.forEach((id, i) => lines.push({ who: id, name: name(id), text: pick(E.byPerson[id], i + 1), expr: ending === 'short' ? 'misty' : ending === 'scraped' ? 'laughing' : 'animated' }));
+    lines.push({ who: 'landlord', name: `📄 ${LEASE_LINES.landlord}`, text: pick(E.landlord, 9) });
+    l.ending = ending;
+    rememberLease({ n: l.n, seed: l.seed, ending, cash: Math.round(cash), rentDue: l.rentDue, piece: f.piece, jessFullTime: p.fullTime, gifts: p.gifts.length, when: new Date().toISOString().slice(0, 10) });
+    this.save();
+    return { people: who, lines };
+  }
+
   /** The people side of today's summary: last night (if there was one tonight) and what got cut after hours. */
   dayPeople(): DayPeople {
     const p = people(this.w), dayIndex = this.g.dayIndex, ln = p.lastNight;
@@ -710,6 +775,7 @@ export class World3D {
     return {
       lastNight: ln && ln.dayIndex === dayIndex ? { who: `You and ${names(ln.who)}`, beers: ln.beers, quote: ln.quote, quoteBy: ln.quoteBy, dontAsk: !!ln.lsg } : null,
       walking: this.walkingToday(),
+      lease: this.leaseSummary(),
       afterHours: p.keepsakes.filter(k => k.dayIndex === dayIndex).map(k => ({
         design: k.design, count: 1, after: this.reveal.thumbnail(this.renderer, k.design),
         tag: `${k.suggestedBy === 'you' ? 'Your idea' : `${names([k.suggestedBy])}'s idea`}, ${k.beers} beer${k.beers === 1 ? '' : 's'} deep${k.accuracy < 0.6 ? ', gloriously wonky' : ''}`,
@@ -794,6 +860,8 @@ export class World3D {
       save: () => this.save(),
       canvas: this.renderer.domElement, rich: this.tier.detail.particles > 0 && !!this.tier.detail.lighting,
       designs: () => [...new Set((this.w.made ?? []).map(m => m.design))],
+      groupNight: () => !!this.w.lease && this.g.day === CONFIG.week.days,
+      reckoning: () => this.reckoning(),
     });
     const m = this.built.objects.get('machine')!, sheet = m.parts.sheet as THREE.Mesh;
     const sp = (sheet.geometry as THREE.BoxGeometry).parameters;

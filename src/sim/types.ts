@@ -235,6 +235,7 @@ export interface DayStats {
   canRefund: number;       // container deposit back on bags of empties (income, not revenue)
   layoutMinutes: number;   // minutes the layout cost today: shoving things round, longer walks than the default
   bets: number;            // Dennis's bets: what they cost and lost today (their wins are revenue)
+  coffee: number;          // the cafe on the way in
 }
 
 /**

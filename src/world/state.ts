@@ -50,6 +50,8 @@ export interface WorldState {
   layout?: Partial<import('./layoutPlan.js').Plan>;
   /** The day the layout last changed (a mate'll have something to say about it). */
   layoutDay?: number;
+  /** The Lease this run is (src/world/lease.ts); absent in the daily. */
+  lease?: import('./lease.js').LeaseState;
   /** Days Dennis came in for his coffee. */
   dennisCoffeeDay?: number[];
   /** Metres walked today, for the summary. */

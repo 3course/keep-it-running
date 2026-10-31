@@ -13,6 +13,7 @@ import { BAG_SPOT } from '../world/cans.js';
 import { boxAt, toon } from './build.js';
 import { buildPiece } from './piece.js';
 import { DEFAULT_PLAN, shift, type Plan } from '../world/layoutPlan.js';
+import { pastLeases, wall, type PastLease } from '../world/lease.js';
 
 // spots, in metres (world). Walls that face the camera (south-facing faces of north walls) so you see them as you work.
 const CORK_BUILT = { x: 4.6, y: 1.45, z: 19.53, w: 1.5, h: 0.9 };      // office, on the wall it shares with the floor
@@ -56,7 +57,7 @@ export class Gratitude {
       SLABS = { x: SLABS_BUILT.x + f.x, z: SLABS_BUILT.z + f.z };
     }
     const sig = JSON.stringify([p.gifts.map(g => [g.kind, g.slot, g.dayIndex === dayIndex || isKeep(g)]), p.keepsakes.map(k => k.design.id), p.cans.map(c => c.id),
-      Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab), Math.floor(p.bagged / 2), p.oddObject ?? '']);
+      Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab), Math.floor(p.bagged / 2), p.oddObject ?? '', wall.version]);
     if (sig === this.sig) return;
     this.sig = sig;
     this.clear();
@@ -66,6 +67,26 @@ export class Gratitude {
     this.buildSlabs(Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab));
     this.buildKeepsakes(p.keepsakes);
     this.buildOdd(p.oddObject ?? null);
+    this.buildLeaseWall(pastLeases());
+  }
+
+  /** Past leases: a framed photo each, along the top of the office wall. */
+  private buildLeaseWall(leases: PastLease[]) {
+    leases.slice(-10).forEach((l, i) => {
+      const c = document.createElement('canvas'); c.width = 48; c.height = 36;
+      const x = c.getContext('2d')!;
+      x.fillStyle = l.ending === 'comfortable' ? '#e8c87a' : l.ending === 'scraped' ? '#c9d7a8' : '#b8c4d8'; x.fillRect(0, 0, 48, 36);
+      // the shed and everyone out front (a group shot), the lease's number underneath
+      x.fillStyle = '#4f6e4c'; x.fillRect(6, 8, 36, 14); x.fillStyle = '#9ea4aa'; x.fillRect(28, 12, 10, 10);
+      ['#3d6f9e', '#8e3b5a', '#4e8a46', '#e8892e', ...(l.jessFullTime ? ['#d9643a'] : [])].forEach((col, k) => { x.fillStyle = col; x.fillRect(5 + k * 7, 24, 4, 6); x.fillStyle = '#f0c9a0'; x.fillRect(5 + k * 7, 21, 4, 3); });
+      x.fillStyle = '#14110f'; x.font = '7px monospace'; x.fillText(`#${l.n} ${l.ending === 'short' ? 'next time' : 'made it'}`, 3, 35);
+      const t = new THREE.CanvasTexture(c); t.magFilter = t.minFilter = THREE.NearestFilter; t.colorSpace = THREE.SRGBColorSpace;
+      const photo = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 0.24), new THREE.MeshBasicMaterial({ map: t }));
+      const px = 3.4 + i * 0.42, py = 2.1, pz = 19.535;
+      photo.position.set(px, py, pz + 0.012);
+      this.group.add(boxAt(0.38, 0.3, 0.02, 0x3a2a20, px, py - 0.15, pz), photo);
+      this.disposers.push(() => { t.dispose(); photo.geometry.dispose(); (photo.material as THREE.Material).dispose(); });
+    });
   }
 
   /** The morning after the rare late one: a milk crate on the router bed, or the extinguisher in the fridge. */

@@ -80,7 +80,7 @@ export class PeopleDay {
 
   get p(): PeopleState { return people(this.d.w); }
   /** In today? Her two days at first, every day once she's full time. */
-  get jessDay() { return this.p.fullTime || (J.days as readonly number[]).includes(this.d.g.day) || dennisJessDay(this.d.g); } // Dennis's bet: her extra days
+  get jessDay() { return this.p.fullTime || (J.days as readonly number[]).includes(this.d.g.day) || dennisJessDay(this.d.g) || this.p.jessExtraDay === this.d.g.dayIndex; } // Dennis's bet: her extra days
 
   // ---------- every frame ----------
 

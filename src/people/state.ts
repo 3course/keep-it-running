@@ -59,6 +59,8 @@ export interface PeopleState {
   lsgDay?: number | null;
   /** The morning after that: one odd thing somewhere silly. */
   oddObject?: 'crateOnBed' | 'extinguisherInFridge' | null;
+  /** The Lease's wobble wants her answer: she's in this day, whatever her days are. */
+  jessExtraDay?: number;
 }
 
 export function newPeople(): PeopleState {

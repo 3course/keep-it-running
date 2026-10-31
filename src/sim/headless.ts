@@ -520,6 +520,7 @@ console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONF
 if (args[2] === 'upgrades') upgradeStudy();
 else if (args[2] === 'layouts') layoutStudy();
 else if (args[2] === 'dennis') dennisStudy();
+else if (args.includes('--lease') || args[2] === 'lease') leaseStudy();
 else defaultReport();
 
 /**
@@ -735,4 +736,26 @@ function dennisStudy() {
   console.log(`yes beats no on average by ${(clear * 100).toFixed(1)} points — ${clear >= 0.02 ? 'PASS' : 'FAIL'} (want a clear margin, 2+ points)`);
   console.log('by bet (yes to all): ' + Object.entries(tally).map(([k, t]) => `${k} ×${t.n} won ${t.won} open ${t.open} net $${Math.round(t.net / t.n)}`).join(' | '));
   console.log(`worst yes seed ${pct(worstYes)} vs best no seed ${pct(bestNo)} — ${worstYes < bestNo ? 'PASS (the risks are real)' : 'FAIL (too safe)'}`);
+}
+
+/**
+ * `npm run sim -- --lease [seeds]`: The Lease — 20 working days from day 1 on one seed, as the game plays it. The rent
+ * (CONFIG.lease.rentDue) is due at the end: the cash in the bank on day 20 has to cover it. Reports the rent-made rate
+ * per script (target: competent ~85%, sloppy ~25%) and the spread of what they finish with.
+ */
+function leaseStudy() {
+  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 40 }, (_, i) => i + 1);
+  const due = CONFIG.lease.rentDue;
+  console.log(`\nThe Lease: ${CONFIG.lease.weeks} weeks from day 1, ${seeds.length} seeds. Rent due at the end: $${due} in the bank.`);
+  const ends: Record<string, number[]> = {};
+  for (const sc of SCRIPTS) {
+    const finish = ends[sc.name] = seeds.map(seed => playWeek(sc, seed, 1, CONFIG.lease.weeks).g.cash).sort((a, b) => a - b);
+    const made = finish.filter(c => c >= due).length / finish.length;
+    const q = (p: number) => Math.round(finish[Math.min(finish.length - 1, Math.floor(p * finish.length))]);
+    console.log(`${sc.name.padEnd(10)} rent made ${(made * 100).toFixed(0).padStart(3)}% | cash at the end: worst $${q(0)} · 25% $${q(0.25)} · median $${q(0.5)} · 75% $${q(0.75)} · best $${q(0.999)}`);
+  }
+  // what the rent figure does to the rates (the day sim isn't touched: the rent's the only lever)
+  const rate = (xs: number[], d: number) => `${Math.round(100 * xs.filter(c => c >= d).length / xs.length)}%`.padStart(4);
+  console.log('rent due →  ' + SCRIPTS.map(s => s.name.padStart(10)).join(''));
+  for (const d of [3000, 4000, 5000, 5500, 6000, 6500, 7000]) console.log(`$${d}`.padEnd(11) + SCRIPTS.map(s => rate(ends[s.name], d).padStart(10)).join(''));
 }

@@ -1,0 +1,198 @@
+// The café before work: the barista, the sparky at the next table, what you overhear. It's {cafe}, the one whose
+// menu board you cut. Speech bubbles: keep lines under ~100 characters.
+// Templates: {cafe} {mai} {jess} {name} {piece} {business} {want} {idea} {mate} {forecast} {landlord}
+import type { FriendId } from '../dialogue/types.js';
+import type { Ending } from './lease.js';
+
+export const CAFE_LINES = {
+  mai: {
+    hello: [
+      'Morning! You look like a person who needs a coffee. Lucky.',
+      'Hey! Sawdust on your shoulder. Leave it, it suits you.',
+      "Morning. The menu board's still the best-looking thing in here. Don't tell Wren.",
+      "Hiya. Grinder's warm, milk's cold, I'm awake-ish. What can I get you?",
+      'Morning, neighbour. Early start or late finish?',
+      "Hey! Sit anywhere. Except the window. That's Dennis's office now, apparently.",
+    ],
+    usual: [
+      'The usual? Don\'t answer. Already on.',
+      "I started it when you crossed the road. That's service.",
+      'Usual. I wrote you on the cup in my head.',
+      'Same as yesterday? Course it is. Creature of habit. Love that.',
+      "Yours is coming. I don't even ask now. We're past asking.",
+    ],
+    regular: [
+      'One regular. Coming up.',
+      'Regular it is. Sensible. Steady hands today.',
+      'Regular. Good choice for someone who works with spinning blades.',
+      'One regular, extra hot. Takes the edge off the roller door.',
+    ],
+    large: [
+      'Large one. Big day?',
+      "Large. I'm not asking. I can see it on your face.",
+      'Large, double shot. Want me to put a little router on the foam? I can try.',
+      "Large. That's a 'phone's going to ring all day' order.",
+      "Big cup for a big day. I'll say a little prayer to the extractor.",
+    ],
+    shout: [
+      "And one for the sparky? That's lovely. He'll pretend not to be chuffed.",
+      "One for him too? Nice. He's had a week. He told me. At length.",
+      "Shouting the sparky. You're a good egg. Second cup's on the house. Don't tell Wren.",
+      'Two, then. One for you, one for Mr Hi-Vis. Good karma for the fuse box.',
+    ],
+    bye: [
+      'See ya. Go make something nice.',
+      "Bye! Don't cut anything you'll miss.",
+      'Off you go. Say hi to the router.',
+      "See you tomorrow. Same time. I'll be here. Grinding.",
+      'Have a good one. Bring back sawdust stories.',
+    ],
+    lsgLook: [
+      '…',
+      '*a long look*',
+      '*looks at you. Looks at the cup. Makes it a large anyway.*',
+      '*raises one eyebrow very slowly*',
+      '…water too, I reckon.',
+    ],
+    stayingOn: {
+      comfortable: [
+        'Last day of the lease, isn\'t it? You\'re staying on, though. You\'ve got that look.',
+        "Wren reckons you're staying on. I told her: obviously. Look at the sign out front.",
+        "Staying on? Course you are. I'd have to find another usual otherwise.",
+        "Big day! Rent's sorted, I'm guessing? Good. I'd miss your face. And your tips.",
+      ],
+      scraped: [
+        "Last day! You're staying on, yeah? Tell me you're staying on. I've got a stamp card for you.",
+        "Close one, I'm guessing. You've got the tired-but-happy face. Staying on?",
+        "You'll stay on, won't you? The street needs someone who can make a sign.",
+        "Last day of the lease. Fingers crossed. Coffee's on me, just in case it's tight.",
+      ],
+      short: [
+        "Last day? Whatever happens, you're staying on. I've decided. Coffee's free.",
+        "You look like you've done the sums. Here. On the house. You're staying on, yeah?",
+        "Rough month? You'll be right. This street's not giving up its sign-maker that easy.",
+        'Staying on? Say yes. Wren said she\'d put in a word with your landlord. She means it.',
+      ],
+    } as Record<Ending, string[]>,
+  },
+  sparky: {
+    thanks: [
+      "Cheers, legend. You didn't have to. Glad you did.",
+      "Oh, mate. Thanks. That's my third, but this one's the good one.",
+      "Ta. If your fuse box ever trips, you've got my number. Free callout. Once.",
+      "Legend. I'll check your RCDs for free. Don't tell my boss. I'm my boss.",
+      "You're a gentleman and a scholar. Or whatever. Cheers.",
+    ],
+    idle: [
+      "Rewiring a terrace in Fitzroy. Knob-and-tube. Older than my nan.",
+      'Found a possum in a meter box yesterday. We came to an arrangement.',
+      "Builder wants the whole place done by Friday. It's Wednesday. It's always Wednesday.",
+      "My apprentice called a stud finder 'the beepy thing'. He's not wrong.",
+      'Tradie tip: never trust a light switch in a bathroom from the eighties.',
+      "That roller door of yours: hear it from here. Needs a squirt of something.",
+      "Doing a café fit-out in Brunswick. They want everything dimmable. Even the fridge.",
+      'Twenty years a sparky. Still get a little thrill when the lights come on.',
+    ],
+  },
+  /** Job leads: who wants what (it rings at 10). */
+  leads: [
+    { business: 'the florist next door', want: 'a sign shaped like a tulip', type: 'signage' as const },
+    { business: 'the bakery on Sydney Road', want: 'a proper shopfront sign', type: 'signage' as const },
+    { business: 'the barber on High Street', want: 'a sign with a big pair of scissors on it', type: 'signage' as const },
+    { business: 'the bowls club in Northcote', want: 'a new scoreboard', type: 'signage' as const },
+    { business: 'the kinder on Miller Street', want: 'cubby shelves for the little ones', type: 'joinery' as const },
+    { business: 'the record shop round the corner', want: 'crate dividers, A to Z', type: 'joinery' as const },
+    { business: 'the new yoga studio in Thornbury', want: 'shelves for forty rolled-up mats', type: 'joinery' as const },
+    { business: 'a builder doing townhouses in Preston', want: 'slab-edge forms, a stack of them', type: 'formwork' as const },
+    { business: 'the landscaper from Coburg', want: 'curved forms for a garden-bed pour', type: 'formwork' as const },
+    { business: 'the community garden in Brunswick East', want: 'forms for a concrete bench', type: 'formwork' as const },
+  ],
+  lead: [
+    '{mai} says {business} wants {want}. "I gave them your number. You\'re welcome."',
+    'Overheard at the counter: {business} is after {want}. {mai} pointed straight at you.',
+    'The bloke in the queue works for {business}. They want {want}. Expect a call at ten.',
+    '{mai}, sliding the cup over: "Word is {business} wants {want}. Told them you\'re the best."',
+    'Napkin on the saucer, in {mai}\'s handwriting: "{business}. {want}. Ring at 10!"',
+  ],
+  weather: [
+    'Radio says fine and 24. Roller door all the way up today.',
+    '{mai}: "Thirty-four this arvo. Northerly. Your shed\'ll be an oven. Drink water."',
+    'Radio says showers clearing by lunch. Classic Melbourne: bring everything.',
+    '{mai}: "Fog till ten, then glorious. Like me before coffee."',
+    'Radio says a cool change at three. Four seasons by knock-off.',
+    '{mai}: "Gusty. Hold onto your sheets. The ply kind."',
+    'Radio says 17 and drizzle all day. Good day to be indoors with a router.',
+    '{mai}: "Crisp and sunny. Fourteen. Perfect day to make something."',
+    "Radio says storms tonight. Better get the roller door down before five.",
+  ],
+  landlord: [
+    'Saw your landlord with a real estate bloke. Lots of pointing at your gutters.',
+    '{mai}: "{landlord} was in yesterday. Asked how busy you seemed. Bit odd, that."',
+    'Heard {landlord}\'s been talking to a developer. Probably about something else. Probably.',
+    '{mai}: "A bloke in a suit was measuring your front fence. With a laser. Friendly wave, though."',
+    "Rumour at the counter: {landlord}'s thinking of selling up. Nobody knows. Everyone's guessing.",
+  ],
+  customer: [
+    '{name}: "Thanks for the {piece}! Everyone who visits asks about it."',
+    '{name}: "The {piece}! I keep walking past it just to look. Thank you!"',
+    '{name}: "Saw you through the window. Had to say: the {piece} is perfect."',
+    '{name}: "Let me get your coffee. For the {piece}. No arguments."',
+    '{name}: "Told the whole street about the {piece}. You might get a few calls."',
+    '{name}: "The {piece} went up last night. Had a little cry. Good cry."',
+  ],
+  dennis: [
+    'Call you at ten. Got a hunch. I\'d say three in five.',
+    "Big one coming. Ten o'clock. Don't mind me, I'm modelling your week.",
+    'Brought my own instant. Twenty cents. Saving you money already, technically.',
+    "Morning! Call at ten. Honest odds, as always. Enjoy your large.",
+    "Don't look at the laptop. It's a surprise. A spreadsheet surprise. Ten o'clock.",
+  ],
+  jess: {
+    arrive: [
+      'Morning! Saw you through the window. Can I tag along?',
+      "Ooh, you're here! I'm getting a hot chocolate. Don't judge me.",
+      "Hi! Tram was early. That never happens. It's a sign.",
+      "Morning! {mai} knows my order now too. We're regulars. We're locals!",
+      'Hiya! I brought a muffin for the walk. Half for you. A third. A bit.',
+    ],
+    walk: [
+      "Think we'll get anything tricky today? I hope so. Tricky is fun.",
+      "Every sign I walk past now, I go: we'd have done the corners rounder.",
+      'I named a pigeon on the way here. Gerald. Says hi.',
+      "Mum asked when I'm getting a real job. I said I've got one. A really real one.",
+      "I'm going to change a bit today. Without help. Unless I need help.",
+      "Did you hear the sparky? Possum in a meter box! Melbourne's wild.",
+      "Can I do the stacking today? I've been practising in my head.",
+      'Smell that? Bakery. Or the shed. Both smell amazing, honestly.',
+    ],
+  },
+  rough: {
+    eggby: [
+      'Sunglasses stay on. Indoors. I am fine. I am dignified. Lower your voice.',
+      'Last night was civilisation. This morning is the bill.',
+      'Three sugars. Today is a three-sugar day. Say nothing.',
+    ],
+    courtney: [
+      "I sang. Didn't I? I sang. Bron says I sang to the dog. The dog says nothing.",
+      'Hazy beers. Hazy morning. Hazy everything. Love you. Quietly.',
+      "I'm great! I'm terrible! I'm ordering two coffees and a toastie!",
+    ],
+    tim: [
+      "I'm fine. Write that down. In very small letters.",
+      'Plain lager on principle. Several. Principles hurt.',
+      'Never again. Until Thursday. Trivia is Thursday.',
+    ],
+    dennis: [
+      "Two beers. Two. I've recalculated my tolerance. It's lower than forecast.",
+      "Did I tell anyone I loved them? Don't answer. I know the odds.",
+      "Spreadsheet's open. I can't look at it. It's too bright. All those cells.",
+    ],
+  } as Record<FriendId, string[]>,
+  menu: [
+    "I've been thinking about the menu. For {idea}. Sober. Still a goer. Mostly.",
+    "{idea}. I've been up since six. I've done a logo. Don't ask about the cooking.",
+    "I've been thinking about the menu. It's a napkin. But it's a big napkin.",
+    "Asked {mai} to be head barista at {idea}. She said maybe. That's basically yes.",
+    "{idea}: still on? I've got a menu. Still can't cook. Minor detail.",
+  ],
+};
