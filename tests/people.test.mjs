@@ -225,7 +225,7 @@ describe('customers', () => {
 describe('render tiers', () => {
   it('?safe=1: the night has no fridge light and no extra particles, but still plays', async () => {
     const game = await freshGame(env);
-    await game.page.goto(`${env.url}?seed=1&safe=1`);
+    await game.page.goto(`${env.url}?seed=1&intro=0&safe=1`);
     await game.page.waitForFunction(() => window.kirScene?.started);
     await game.eval((g, w, s) => { g.tick = () => {}; s.setPaused(false); });
     await five(game);

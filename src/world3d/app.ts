@@ -199,6 +199,9 @@ export class World3D {
   peopleDay!: PeopleDay;
   /** A visiting mate past "flat out": the yarn, the hand, the beer (src/world3d/mateVisit.ts). */
   mateVisit!: MateVisit;
+  /** A new game's first morning: the cafe intro to start once the scene's built, and what comes after it (the letter). */
+  private introPending = false;
+  private afterIntro: (() => void) | null = null;
   /** Kerr, on the office computer (the clock stops while it's up). */
   kerr!: KerrView;
   /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
@@ -312,7 +315,11 @@ export class World3D {
         const f = { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord };
         const letter = [...LEASE_LINES.letter];
         if (l.carried) letter.splice(2, 0, LEASE_LINES.letterCarried);
-        showLetter(this.hud.labels.parentElement!, `From ${LEASE_LINES.landlord}`, letter.map(x => fillRun(x, { ...f, carried: `$${(l.carried ?? 0).toLocaleString('en-AU')}` })), () => { l.letterRead = true; this.save(); });
+        const show = () => showLetter(this.hud.labels.parentElement!, `From ${LEASE_LINES.landlord}`, letter.map(x => fillRun(x, { ...f, carried: `$${(l.carried ?? 0).toLocaleString('en-AU')}` })), () => { l.letterRead = true; this.save(); });
+        // a new game's first morning starts at the cafe across the road (?intro=0 skips it): the letter's on the bench when you get in
+        const w = this.w, introDue = g.dayIndex === 1 && !!w.tour && !w.tour.cutStarted && !w.tour.visited.length && !w.introDone
+          && new URLSearchParams(location.search).get('intro') !== '0';
+        if (introDue) { this.introPending = true; this.afterIntro = show; } else show();
       }
     }
     this.aimEl = document.createElement('div'); this.aimEl.className = 'aim';
@@ -638,6 +645,11 @@ export class World3D {
     this.layoutEditor.update();
     this.dennisView.update(this.paused || this.knockoff.inScene ? 0 : dt);
     this.offerLayout();
+    if (this.introPending && this.cafe) {
+      this.introPending = false;
+      let seen = false; try { seen = localStorage.getItem('kir-intro-seen') === '1'; } catch { /* fine */ }
+      this.cafe.intro(seen);
+    }
     this.cafe.offer();
     this.cafe.update(dt, this.paused);
     // the Lease's week-3 wobble, set off on its day; a dealt week, on its first morning
@@ -665,7 +677,7 @@ export class World3D {
     this.updateBubble(dt);
     this.updateMateBubble();
     this.updateRing();
-    this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active);
+    this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active && !this.cafe?.active); // (new jobs show once you're in the shed)
     if (!this.hud.summaryShowing) {
       this.hud.update(g, todoItems(g, w), w.done, this.rentClock());
       // the first fault: follow the pointer to where it is (cleared on getting there); the first gesture card (cleared doing one)
@@ -1002,7 +1014,8 @@ export class World3D {
     this.cafe?.dispose();
     this.cafe = new Cafe({ scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, project: v => this.project(v),
       setHud: on => this.hud.setHudVisible(on), sfx: this.sfx, jessIn: () => this.jessIn,
-      arrive: () => { this.pos = { x: 6.5 * C, z: 16.5 * C }; this.vel = { x: 0, z: 0 }; this.stopWalking(); }, save: () => this.save() });
+      arrive: () => { this.pos = { x: 6.5 * C, z: 16.5 * C }; this.vel = { x: 0, z: 0 }; this.stopWalking(); }, save: () => this.save(),
+      introDone: () => { const f = this.afterIntro; this.afterIntro = null; f?.(); } });
     this.dennisView?.dispose();
     this.dennisView = new DennisView({ scene: this.scene, g: this.g, w: this.w, parent: this.hud.labels.parentElement!, project: v => this.project(v), save: () => this.save() });
     uiHooks.dennis = () => this.dennisView.pitch();

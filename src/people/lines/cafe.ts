@@ -5,6 +5,14 @@ import type { FriendId } from '../dialogue/types.js';
 import type { Ending } from './lease.js';
 
 export const CAFE_LINES = {
+  // the first morning (src/world3d/cafe.ts intro): before day 1, at the cafe across the road. Three beats, then the shed.
+  intro: {
+    mai: "You're the one who's taken the CNC shed? First coffee's on the house. You'll be back.",
+    rent: "Saw {landlord}'s letter on your bench. {rent} in {due} days. He means it, too.",
+    fires: "That shed? I've been in there twice for the extractor. Caught fire both times. Keep the bag empty and the extinguisher where you can find it.",
+    work: "I do kitchens up the road. Do my panels right and on time and I'll send work your way.",
+    youWalk: 'Right. Better open up.',
+  },
   mai: {
     hello: [
       'Morning! You look like a person who needs a coffee. Lucky.',

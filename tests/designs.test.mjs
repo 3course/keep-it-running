@@ -91,7 +91,7 @@ describe('before, during, after in the shed', () => {
   for (const [name, query, light, particles] of [['high tier', '', true, true], ['?safe=1', '&safe=1', false, false]]) {
     it(`${name}: finishing a sheet plays the reveal (${light ? 'warm light, dust' : 'no extra light or particles'}), under 3 s, and a tap skips it`, async () => {
       const game = await freshGame(env);
-      if (query) { await game.page.goto(`${env.url}?seed=1${query}`); await game.page.waitForFunction(() => window.kirScene?.started); await game.eval((g, w, s) => { g.tick = () => {}; g.maybeDistraction = () => {}; s.setPaused(false); }); } // a reload resumes paused
+      if (query) { await game.page.goto(`${env.url}?seed=1&intro=0${query}`); await game.page.waitForFunction(() => window.kirScene?.started); await game.eval((g, w, s) => { g.tick = () => {}; g.maybeDistraction = () => {}; s.setPaused(false); }); } // a reload resumes paused
       const id = await onBed(game, 'mila-cloud', 0.95);
       await frames(game, 2);
       await finish(game, id);

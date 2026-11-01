@@ -60,6 +60,8 @@ export interface WorldState {
   layoutDay?: number;
   /** The Lease this run is (src/world/lease.ts); absent in the daily. */
   lease?: import('./lease.js').LeaseState;
+  /** The first morning's intro at the cafe has played (or been skipped): it doesn't play again. */
+  introDone?: boolean;
   /** Mornings at the cafe (the barista knows your order from the third). */
   cafeVisits?: number;
   /** Days Dennis came in for his coffee. */

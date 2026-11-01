@@ -17,7 +17,7 @@ async function open(query = '', userAgent) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(`${env.url}?seed=1${query}`);
+  await page.goto(`${env.url}?seed=1&intro=0${query}`);
   await page.waitForFunction(() => window.kirScene?.started, null, { timeout: 30_000 });
   await page.evaluate(() => { window.kir.tick = () => {}; window.kir.maybeDistraction = () => {}; window.kirScene.w.tour = null; });
   const view = () => page.evaluate(() => {

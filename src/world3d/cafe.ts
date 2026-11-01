@@ -39,6 +39,8 @@ export interface CafeDeps {
   jessIn: () => boolean;
   /** Back in the shed: stand just inside the side door. */
   arrive: () => void;
+  /** The first morning's intro is over (walked over, or skipped): the shed's day 1 starts (the tour, the landlord's letter). */
+  introDone?: () => void;
   save: () => void;
 }
 
@@ -61,6 +63,9 @@ export class Cafe {
   private shot = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
   private weight = 0;
   private birds: THREE.Group[] = [];
+  /** The first morning: three beats, then walk over to the shed (no order, nothing overheard). */
+  private introMode = false;
+  private skipChip: HTMLButtonElement | null = null;
 
   constructor(private d: CafeDeps) {
     this.talk = new Talk(d.parent, 'day');
@@ -85,6 +90,56 @@ export class Cafe {
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.enter(); });
       this.d.parent.appendChild(b);
     } else if (!open && this.chip) { this.chip.remove(); this.chip = null; }
+  }
+
+  // ---------- the first morning (before day 1) ----------
+
+  /**
+   * Before day 1: you start at the cafe across the road. Mai, then three beats — the mate on the landlord's rent, the
+   * sparky on the shed's fires, a regular who'll send work your way — then walk over and the tour starts. `skippable`:
+   * you've seen it before (another run): a chip to skip it.
+   */
+  intro(skippable: boolean) {
+    const g = this.d.g, w = this.d.w, L = CAFE_LINES.intro;
+    this.offeredDay = g.dayIndex;
+    this.active = true; this.introMode = true; this.ordered = true; this.t = 0; this.heard = [];
+    this.minute = CONFIG.clock.startHour * 60 - 15;
+    this.d.setHud(false);
+    this.set.visible = true;
+    for (const f of this.figs.values()) this.set.remove(f.root);
+    this.figs.clear();
+    this.fig('mai', { shirt: 0xf4efe0, hair: 'bun', hairColour: 0x1a1414 }, new THREE.Vector3(-0.4, 0, -1.0), false);
+    this.fig('sparky', { shirt: 0x3a6fb0, hair: 'cap', hairColour: 0xe9d23a }, new THREE.Vector3(2.6, 0, 0.4), true);
+    const mate = friendById('eggby');
+    this.fig('mate', { shirt: mate.shirt, hair: 'short' }, new THREE.Vector3(3.05, 0, 0.6), true);
+    const reg = this.fig('regular', { shirt: 0x8fb06a, hair: 'pony' }, new THREE.Vector3(-0.95, 0, -0.2), false);
+    reg.setExpr('animated');
+    const you = this.fig('you', { shirt: 0xe8892e, hair: 'cap', hairColour: 0x2f4f6f }, new THREE.Vector3(0.9, 0, -0.2), false);
+    you.root.rotation.y = -0.35;
+    const f = { ...this.facts(), rent: `$${CONFIG.lease.rentDue.toLocaleString('en-AU')}`, due: String(CONFIG.lease.dueDay) };
+    this.queue = [
+      { who: 'mai', name: CONFIG.cafe.barista, text: this.fill(L.mai, f) },
+      { who: 'mate', name: mate.name, text: this.fill(L.rent, f), note: `${mate.name}: the rent's ${f.rent} in ${f.due} days` },
+      { who: 'sparky', name: 'The sparky', text: this.fill(L.fires, f), note: "The sparky: the shed's had fires. Keep the bag empty" },
+      { who: 'regular', name: 'A regular', text: this.fill(L.work, f), note: "A regular'll send work your way" },
+      { who: 'you', name: 'You', text: L.youWalk },
+    ];
+    this.heard = this.queue.filter(h => h.note);
+    this.lineLeft = 0.8;
+    this.talk.onTap = () => { this.lineLeft = Math.min(this.lineLeft, 0.05); };
+    // a wider shot than a usual morning: five of them in it
+    this.shot.look.copy(O).add(new THREE.Vector3(1.05, 1.15, -0.6));
+    this.shot.pos.copy(this.shot.look).add(new THREE.Vector3(0.3, 1.2, 10.5));
+    this.d.sfx.unlock();
+    if (skippable) {
+      const b = this.skipChip = document.createElement('button');
+      b.className = 'cafechip skip'; b.textContent = 'Skip ›';
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + env(safe-area-inset-right, 0px))', top: 'calc(20px + env(safe-area-inset-top, 0px))', zIndex: '8',
+        font: "14px 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
+      b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.leave(); });
+      this.d.parent.appendChild(b);
+    }
+    logEvent(w, `First morning at ${CONFIG.cafe.name}`);
   }
 
   // ---------- the visit ----------
@@ -216,12 +271,17 @@ export class Cafe {
     for (const h of this.heard) { h.apply?.(); if (h.note) logEvent(w, h.note); }
     const j = this.heard.find(h => h.who === 'jess');
     if (j) logEvent(w, `${PEOPLE.partTimer.name}: "${pick(CAFE_LINES.jess.walk, g.dayIndex)}"`);
+    const wasIntro = this.introMode;
+    this.introMode = false;
+    this.skipChip?.remove(); this.skipChip = null;
+    if (wasIntro) { w.introDone = true; try { localStorage.setItem('kir-intro-seen', '1'); } catch { /* fine */ } }
     this.active = false;
     this.talk.clear();
     this.set.visible = false;
     this.d.setHud(true);
     this.d.arrive();
     this.d.save();
+    if (wasIntro) this.d.introDone?.();
   }
 
   update(dt: number, paused: boolean) {
@@ -245,6 +305,7 @@ export class Cafe {
     if (this.lineLeft > 0) return;
     const l = this.queue.shift();
     if (l) {
+      if (this.introMode) for (const id of this.figs.keys()) if (id !== l.who) this.talk.hush(id); // one voice at a time: five of them, one screen
       this.talk.say(l.who, l.name, l.text, l.who === 'you' ? 'you' : l.who === 'radio' ? 'phone' : '');
       const f = this.figs.get(l.who); if (f) f.talking = 1.2;
       this.lineLeft = Math.min(4.5, Math.max(1.6, 0.9 + l.text.length * 0.045));
@@ -254,7 +315,7 @@ export class Cafe {
       this.talk.ask([{ text: 'Regular' }, { text: 'Large' }, { text: 'Shout the sparky', cls: 'call' }], i => this.order((['regular', 'large', 'shout'] as const)[i]));
       return;
     }
-    this.talk.ask([{ text: 'Walk back', cls: 'door' }], () => this.leave());
+    this.talk.ask([{ text: this.introMode ? 'Walk over to the shed' : 'Walk back', cls: 'door' }], () => this.leave());
   }
 
   applyCamera(camera: THREE.PerspectiveCamera, dt: number) {
@@ -309,7 +370,7 @@ export class Cafe {
     }
   }
 
-  dispose() { this.talk.clear(); this.chip?.remove(); this.d.scene.remove(this.set); }
+  dispose() { this.talk.clear(); this.chip?.remove(); this.skipChip?.remove(); this.d.scene.remove(this.set); }
 }
 
 function signTex(text: string, colour = '#f4efe0') {

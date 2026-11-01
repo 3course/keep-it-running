@@ -18,7 +18,7 @@ async function iphoneGame() {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`${env.url}?seed=1`);
+  await page.goto(`${env.url}?seed=1&intro=0`);
   await page.waitForFunction(() => window.kirScene?.started, null, { timeout: 30_000 });
   await page.evaluate(() => { window.kir.tick = () => {}; window.kir.maybeDistraction = () => {}; });
   // spy on the world's input layer: every time the stick is drawn, or a tap walks you somewhere

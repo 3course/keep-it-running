@@ -40,7 +40,7 @@ export async function freshGame(env, seed = 1) {
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(`${env.url}?seed=${seed}`);
+  await page.goto(`${env.url}?seed=${seed}&intro=0`); // (the first-morning intro has its own test: tests/intro.test.mjs)
   await page.waitForFunction(() => window.kirScene?.started, null, { timeout: 30_000 });
   // the clock's stopped (advance() runs it), and nobody turns up unless a test sends them
   await page.evaluate(() => { window.kir.tick = () => {}; window.kir.maybeDistraction = () => {}; });
