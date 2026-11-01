@@ -392,7 +392,8 @@ export class Hud {
       + (more > 0 ? `<li class="more" data-more="1">+ ${more} more job${more === 1 ? '' : 's'}</li>` : list.length > 3 ? `<li class="more" data-more="0">Show fewer</li>` : '') + '</ul>';
   }
 
-  update(g: Game, items: TodoItem[], log: string[]) {
+  /** `header`: beside the day at the top of the notepad (the rent clock). */
+  update(g: Game, items: TodoItem[], log: string[], header = '') {
     this.updateToast(log);
     const ot = g.overtime ? ' · OT' : '';
     const cashCls = g.cash < 0 ? 'cash neg' : 'cash';
@@ -406,7 +407,7 @@ export class Hud {
     this.dot.classList.toggle('pulse', items.some(i => i.key.startsWith('phone-') || i.key.startsWith('bank-')));
 
     const open = [...g.jobs].filter(j => j.status === 'queued' || j.status === 'cutting').sort((a, b) => g.dueAt(a) - g.dueAt(b));
-    const sig = JSON.stringify([items.map(i => i.key + i.text), open.map(j => [j.id, j.status, g.isLate(j)]), g.day, this.sheetsOpen]);
+    const sig = JSON.stringify([items.map(i => i.key + i.text), open.map(j => [j.id, j.status, g.isLate(j)]), g.day, this.sheetsOpen, header]);
     if (sig === this.padSig) return;
     this.padSig = sig;
     const isCallback = (i: TodoItem) => i.key.startsWith('callback-');
@@ -415,7 +416,7 @@ export class Hud {
     // only sections with something in them: the list is just the list
     const section = (title: string, list: TodoItem[], cls = '') => list.length ? `<h3${cls ? ` class="${cls}"` : ''}>${title}</h3><ul>${list.map(li).join('')}</ul>` : '';
     const body = section('Now', now) + section('Can wait', later) + section('Voicemail', calls, 'vm') + this.sheetsHtml(g);
-    this.padBody.innerHTML = `<h2>Day ${g.day} of ${CONFIG.week.days}</h2>${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
+    this.padBody.innerHTML = `<h2>Day ${g.day} of ${CONFIG.week.days}${header ? ` · <span class="rentclock">${esc(header)}</span>` : ''}</h2>${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
     for (const node of Array.from(this.padBody.querySelectorAll<HTMLLIElement>('li[data-more]'))) {
       node.addEventListener('click', () => { this.sheetsOpen = node.dataset.more === '1'; this.padSig = ''; this.update(g, items, log); });
     }

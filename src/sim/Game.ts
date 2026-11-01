@@ -366,6 +366,16 @@ export class Game {
     return [...head, ...lines].join('\n');
   }
 
+  /** This week so far, a day a line (today last), then today's full log: for the game-over screen and a playtester. */
+  weekReport(): string {
+    const days = [...this.week, ...(this.phase === 'weekSummary' ? [] : [this.today])];
+    const line = (d: DayStats) => {
+      const m = d.revenue > 0 ? `${Math.round(((d.revenue - d.costs) / d.revenue) * 100)}%` : '—';
+      return `Day ${d.day}: revenue $${Math.round(d.revenue)} · costs $${Math.round(d.costs)} · margin ${m} · ${d.sheetsDone} sheets (${d.sheetsLate} late, ${d.sheetsScrapped} scrapped) · fires ${d.firesSpot}`;
+    };
+    return [`Keep It Running — Shift #${this.seed} — the week`, `Cash $${Math.round(this.cash)}`, ...days.map(line), '', this.dayReport()].join('\n');
+  }
+
   private say(text: string, tone: LogEntry['tone'] = 'info') {
     this.log.push({ dayIndex: this.dayIndex, minute: this.minute, text, tone });
     // trim old days only, so today's log is whole when it's copied at the end of the day

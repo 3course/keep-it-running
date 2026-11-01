@@ -16,7 +16,7 @@ export interface DayPeople {
   lastNight: { who: string; beers: number; quote: string; quoteBy: string; dontAsk?: boolean } | null;
   afterHours: MadeEntry[];
   /** The Lease: day of 20, the rent, what's in the bank; on day 20, the ending card. */
-  lease?: { day: number; of: number; rent: number; cash: number; ending?: { headline: string; lines: string[]; again: () => void } };
+  lease?: { day: number; of: number; rent: number; cash: number; ending?: { short?: boolean; headline: string; lines: string[]; again: () => void } };
   /** Metres walked today, and the minutes the layout cost (negative: it saved them). */
   walking?: { metres: number; layoutMinutes: number };
 }
@@ -123,7 +123,30 @@ function dayVerdict(d: DayStats): string {
 }
 
 /** Fill `el` with the end-of-day screen. onNext runs after Game.nextDay(); onChange after a purchase. */
+/** Rent day, and the rent isn't there: game over, the week on one screen, and a way to start again. */
+function renderGameOver(el: HTMLElement, g: Game, lease: NonNullable<DayPeople['lease']>) {
+  const e = lease.ending!;
+  const days = [...g.week, g.today];
+  const row = (d: DayStats) => {
+    const m = d.revenue > 0 ? (d.revenue - d.costs) / d.revenue : 0;
+    return `<div class="row ${m >= 0.15 ? 'good' : m < 0 ? 'bad' : ''}"><span>Day ${d.day}</span><span>${money(d.revenue)} in · ${money(d.costs)} out · ${d.sheetsDone} sheets</span></div>`;
+  };
+  el.innerHTML = `
+    <h1>Game over</h1>
+    <p class="sub shift">Shift #${g.seed}</p>
+    <section class="ending gameover"><h2>Rent day</h2><h1>${escapeHtml(e.headline)}</h1>
+      <p>${money(lease.cash)} in the bank. ${money(lease.rent)} due. The landlord's changed the locks.</p>
+      ${e.lines.map(l => `<p>${escapeHtml(l)}</p>`).join('')}</section>
+    <section><h2>The week</h2>${days.map(row).join('')}</section>
+    <button class="copy">Copy week log</button><p class="status"></p>
+    <button class="next again">Start over</button>`;
+  const status = el.querySelector('.status')!;
+  el.querySelector('.copy')!.addEventListener('click', () => { void copyText(g.weekReport()).then(ok => { status.textContent = ok ? 'Copied — paste it into a message.' : "Couldn't reach the clipboard."; }); });
+  el.querySelector('.again')!.addEventListener('click', () => e.again());
+}
+
 export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, onChange: () => void, onResetHints?: () => void, made: MadeEntry[] = [], ppl?: DayPeople) {
+  if (ppl?.lease?.ending?.short) { renderGameOver(el, g, ppl.lease); return; }
   const d = g.today;
   const last = d.day >= CONFIG.week.days;
   const floor: [string, string][] = [

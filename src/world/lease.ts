@@ -50,7 +50,8 @@ export function newLease(g: Game, n = nextLeaseNumber()): LeaseState {
   return { n, seed: g.seed, startDayIndex: g.dayIndex, rentDue: L.rentDue + carried, carried, letterRead: false, wobble: { kind, dayIndex: day, fired: false }, days: [], sold: [], ending: null };
 }
 
-export const leaseLength = () => CONFIG.lease.weeks * CONFIG.week.days;
+/** The rent's due at close on this day of the lease (CONFIG.lease.dueDay). */
+export const leaseLength = () => CONFIG.lease.dueDay;
 /** Day 1..20 of the lease (the game's dayIndex counts every working day). */
 export const leaseDay = (l: LeaseState, g: Game) => g.dayIndex - l.startDayIndex + 1;
 export const leaseOver = (l: LeaseState, g: Game) => leaseDay(l, g) > leaseLength();

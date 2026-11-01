@@ -48,7 +48,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   // the Lease: the rent, from day 1
   const l = w.lease;
   if (l) {
-    const day = g.dayIndex - l.startDayIndex + 1, of = CONFIG.lease.weeks * CONFIG.week.days;
+    const day = g.dayIndex - l.startDayIndex + 1, of = CONFIG.lease.dueDay;
     if (day <= of) add(false, 'lease', `Rent: $${l.rentDue.toLocaleString('en-AU')} by day ${of} · day ${day} · $${Math.round(g.cash).toLocaleString('en-AU')} in the bank`);
   }
 

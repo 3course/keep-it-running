@@ -103,6 +103,34 @@ describe('the lease, in the shed', () => {
     assert.match(await game.eval((g, w, s) => s.hud.pad.textContent), new RegExp(`Rent: \\$${CONFIG.lease.rentDue.toLocaleString('en-AU')} by day 20 · day 1`));
     await game.close();
   });
+  it('the rent clock: the notepad header counts down to the due day', async () => {
+    const game = await freshGame(env);
+    assert.match(await game.eval((g, w, s) => s.hud.pad.querySelector('h2').textContent), new RegExp(`rent in ${CONFIG.lease.dueDay - 1} days`));
+    await game.eval((g, w, s, due) => { w.lease.startDayIndex = g.dayIndex - (due - 1); }, CONFIG.lease.dueDay);
+    await game.page.waitForFunction(() => /rent due today/.test(window.kirScene.hud.pad.querySelector('h2').textContent));
+    await game.close();
+  });
+  for (const [what, short] of [['more than the grace short: game over, with the week', true], ['scraped it: the usual summary', false]]) {
+    it(`rent day, ${what}`, async () => {
+      const game = await freshGame(env);
+      const rent = CONFIG.lease.rentDue, grace = CONFIG.lease.endings.graceShort;
+      await game.eval((g, w, s, cash) => {
+        document.querySelectorAll('.lettercard').forEach(e => e.remove());
+        w.tour = null; w.lease.startDayIndex = g.dayIndex - 19; g.cash = cash; // day 20
+        s.reckoning(); g.phase = 'daySummary';
+      }, short ? rent - grace - 500 : rent - grace + 500);
+      await game.page.waitForFunction(() => getComputedStyle(document.querySelector('#kir-hud .summary')).display === 'block');
+      const text = await game.page.evaluate(() => document.querySelector('#kir-hud .summary').textContent);
+      if (short) {
+        assert.match(text, /Game over/); assert.match(text, /The week/); assert.match(text, /Day 1/);
+        assert.ok(await game.page.evaluate(() => !!document.querySelector('#kir-hud .summary button.copy') && !!document.querySelector('#kir-hud .summary button.again')));
+        assert.match(await game.eval(g => g.weekReport()), /Shift #\d+ — the week/);
+      } else {
+        assert.doesNotMatch(text, /Game over/); assert.match(text, /End of day/);
+      }
+      await game.close();
+    });
+  }
   it('the day summary is never under the letter: opening it puts the letter away (read)', async () => {
     const game = await freshGame(env);
     assert.ok(await game.page.evaluate(() => !!document.querySelector('#kir-hud .lettercard:not(.gone)')), 'the letter is up');
@@ -152,7 +180,9 @@ describe('the lease, in the shed', () => {
     for (let k = 0; k < 200 && !(await game.eval((g, w, s) => s.knockoff.talk.asking)); k++) { await game.page.mouse.click(200, 300); await game.page.waitForTimeout(50); }
     await game.page.evaluate(() => document.querySelector('#kir-hud .replies:not(.day) button').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
     await game.page.waitForSelector('#kir-hud .summary .ending');
-    assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .summary .ending').textContent), /Start another lease/);
+    // well short of the rent: game over, the week, and start again (playtest 1)
+    const text = await game.page.evaluate(() => document.querySelector('#kir-hud .summary').textContent);
+    assert.match(text, /Game over/); assert.match(text, /The week/); assert.match(text, /Start over/);
     const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir-leases')));
     assert.equal(wall.at(-1).ending, 'short'); // $1,000 less the week's overheads: well short of the rent
     await game.close();

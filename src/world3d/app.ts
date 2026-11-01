@@ -667,7 +667,7 @@ export class World3D {
     this.updateRing();
     this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active);
     if (!this.hud.summaryShowing) {
-      this.hud.update(g, todoItems(g, w), w.done);
+      this.hud.update(g, todoItems(g, w), w.done, this.rentClock());
       // the first fault: follow the pointer to where it is (cleared on getting there); the first gesture card (cleared doing one)
       if (g.fault && this.inRange(faultTarget(g, w) ?? 'machine')) this.hints.mark('fault');
       const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
@@ -834,6 +834,7 @@ export class World3D {
     if (!l.ending || base.day !== base.of) return base;
     const p = people(this.w), f = runFacts(l, g, p), L = g.dennis.bets.filter(b => b.status === 'won' || b.status === 'lost');
     return { ...base, ending: {
+      short: l.ending === 'short',
       headline: (l.owed ? LEASE_LINES.endings[l.ending].headlineRide : undefined) ?? LEASE_LINES.endings[l.ending].headline,
       lines: [`Rent ${f.rent} · in the bank ${f.cash}.${l.owed ? ` $${l.owed.toLocaleString('en-AU')} rides to the next lease.` : ''}`, `Best day: ${f.best} (${f.bestAmount}). Worst: ${f.worst} (${f.worstAmount}).`,
         `${PEOPLE.partTimer.name}: ${p.fullTime ? 'full time' : 'part time'}. Gifts on the walls: ${f.gifts}. Favourite piece: ${f.piece}.`,
@@ -852,6 +853,14 @@ export class World3D {
     const extra = sheets * (2 * (now.load - was.load) + 2 * (now.stack - was.stack) + CONFIG.layout.pickupsPerStack * 2 * (now.pickup - was.pickup))
       + d.trucks * 3 * 2 * (now.delivery - was.delivery);
     return { metres: Math.round(this.w.walkedToday ?? 0), layoutMinutes: Math.round((d.layoutMinutes ?? 0) + extra / mpm) };
+  }
+
+  /** The notepad's rent clock: "rent in 17 days", "rent due today" (nothing in the daily). */
+  rentClock(): string {
+    const l = this.w.lease;
+    if (!l) return '';
+    const left = leaseLength() - leaseDay(l, this.g);
+    return left > 1 ? `rent in ${left} days` : left === 1 ? 'rent due tomorrow' : left === 0 ? 'rent due today' : '';
   }
 
   /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
