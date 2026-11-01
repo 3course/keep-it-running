@@ -87,8 +87,11 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     else if (d.kind === 'bank') add(true, `bank-${d.id}`, "Phone's ringing (the bank)", 'phone');
   }
   if (g.fire) {
+    // tapping it goes to the nearest extinguisher (on a hook, or wherever one was put down: the view handles that), then the exhaust
     const ext = HOOKS.filter(h => onHook(g, w, h.hook)).map(h => h.id);
-    add(true, 'fire', 'Put out the exhaust fire', w.carrying === 'extinguisher' || !ext.length ? 'exhaust' : ext);
+    const down = Object.keys(w.extAt ?? {}).length > 0;
+    add(true, 'fire', w.carrying === 'extinguisher' || (!ext.length && !down) ? 'Put out the exhaust fire' : 'Put out the exhaust fire (grab the extinguisher)',
+      w.carrying === 'extinguisher' || (!ext.length && !down) ? 'exhaust' : ext.length ? ext : 'exhaust');
   }
   if (g.machineDown) add(true, 'down', 'Machine is cooked for today', 'machine');
   // the fault: wherever its next part happens (the extractor, the bit rack, the skip…), not just the machine
@@ -116,7 +119,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     case 'newBag': if (fixStep(g.fault)?.needs !== 'newBag') add(false, 'carry-newbag', 'Put the new bag back', 'bags'); break;
     case 'extinguisher': if (!g.fire) {
       const empty: ObjectId[] = HOOKS.filter(h => hookThere(g, h.hook) && !onHook(g, w, h.hook)).map(h => h.id);
-      add(false, 'carry-ext', 'Hang the extinguisher back up', empty);
+      add(false, 'carry-ext', 'Hang the extinguisher back up (or put it down anywhere)', empty);
     } break;
   }
 

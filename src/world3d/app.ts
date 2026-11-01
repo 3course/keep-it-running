@@ -18,7 +18,7 @@ import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave } from '../world/save.js';
-import { absMinute, HOOKS, hookThere, logEvent, onHook, startNewDay, type WorldState } from '../world/state.js';
+import { absMinute, extPlace, HOOKS, hookThere, logEvent, onHook, startNewDay, type Hook, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
@@ -167,6 +167,11 @@ export class World3D {
   private bubbleText = '';
   // beer: cans put down around the shed, the one we're walking over to, sips seen
   private canMeshes = new Map<number, THREE.Group>();
+  /** Extinguishers put down somewhere (not on a hook, not in your hands), and the one you're walking over to pick up. */
+  private extMeshes = new Map<Hook, THREE.Group>();
+  private pendingExt: Hook | null = null;
+  /** The fire whose start has been written in the day log (with where the extinguisher was). */
+  private fireLogged = 0;
   private pendingCan: number | null = null;
   private sipsSeen = 0;
   /** The visiting mate's walking (where they go is Game's call). Public for tests. */
@@ -252,8 +257,16 @@ export class World3D {
     this.paused = resumePaused;
 
     this.hud = new Hud(canvas, {
-      goTo: (targets, key) => { this.hints.mark('notepad'); this.goToNearest(targets, key); },
-      putCanDown: () => { if (this.g.heldCan) { this.putCanDown(); this.player.hop(); logEvent(this.w, 'Put the can down'); this.save(); } },
+      goTo: (targets, key) => {
+        this.hints.mark('notepad');
+        // a fire with the extinguisher not in your hands: go to the nearest one, wherever it is (a hook or the floor)
+        if (key === 'fire' && this.w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e?.down) { this.walkToPoint(e.x, e.z); this.pendingExt = e.h; return; } }
+        this.goToNearest(targets, key);
+      },
+      putCanDown: () => {
+        if (this.w.carrying === 'extinguisher') { this.putExtDown(); this.player.hop(); logEvent(this.w, 'Put the extinguisher down'); this.save(); return; }
+        if (this.g.heldCan) { this.putCanDown(); this.player.hop(); logEvent(this.w, 'Put the can down'); this.save(); }
+      },
       toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
@@ -457,6 +470,14 @@ export class World3D {
     if (morning) {
       const at = 'bag' in morning ? BAG_SPOT : people(this.w).cans.find(c => c.id === morning.can);
       if (at) { this.player.hop(); this.walkToPoint(at.x, at.z); this.pendingMorning = morning; return; }
+    }
+    const ext = this.pickExt(lx, ly);
+    if (ext !== null) {
+      const spot = this.w.extAt![ext]!;
+      this.player.hop();
+      this.walkToPoint(spot.x, spot.z);
+      this.pendingExt = ext;
+      return;
     }
     const can = this.pickCan(lx, ly);
     if (can !== null) {
@@ -1140,6 +1161,16 @@ export class World3D {
     this.pos.x = r.x; this.pos.z = r.z;
 
     if (!frozen && this.pendingMorning) this.morningArrive();
+    if (!frozen && this.pendingExt !== null) {
+      const spot = this.w.extAt?.[this.pendingExt];
+      if (!spot) this.pendingExt = null;
+      else if (Math.hypot(spot.x - this.pos.x, spot.z - this.pos.z) <= WORLD.interactRange + 0.2) {
+        const act = this.extActions(this.pendingExt)[0];
+        this.pendingExt = null;
+        this.stopWalking();
+        if (act) this.doAction(act);
+      }
+    }
     if (!frozen && this.pendingCan !== null) {
       const spot = this.w.canSpots?.[this.pendingCan];
       if (!spot) this.pendingCan = null;
@@ -1188,7 +1219,7 @@ export class World3D {
     return { x: dx / d * s, z: dz / d * s };
   }
 
-  private stopWalking() { this.path = null; this.pending = null; this.pendingCan = null; this.pendingMorning = null; }
+  private stopWalking() { this.path = null; this.pending = null; this.pendingCan = null; this.pendingExt = null; this.pendingMorning = null; }
 
   /** Beside a morning can (pick it up, a few at a time) or the refund bag (in they go; a full bag's the deposit back). */
   private morningArrive() {
@@ -1350,6 +1381,12 @@ export class World3D {
       const v = this.built.objects.get(o.id)!;
       return { id: o.id as string, anchor: new THREE.Vector3(v.centre.x, o.height + 0.35, v.centre.z), acts: actionsFor(o.id, g, w), status: statusFor(o.id, g, w) };
     });
+    // extinguishers put down within reach
+    for (const h of live ? HOOKS.map(x => x.hook) : []) {
+      const p = extPlace(g, w, h);
+      if (p.at !== 'down' || Math.hypot(p.x - this.pos.x, p.z - this.pos.z) > WORLD.interactRange + 0.2) continue;
+      entries.push({ id: `ext-${h}`, anchor: new THREE.Vector3(p.x, 0.85, p.z), acts: this.extActions(h), status: 'Extinguisher' });
+    }
     // cans on the floor within reach
     for (const c of live ? g.cans : []) {
       const spot = w.canSpots?.[c.id];
@@ -1610,7 +1647,10 @@ export class World3D {
     const held = g.heldCan;
     this.player.setCan(held ? (held.fill > 0 ? 'full' : 'empty') : null);
     this.updateCans();
-    this.hud.setCanChip(held && g.phase === 'day' ? (held.fill > 0 ? 'Put the beer down' : 'Put the empty down') : null);
+    this.updateExts();
+    this.logFireStart();
+    this.hud.setCanChip(g.phase !== 'day' ? null : w.carrying === 'extinguisher' ? 'Put the extinguisher down'
+      : held ? (held.fill > 0 ? 'Put the beer down' : 'Put the empty down') : null);
     this.player.setVisible(w.toiletUntil === null && !this.knockoff.inScene);
     this.player.update(dt, this.pos.x, this.pos.z, this.vel.x, this.vel.z);
   }
@@ -1747,6 +1787,103 @@ export class World3D {
     (w.canSpots ??= {})[c.id] = { x: this.pos.x + w.fx * 0.3 - w.fy * side, z: this.pos.z + w.fy * 0.3 + w.fx * side };
   }
 
+  // ---------- the extinguisher, carried like a can (playtest 1) ----------
+
+  /** Pick up an extinguisher that's been put down, if your hands are free (a can in them goes down first). */
+  private extActions(h: Hook): Action[] {
+    const g = this.g, w = this.w;
+    if (extPlace(g, w, h).at !== 'down' || w.carrying !== null || !g.canAct) return [];
+    return [{ label: 'Pick up the extinguisher', twoHands: true, done: 'Picked up the extinguisher', run: () => {
+      if (!w.extAt?.[h] || w.carrying !== null) return "Can't pick it up";
+      delete w.extAt[h]; w.carrying = 'extinguisher'; w.extinguisherFrom = h;
+    } }];
+  }
+
+  /** The extinguisher in your hands goes down at your feet, a little in front; it stays there till you pick it up. */
+  private putExtDown() {
+    const w = this.w;
+    if (w.carrying !== 'extinguisher' || !w.extinguisherFrom) return;
+    (w.extAt ??= {})[w.extinguisherFrom] = { x: this.pos.x + w.fx * 0.35, z: this.pos.z + w.fy * 0.35 };
+    w.carrying = null; w.extinguisherFrom = null;
+  }
+
+  /** The nearest extinguisher you could grab (on a hook or put down), by the walk there. */
+  private nearestExt(): { h: Hook; x: number; z: number; down: boolean } | null {
+    const g = this.g, w = this.w;
+    let best: { h: Hook; x: number; z: number; down: boolean } | null = null, bestLen = Infinity;
+    for (const { hook: h, id } of HOOKS) {
+      const p = extPlace(g, w, h);
+      let at: { x: number; z: number } | null = null;
+      if (p.at === 'down') at = p;
+      else if (p.at === 'hook') { const v = this.built.objects.get(id)!; at = { x: v.centre.x, z: v.centre.z }; }
+      if (!at) continue;
+      const tx = Math.floor(at.x / C), ty = Math.floor(at.z / C), ring: P[] = [];
+      for (let y = ty - 2; y <= ty + 2; y++) for (let x = tx - 2; x <= tx + 2; x++) ring.push({ x, y });
+      const path = findPath(COLS, ROWS, this.walkable, this.cell(), ring);
+      const len = path ? path.length : Infinity;
+      if (len < bestLen) { bestLen = len; best = { h, x: at.x, z: at.z, down: p.at === 'down' }; }
+    }
+    return best;
+  }
+
+  /** Where an extinguisher is, in words, for the day log. */
+  private extWords(h: Hook): string {
+    const p = extPlace(this.g, this.w, h);
+    if (p.at === 'held') return 'in your hands';
+    const spot = p.at === 'down' ? { x: p.x, z: p.z } : (() => { const v = this.built.objects.get(HOOKS.find(x => x.hook === h)!.id)!; return { x: v.centre.x, z: v.centre.z }; })();
+    const cx = Math.floor(spot.x / C), cy = Math.floor(spot.z / C), zone = zoneAt(cx, cy)?.name ?? 'outside';
+    // the nearest thing with a name, if it's close
+    let near: string | null = null, nd = 2.5;
+    for (const o of OBJECTS) {
+      if (o.id === 'extinguisher' || o.id === 'exhaustExtinguisher' || o.id === 'spareExtinguisher' || o.id === 'duct') continue;
+      const v = this.built.objects.get(o.id); if (!v || !v.group.visible) continue;
+      const d = Math.hypot(v.centre.x - spot.x, v.centre.z - spot.z);
+      if (d < nd) { nd = d; near = o.name.toLowerCase(); }
+    }
+    const where = `${zone.toLowerCase()}${near ? `, by the ${near}` : ''}`;
+    return p.at === 'hook' ? `on its hook (${where})` : `on the floor (${where})`;
+  }
+
+  /** A fire's just started: the day log says where the extinguisher was (each one in the shed). */
+  private logFireStart() {
+    const g = this.g, f = g.phase === 'day' ? g.fire : null;
+    if (!f || f.id === this.fireLogged) return;
+    this.fireLogged = f.id;
+    const kit = HOOKS.filter(x => extPlace(g, this.w, x.hook).at !== 'none').map(x => `${x.hook === 'wall' ? 'extinguisher' : 'exhaust extinguisher'} ${this.extWords(x.hook)}`);
+    g.worldLog(`Fire in the exhaust. ${kit.length ? kit.join('; ') : 'No extinguisher to hand'}.`, 'bad');
+  }
+
+  /** A mesh per extinguisher that's been put down (tap it to walk over and pick it up). */
+  private updateExts() {
+    const g = this.g, w = this.w;
+    const down = new Map(HOOKS.map(x => [x.hook, extPlace(g, w, x.hook)] as const).filter(([, p]) => p.at === 'down') as [Hook, { at: 'down'; x: number; z: number }][]);
+    for (const [h, m] of this.extMeshes) if (!down.has(h)) { this.scene.remove(m); this.extMeshes.delete(h); }
+    for (const [h, p] of down) {
+      let m = this.extMeshes.get(h);
+      if (!m) {
+        m = new THREE.Group();
+        const red = new THREE.MeshToonMaterial({ color: 0xc0281e, gradientMap: toonRamp() });
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.5, 10), red); body.position.y = 0.25; body.castShadow = true;
+        const head = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.16), new THREE.MeshToonMaterial({ color: 0x2a2a2e, gradientMap: toonRamp() })); head.position.set(0, 0.54, 0.03);
+        const hitbox = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.8, 0.6), new THREE.MeshBasicMaterial({ visible: false })); hitbox.position.y = 0.35;
+        m.add(body, head, hitbox);
+        m.userData.extHook = h;
+        this.scene.add(m);
+        this.extMeshes.set(h, m);
+      }
+      m.position.set(p.x, 0, p.z);
+    }
+  }
+
+  private pickExt(lx: number, ly: number): Hook | null {
+    if (!this.extMeshes.size) return null;
+    this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
+    const hit = this.raycaster.intersectObjects([...this.extMeshes.values()], true)[0];
+    let o: THREE.Object3D | null = hit?.object ?? null;
+    while (o && o.userData.extHook === undefined) o = o.parent;
+    return o ? (o.userData.extHook as Hook) : null;
+  }
+
   /** A mesh per can that's been put down: standing if there's beer in it, on its side when it's empty. */
   private updateCans() {
     const g = this.g, w = this.w;
@@ -1862,6 +1999,7 @@ export class World3D {
       const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
       if (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank')) problems.push({ key: 'phone', icon: '📞', pos: at('phone'), ring: true });
       if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
+      if (g.fire && w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e) problems.push({ key: 'ext', icon: '🧯', pos: new THREE.Vector3(e.x, 0.6, e.z), ring: true }); }
       // a fault points where it needs you next: the extractor, the bit rack, the skip — not just the machine
       const ft = faultTarget(g, w);
       if (ft) problems.push({ key: 'fault', icon: '🔧', pos: at(ft) });

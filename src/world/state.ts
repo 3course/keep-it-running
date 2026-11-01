@@ -23,7 +23,9 @@ export interface WorldState {
   clamps?: number;               // clamps on the sheet on the bed (CONFIG.chore.clamp)
   carryCount?: number;           // finished boards in your arms (carried off the bed together)
   canCount?: number;             // empties in your arms, the morning after (carrying 'cans')
-  extinguisherFrom: Hook | null;   // which hook the carried extinguisher came off
+  extinguisherFrom: Hook | null;   // which extinguisher you're carrying (named for the hook it lives on)
+  /** Extinguishers put down somewhere (off the hook, out of your hands): where, in metres. They stay there till picked up. */
+  extAt?: Partial<Record<Hook, { x: number; z: number }>>;
   hooks: { wall: boolean; shed: boolean; exhaust?: boolean }; // extinguishers hanging up (exhaust: once bought)
   /** The bed: empty → sheet placed → clamped → Game loads and cuts → done (or scrap) → unloaded. */
   bed: 'empty' | 'placed' | 'clamped' | 'running' | 'done' | 'scrap';
@@ -79,6 +81,16 @@ export const HOOKS: { hook: Hook; id: ObjectId }[] = [
 export const hookThere = (g: Game, h: Hook) => h !== 'shed' && (h !== 'exhaust' || g.upgrades.has('exhaustExtinguisher'));
 /** An extinguisher hanging on this hook now (a save from before the exhaust hook counts it as hung). */
 export const onHook = (g: Game, w: WorldState, h: Hook) => hookThere(g, h) && w.hooks[h] !== false;
+/** Where an extinguisher is: on its hook, in your hands, put down somewhere, or not in the shed (not bought / walled off). */
+export type ExtPlace = { at: 'hook' } | { at: 'held' } | { at: 'down'; x: number; z: number } | { at: 'none' };
+export function extPlace(g: Game, w: WorldState, h: Hook): ExtPlace {
+  if (!hookThere(g, h)) return { at: 'none' };
+  if (w.carrying === 'extinguisher' && w.extinguisherFrom === h) return { at: 'held' };
+  const d = w.extAt?.[h];
+  if (d) return { at: 'down', ...d };
+  return w.hooks[h] !== false ? { at: 'hook' } : { at: 'none' };
+}
+
 /** How full the offcut bin is before it's worth bagging (the bigger bin lets it fill further). */
 export const offcutsBagAt = (_g: Game) => WORLD.offcutsEmptyAt; // (the bigger bin holds more instead: Game.binSheets)
 
@@ -95,7 +107,7 @@ export function newWorld(g: Game): WorldState {
   return {
     v: 1, dayIndex: g.dayIndex,
     px: (START_TILE.x + 0.5) * t, py: (START_TILE.y + 0.5) * t, fx: 0, fy: -1,
-    carrying: null, extinguisherFrom: null, hooks: { wall: true, shed: true, exhaust: true },
+    carrying: null, extinguisherFrom: null, hooks: { wall: true, shed: true, exhaust: true }, extAt: {},
     bed: 'empty', bedJobId: null, finishedStack: 0, utePresent: false, offcutBin: 0,
     oldBagWaiting: false, watchingSwap: null, toiletUntil: null, rollerUpUntil: null,
     sheetsSeen: g.today.sheetsDone, done: [],
@@ -106,11 +118,13 @@ export function newWorld(g: Game): WorldState {
 /** Overnight: back at the machine, hands empty, extinguishers rehung, pickups collected. The bed keeps what's on it. */
 export function startNewDay(w: WorldState, g: Game) {
   const t = WORLD.cell;
+  // the extinguisher stays where it was left (overnight too); in your hands at knock-off, it's down where you stood
+  if (w.carrying === 'extinguisher' && w.extinguisherFrom) (w.extAt ??= {})[w.extinguisherFrom] = { x: w.px, z: w.py };
   w.dayIndex = g.dayIndex;
   w.px = (MACHINE_SPOT.x + 0.5) * t; w.py = (MACHINE_SPOT.y + 0.5) * t; w.fx = 0; w.fy = -1;
   w.tour = null;
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
-  w.carrying = null; w.extinguisherFrom = null; w.hooks = { wall: true, shed: true, exhaust: true };
+  w.carrying = null; w.extinguisherFrom = null; // (the hooks keep whatever's on them)
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
   w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it

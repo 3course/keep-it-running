@@ -240,6 +240,8 @@ export class Game {
 
   // ---------- Dennis (src/sim/dennis.ts calls these) ----------
   dennisSay(text: string, tone?: 'good' | 'bad' | 'info' | 'money') { this.say(text, tone); }
+  /** A line in the day log from the shed (things only the view knows: where the extinguisher was when a fire started). */
+  worldLog(text: string, tone: 'good' | 'bad' | 'info' | 'money' = 'info') { this.say(text, tone); }
   dennisEarn(amount: number, note: string) { if (amount > 0) this.earn(Math.round(amount), `${CONFIG.dennis.name}: ${note}`); }
   dennisSpend(amount: number, bucket: 'bets' | 'labour' | 'upgrades', note: string) {
     if (bucket === 'bets') this.today.bets ??= 0; // a day saved before the field existed

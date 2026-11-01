@@ -200,7 +200,11 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       if (!hookThere(g, hook)) return [];
       // only worth taking down when there's a fire to put out
       if (empty && onHook(g, w, hook) && g.fire) return [{ label: 'Grab extinguisher', twoHands: true, done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
-      if (w.carrying === 'extinguisher' && !onHook(g, w, hook)) return [{ label: 'Hang it up', done: 'Extinguisher back on its hook', run: () => { w.hooks[hook] = true; w.carrying = null; w.extinguisherFrom = null; } }];
+      // back on a hook (its own, or any empty one: the one you hang it on has it now)
+      if (w.carrying === 'extinguisher' && !onHook(g, w, hook)) return [{ label: 'Hang it up', done: 'Extinguisher back on its hook', run: () => {
+        if (w.extinguisherFrom && w.extinguisherFrom !== hook) w.hooks[w.extinguisherFrom] = false;
+        w.hooks[hook] = true; w.carrying = null; w.extinguisherFrom = null;
+      } }];
       return [];
     }
     case 'rollerDoor': {
