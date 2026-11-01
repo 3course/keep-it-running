@@ -78,6 +78,7 @@ export class Game {
   mateReturn: { mate: string; minute: number } | null = null;
   /** Today's planned mate visits (minutes of day, CONFIG.visitors.perDay), when the last one left, and whether one's been after two. */
   mateVisits: number[] = [];
+  mateArrivals = 0;            // mates in today so far: keys who the next one is (with the minute), so each arrival is its own roll
   mateLeftAt = -9999;
   mateAfterTwo = false;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
@@ -435,7 +436,7 @@ export class Game {
     this.freshToday = fresh.map(j => j.id);
     this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
-    this.mateVisits = this.planMateVisits(); this.mateLeftAt = -9999; this.mateAfterTwo = false;
+    this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false;
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
       dennisStartDay(this); // his own seeded rolls: off, nothing else changes
@@ -968,7 +969,7 @@ export class Game {
   }
 
   /** `r`: the stream it came in on (the minute's distraction roll); a planned mate's arrival gets its own. */
-  private spawnDistraction(kind: DistractionKind, mateId?: string, r: Rng = this.at('mate')) {
+  private spawnDistraction(kind: DistractionKind, mateId?: string, r: Rng = this.at('mate', kind === 'friend' ? this.mateArrivals++ : 0)) {
     const d = CONFIG.distractions;
     const id = this.nextDistractionId++;
     let dist: Distraction;
