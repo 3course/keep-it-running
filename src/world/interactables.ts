@@ -51,6 +51,8 @@ const money = (n: number) => `$${Math.round(n)}`;
 /** UI the actions can open (set by the 3D view): the ply order form, and the yes/no card for an order call. */
 export const uiHooks = {
   orderPly: () => {},
+  /** Kerr, on the office computer: the day's numbers, the rent clock, advice; and where ply is ordered. */
+  kerr: () => {},
   /** Dennis on the line: his pitch and your answer (the view shows it). */
   dennis: () => {},
   /** Dennis's ledger, on the office wall. */
@@ -263,7 +265,8 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       // a compressor on the extractor's circuit (the layout) trips it now and then
       return g.powerTripped && g.canAct ? [{ label: 'Reset the breaker', key: 'breaker', done: 'Breaker back on', run: () => { if (!g.resetPower(true)) return 'Not right now'; } }] : [];
     case 'desk':
-      return g.canAct ? [{ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() }] : [];
+      // the computer is Kerr, and only Kerr (ply's ordered from there)
+      return g.canAct ? [{ label: 'Ask Kerr', key: 'orderply', auto: false, done: 'Logged on to Kerr', run: () => uiHooks.kerr() }] : [];
     case 'fridge':
       if (w.people?.oddObject === 'extinguisherInFridge' && empty) return [{ label: 'Get the extinguisher out of the fridge', key: 'oddext', done: 'Extinguisher back on the wall. Cold.', run: () => { w.people!.oddObject = null; } }];
       return g.fridgeOpen && g.canAct && !g.heldCan ? [{ label: `Beer (${money(CONFIG.beer.cost)})`, auto: false, done: 'Cracked a beer', run: () => { if (!g.buyBeer()) return 'Fridge is shut'; } }] : [];

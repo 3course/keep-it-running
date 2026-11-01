@@ -51,6 +51,8 @@ import { DennisView } from './dennisView.js';
 import { Cafe } from './cafe.js';
 import { dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
+import { KerrView } from '../ui/kerr.js';
+import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
 import { renderDailyCard } from '../ui/dailyCard.js';
@@ -196,6 +198,8 @@ export class World3D {
   peopleDay!: PeopleDay;
   /** A visiting mate past "flat out": the yarn, the hand, the beer (src/world3d/mateVisit.ts). */
   mateVisit!: MateVisit;
+  /** Kerr, on the office computer (the clock stops while it's up). */
+  kerr!: KerrView;
   /** What people have left in the shed: gifts, keepsakes, the morning's cans (public for tests). */
   gratitude!: Gratitude;
   /** The cafe before work (public for tests). */
@@ -305,6 +309,8 @@ export class World3D {
     else if (gpu.resOverride !== null) this.hud.setTagNote(`res ×${gpu.resOverride}`);
     this.buildDebugLabels();
     uiHooks.orderPly = () => this.hud.showPlyOrder(this.g, (t, n) => { if (this.g.orderPly(t, n)) { this.player.hop(); this.save(); } });
+    this.kerr = new KerrView(this.hud.labels.parentElement!);
+    uiHooks.kerr = () => this.kerr.open(kerrScreen(this.g, this.w), { orderPly: () => uiHooks.orderPly(), close: () => {} });
     this.buildSigns();
 
     this.fit();
@@ -580,7 +586,7 @@ export class World3D {
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
     g.signing = this.gesture.drawing; // the driver waits while the pen's moving
     g.fireHold = tourActive(w); // no fire until the walk-round's done and the first cut's on
-    if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active && !this.cafe.holdsClock) {
+    if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active && !this.cafe.holdsClock && !this.kerr.showing) {
       this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
       let ticked = false;
       while (this.acc >= CONFIG.clock.realMsPerGameMinute && g.phase === 'day') {
@@ -1132,7 +1138,7 @@ export class World3D {
 
   private move(dt: number) {
     const g = this.g, w = this.w;
-    const frozen = this.paused || g.phase !== 'day' || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
+    const frozen = this.paused || g.phase !== 'day' || this.kerr?.showing || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
     let tx = 0, tz = 0;
     if (!frozen) {
       // screen-relative input (keyboard or stick) → world, using the camera's yaw
@@ -1850,7 +1856,7 @@ export class World3D {
     if (!f || f.id === this.fireLogged) return;
     this.fireLogged = f.id;
     const kit = HOOKS.filter(x => extPlace(g, this.w, x.hook).at !== 'none').map(x => `${x.hook === 'wall' ? 'extinguisher' : 'exhaust extinguisher'} ${this.extWords(x.hook)}`);
-    g.worldLog(`Fire in the exhaust. ${kit.length ? kit.join('; ') : 'No extinguisher to hand'}.`, 'bad');
+    g.worldLog(`Fire in the exhaust (bag ${Math.round((1 - g.wear.filter) * 100)}% full). ${kit.length ? kit.join('; ') : 'No extinguisher to hand'}.`, 'bad');
   }
 
   /** A mesh per extinguisher that's been put down (tap it to walk over and pick it up). */

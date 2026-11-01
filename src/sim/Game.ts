@@ -27,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, pickups: 0, palletBlocked: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, pickups: 0, palletBlocked: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0, idleMinutes: 0,
   };
 }
 
@@ -129,6 +129,12 @@ export class Game {
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
   extinguisherUsesToday = 0;
+  /** Yesterday's numbers (Kerr shows them; the week's list resets on Monday). */
+  lastDay: DayStats | null = null;
+  /** Today's fires as they started: when, how full the extractor bag was and how worn the bit (Kerr reads them). */
+  fireStarts: { minute: number; bag: number; bit: number }[] = [];
+  /** Today's faults, by id, as they happened. */
+  faultsToday: string[] = [];
   // the machine's current idle stretch (for the day log): minutes, since when, and why if it's obvious
   idleRun = 0;
   idleFrom = 0;
@@ -445,7 +451,7 @@ export class Game {
     this.freshToday = fresh.map(j => j.id);
     this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
-    this.idleRun = 0; this.idleFrom = 0; this.idleWhy = '';
+    this.idleRun = 0; this.idleFrom = 0; this.idleWhy = ''; this.fireStarts = []; this.faultsToday = [];
     this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false; this.mateHeldFor = -1;
     // (debug, for playtest logs) when today's mates are due
     this.say(`[visits] planned: ${this.mateVisits.map(m => this.formatTime(m)).join(', ') || 'none'}`);
@@ -710,6 +716,7 @@ export class Game {
     };
     this.machine = def.id === 'partLifted' ? 'estop' : 'fault';
     this.today.faults += 1;
+    this.faultsToday.push(def.id);
     this.say(`FAULT: ${def.name}`, 'bad');
     if (this.sensorPaused(def)) this.say('Fault sensor paused the cut. The sheet will keep.');
     // a dull bit fuzzes most boards, but melts acrylic: the sheet's gone before you can do anything
@@ -794,6 +801,7 @@ export class Game {
     // no alarm and no log line: the smoke at the duct and the to-do list are the only tells
     this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 };
     this.today.firesSpot += 1;
+    this.fireStarts.push({ minute: this.minute, bag: 1 - this.wear.filter, bit: this.wear.bit });
   }
 
   /** The scripted lesson fire (CONFIG.fire.lesson): once, on its day, the first minute a sheet's cutting from its hour. */
@@ -804,6 +812,7 @@ export class Game {
     this.lessonFireDone = true;
     this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0, heat: 0, lesson: true };
     this.today.firesSpot += 1;
+    this.fireStarts.push({ minute: this.minute, bag: 1 - this.wear.filter, bit: this.wear.bit });
   }
 
   /** Go and deal with the fire: walk to the extinguisher, grab it and carry it to the duct. */
@@ -2023,6 +2032,7 @@ export class Game {
   }
   private flushIdle() {
     if (this.idleRun > CONFIG.ui.idleLogAboveMinutes) {
+      this.today.idleMinutes = (this.today.idleMinutes ?? 0) + this.idleRun;
       this.say(`Idle ${this.idleRun} min, ${this.formatTime(this.idleFrom)}–${this.formatTime(this.idleFrom + this.idleRun)}${this.idleWhy ? ` (${this.idleWhy})` : ''}`, 'info');
     }
     this.idleRun = 0; this.idleWhy = '';
@@ -2264,6 +2274,7 @@ export class Game {
 
   nextDay() {
     if (this.phase !== 'daySummary') return;
+    this.lastDay = this.today;
     this.week.push(this.today);
     if (this.day >= CONFIG.week.days) {
       const rent = Math.round(CONFIG.economy.weeklyOverheads * (CONFIG.dennis.enabled ? dennisRentMult(this) : 1));

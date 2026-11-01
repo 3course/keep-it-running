@@ -202,10 +202,17 @@ const CASES = {
     assert.deepEqual(await game.eval(g => [g.busy?.label, g.distractions.some(d => d.kind === 'phone')]), ['on the phone', false]);
   },
 
+  // the computer is Kerr: the day's numbers and advice, and where ply's ordered
   async desk(game) {
     await walkTo(game, 'desk');
-    assert.equal((await tapLabel(game, 'Order ply')).said, 'On to the supplier');
-    assert.ok(await game.eval((g, w, s) => s.hud.plyShowing), 'the ply order card is up');
+    assert.equal((await tapLabel(game, 'Ask Kerr')).said, 'Logged on to Kerr');
+    assert.ok(await game.eval((g, w, s) => s.kerr.showing), 'Kerr is up');
+    const text = await game.page.evaluate(() => document.querySelector('#kir-hud .kerr').textContent);
+    for (const k of ['TODAY SO FAR', 'YESTERDAY', 'RENT', 'NAC MINI']) assert.ok(text.includes(k), `${k} on the screen`);
+    const minute = await game.eval(g => g.minute);
+    await game.page.evaluate(() => document.querySelector('#kir-hud .kerr .ply').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+    assert.ok(await game.eval((g, w, s) => !s.kerr.showing && s.hud.plyShowing), 'Order ply: the ply order card');
+    assert.equal(await game.eval(g => g.minute), minute);
   },
 
   async fridge(game) {

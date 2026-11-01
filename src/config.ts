@@ -453,6 +453,17 @@ export const CONFIG = {
     bitSwapMinutes: 3,         // …unlocks a second bit rack by the machine: a bit swap takes this long, not consumables.bit
   },
 
+  // Kerr, the office computer's "local model" (src/world/kerr.ts): rules over the day log, costliest first. The costs are
+  // rough dollars, only for ranking the lines.
+  kerr: {
+    minLines: 3, maxLines: 5,
+    idleOverMinutes: 10,       // idle stretches adding up past this get a line (costed at the machine rate)
+    fullBagAbove: 0.8,         // a fire that started with the bag fuller than this
+    fireCost: 120,             // a spot fire: the refill share and twenty-odd minutes off the machine
+    waitCostPerMinute: 2,      // a ute kept waiting at the roller door
+    bitFaultCost: 60,          // a bit fault (chipping, collet slip)
+  },
+
   ui: {
     swapHintBelow: 0.3,   // the to-do list says "Swap the …" once a consumable's health drops below this
     idleLogAboveMinutes: 2, // the day log notes every stretch the machine sat idle longer than this (game minutes)

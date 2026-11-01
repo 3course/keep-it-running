@@ -67,7 +67,8 @@ describe('the extinguisher, carried', () => {
       await fire(game, 11);
       await frames(game, 5);
       assert.ok((await pointerKeys(game)).includes('ext'), 'a 🧯 pointer on the screen edge');
-      const line = await game.eval(g => g.log.find(l => l.text.startsWith('Fire in the exhaust.'))?.text ?? null);
+      const line = await game.eval(g => g.log.find(l => l.text.startsWith('Fire in the exhaust'))?.text ?? null);
+      assert.match(line ?? '', /^Fire in the exhaust \(bag \d+% full\)\. /);
       assert.match(line ?? '', /extinguisher on the floor \(rear yard/i);
       // the notepad's fire line walks you to it
       await game.eval((g, w, s) => s.hud.pad.querySelector('[data-key="fire"]')?.click());
@@ -77,7 +78,7 @@ describe('the extinguisher, carried', () => {
       await game.eval((g, w) => { g.fire = null; delete w.extAt.wall; w.carrying = 'extinguisher'; w.extinguisherFrom = 'wall'; });
       await fire(game, 12);
       await frames(game, 3);
-      assert.ok(await game.eval(g => g.log.some(l => l.text === 'Fire in the exhaust. extinguisher in your hands.')));
+      assert.ok(await game.eval(g => g.log.some(l => /^Fire in the exhaust \(bag \d+% full\)\. extinguisher in your hands\.$/.test(l.text))));
       assert.ok(!(await pointerKeys(game)).includes('ext'), 'in your hands: no pointer');
     } finally { await game.close(); }
   });
