@@ -13,7 +13,7 @@ import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { track } from '../analytics.js';
 import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, uteActions, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
-import { OrderCard } from '../ui/orderCard.js';
+import { CallSheet, type CallLine } from '../ui/callSheet.js';
 import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
@@ -153,7 +153,8 @@ export class World3D {
   /** The one-thumb gesture card for hands-on jobs (public for tests); `gestureAt`: the thing it's for (walk away and it closes). */
   gesture!: GesturePad;
   /** The yes/no card for an order call you've picked up (public for tests). */
-  orderCard!: OrderCard;
+  /** An order call you've picked up, filling in on the notepad as they describe it. */
+  callSheet!: CallSheet;
   private gestureAt: string | null = null;
   private ring = new RingSound();
   private flashRing!: THREE.Group;
@@ -279,9 +280,23 @@ export class World3D {
       resetLayout: () => this.commitLayout(clonePlan(DEFAULT_PLAN), 0),
     });
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
-    this.orderCard = new OrderCard(this.hud.labels.parentElement!);
+    this.callSheet = new CallSheet(this.hud.callEl);
     // the order card already showed the sketch: the job card stays quiet when those sheets land
-    uiHooks.orderCard = (d, offer, take, decline) => this.orderCard.show(this.g, d, offer, !!decline.highlight, () => { this.jobCard.quiet(); this.runAction(take); }, () => this.runAction(decline));
+    // picked up: the job fills in on the notepad as they describe it, then take it or turn it down (that ends the call)
+    uiHooks.orderCard = (d, offer, take, decline) => {
+      const g = this.g, j = offer.jobs[0], n = offer.jobs.length, t = CONFIG.jobs.types.find(x => x.id === j.type)!;
+      const total = offer.jobs.reduce((s, x) => s + x.price, 0), lo = Math.min(...offer.jobs.map(x => x.price)), hi = Math.max(...offer.jobs.map(x => x.price));
+      const lines: CallLine[] = [
+        { text: `${d.customer ?? 'A customer'}${d.big ? ' · the big job' : ''}` },
+        { text: `${t.name}: ${n} × ${t.material}` },
+        { text: `${lo === hi ? `$${lo}` : `$${lo}–${hi}`} each,`, bold: `$${total} all up` },
+        { text: 'Due', bold: `${offer.kind === 'rush' ? 'RUSH ' : ''}${g.dueLabel(j)}`, rush: offer.kind === 'rush' },
+      ];
+      this.hud.open();
+      this.callSheet.show(d.id, lines, WORLD.callLineMs, !!decline.highlight,
+        () => { this.hud.close(); this.jobCard.quiet(); this.runAction(take); },
+        () => { this.hud.close(); this.runAction(decline); });
+    };
     this.jobCard = new JobCard(this.hud.labels.parentElement!);
     if (resumePaused) this.jobCard.prime(g); // a resumed game: those jobs arrived last session
     this.skipEl = document.createElement('div'); this.skipEl.className = 'revealskip'; this.skipEl.textContent = 'Tap to skip';
@@ -360,7 +375,7 @@ export class World3D {
    * the world's input layer (the stick and tap-to-walk) ignores every touch until it's gone. Public for tests.
    */
   get uiBlocking(): boolean {
-    return this.gesture?.active != null || !!this.orderCard?.showing || !!this.hud?.modalOpen;
+    return this.gesture?.active != null || !!this.callSheet?.showing || !!this.hud?.modalOpen;
   }
 
   /** Drop a stick or tap in progress (a card opened under it). */
@@ -643,7 +658,7 @@ export class World3D {
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'
       || (this.gestureAt && OBJECTS.some(o => o.id === this.gestureAt) && !this.inRange(this.gestureAt as ObjectId)))) { this.gesture.close(); this.gestureAt = null; }
     // the order card goes if they ring off (or the day's over)
-    if (this.orderCard.showing && (this.paused || this.g.phase !== 'day' || !this.g.distractions.some(d => d.id === this.orderCard.callId))) this.orderCard.close();
+    if (this.callSheet.showing && (this.paused || this.g.phase !== 'day' || !this.g.distractions.some(d => d.id === this.callSheet.callId))) this.callSheet.close();
     this.updateLabels();
     this.updatePointers();
     this.updateSigns(dt);

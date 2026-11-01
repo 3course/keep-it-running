@@ -185,6 +185,10 @@ export class Hud {
   private tab: HTMLDivElement;
   private dot: HTMLSpanElement;
   private pad: HTMLDivElement;
+  /** The notepad's list (rebuilt as things change), under the call that's on the line (which isn't). */
+  private padBody!: HTMLDivElement;
+  /** An order call, filling in as the caller describes it (src/ui/callSheet.ts). */
+  readonly callEl: HTMLDivElement;
   private catcher: HTMLDivElement;
   private eod: HTMLDivElement;
   private pausedEl: HTMLDivElement;
@@ -249,6 +253,9 @@ export class Hud {
       else if (this.isOpen) this.close(); else this.open();
     });
     this.pad = el('div', { className: 'pad' });
+    this.callEl = el('div');
+    this.padBody = el('div');
+    this.pad.append(this.callEl, this.padBody);
     this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
     this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p>
@@ -408,11 +415,11 @@ export class Hud {
     // only sections with something in them: the list is just the list
     const section = (title: string, list: TodoItem[], cls = '') => list.length ? `<h3${cls ? ` class="${cls}"` : ''}>${title}</h3><ul>${list.map(li).join('')}</ul>` : '';
     const body = section('Now', now) + section('Can wait', later) + section('Voicemail', calls, 'vm') + this.sheetsHtml(g);
-    this.pad.innerHTML = `<h2>Day ${g.day} of ${CONFIG.week.days}</h2>${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
-    for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-more]'))) {
+    this.padBody.innerHTML = `<h2>Day ${g.day} of ${CONFIG.week.days}</h2>${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
+    for (const node of Array.from(this.padBody.querySelectorAll<HTMLLIElement>('li[data-more]'))) {
       node.addEventListener('click', () => { this.sheetsOpen = node.dataset.more === '1'; this.padSig = ''; this.update(g, items, log); });
     }
-    for (const node of Array.from(this.pad.querySelectorAll<HTMLLIElement>('li[data-targets]'))) {
+    for (const node of Array.from(this.padBody.querySelectorAll<HTMLLIElement>('li[data-targets]'))) {
       const targets = (node.dataset.targets ?? '').split(',').filter(Boolean) as ObjectId[];
       if (targets.length) node.addEventListener('click', () => { this.close(); this.cb.goTo(targets, node.dataset.key); }); // close() leaves a pinned column alone
     }

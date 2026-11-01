@@ -108,6 +108,7 @@ export interface Distraction {
   big?: boolean;          // phone: the big-job call (a rare event)
   preview?: OrderPreview; // phone: the sheets on offer, once you've picked up (Game.previewOrder)
   roll?: number;          // phone: this call's own seed (sheets, price, a rush job), so answering late doesn't change them
+  onLine?: boolean;       // phone: picked up, the caller describing the job (it doesn't ring out while they do)
   // friend: a mate visiting (CONFIG.visitors)
   mate?: string;          // which mate (src/data/mates.ts)
   ask?: VisitorAsk | null; // what they've come up to you to say; null while they wander

@@ -1085,6 +1085,7 @@ export class Game {
   previewOrder(id: number): OrderPreview | null {
     const dist = this.distractions.find(d => d.id === id);
     if (!dist || dist.kind !== 'phone' || !dist.order) return null;
+    dist.onLine = true; // picked up: they won't ring off while they're telling you
     if (!dist.preview) {
       const t = CONFIG.jobs.types.find(x => x.id === dist.orderType)!;
       const r = this.callRng(dist.roll);
@@ -1105,6 +1106,7 @@ export class Game {
     for (const dist of [...this.distractions]) {
       if (dist.kind === 'friend') this.tickVisitor(dist);
       if (dist.kind === 'courier' && this.signing) continue; // the courier waits while you sign
+      if (dist.kind === 'phone' && dist.onLine) continue;     // picked up: they're telling you about the job
       dist.remaining -= 1;
       if (dist.remaining > 0) continue;
       this.removeDistraction(dist.id);

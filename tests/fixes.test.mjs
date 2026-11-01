@@ -173,17 +173,25 @@ describe('the rest, by hand', () => {
     } finally { await game.close(); }
   });
 
-  it('phone: pick up, and the card shows the board, the price and when it is due', async () => {
+  it('phone: pick up, and the job fills in on the notepad line by line (who, board, price, due), then take it or not', async () => {
     const game = await freshGame(env);
     try {
       await game.eval((g, w) => { w.tour = null; g.spawnOrderCall(3); });
       await walkTo(game, 'phone');
       await tapLabel(game, 'Pick up');
-      const offer = await game.eval(g => { const d = g.distractions.find(x => x.order), js = d.preview.jobs; return { prices: js.map(j => j.price), type: js[0].type, due: g.dueLabel(js[0]) }; });
-      const card = await game.page.evaluate(() => document.querySelector('#kir-hud .ordercard').textContent);
-      const name = C.jobs.types.find(t => t.id === offer.type).name;
+      // straight after picking up: the first line, no answers yet
+      const early = await game.page.evaluate(() => ({ on: document.querySelectorAll('#kir-hud .callsheet .ln.on').length, of: document.querySelectorAll('#kir-hud .callsheet .ln').length, row: !!document.querySelector('#kir-hud .callsheet .row.on') }));
+      assert.equal(early.of, 4); assert.ok(early.on < 4, `still filling in (${early.on} of 4)`); assert.equal(early.row, false, 'no answers till it has');
+      // it doesn't ring out while they're telling you
+      const left = await game.eval(g => g.distractions.find(x => x.order).remaining);
+      await game.eval(g => { const t = Object.getPrototypeOf(g).tick; for (let i = 0; i < 5; i++) t.call(g); });
+      assert.equal(await game.eval(g => g.distractions.find(x => x.order)?.remaining), left);
+      await game.page.waitForSelector('#kir-hud .callsheet .row.on', { timeout: 6_000 });
+      const offer = await game.eval(g => { const d = g.distractions.find(x => x.order), js = d.preview.jobs; return { prices: js.map(j => j.price), type: js[0].type, due: g.dueLabel(js[0]), who: d.customer }; });
+      const card = await game.page.evaluate(() => document.querySelector('#kir-hud .callsheet').textContent);
+      const t = C.jobs.types.find(t => t.id === offer.type);
       const lo = Math.min(...offer.prices), hi = Math.max(...offer.prices), each = lo === hi ? `$${lo} each` : `$${lo}–${hi} each`;
-      for (const bit of [`${name} × 3`, each, `$${offer.prices.reduce((a, b) => a + b)}`, offer.due]) assert.ok(card.includes(bit), `card shows ${bit}: ${card}`);
+      for (const bit of [offer.who, `${t.name}: 3 × ${t.material}`, each, `$${offer.prices.reduce((a, b) => a + b)} all up`, offer.due]) assert.ok(card.includes(bit), `the call says ${bit}: ${card}`);
       const ids = await game.eval(g => g.distractions.find(x => x.order).preview.jobs.map(j => j.id));
       assert.equal((await answerCard(game, 'take')).said, 'Took a 3-sheet order');
       assert.deepEqual(await game.eval((g, w, s, ids) => ids.map(id => !!g.jobs.find(j => j.id === id)), ids), [true, true, true], 'exactly the sheets on the card');

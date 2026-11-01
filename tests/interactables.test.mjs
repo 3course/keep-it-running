@@ -366,8 +366,8 @@ describe("the board's full", () => {
       assert.deepEqual(await setBoard(game, 6, 6), [6, 6, false]);
       await game.eval(g => { g.spawnOrderCall(2); });
       await walkTo(game, 'phone');
-      // pick up: the card's ✕ glows only when there's no room for the work
-      const noHot = () => game.page.evaluate(() => document.querySelector('#kir-hud .ordercard .no').classList.contains('hot'));
+      // pick up: "Turn it down" on the notepad's call glows only when there's no room for the work
+      const noHot = () => game.page.evaluate(() => document.querySelector('#kir-hud .callsheet .no').classList.contains('hot'));
       await tapLabel(game, 'Pick up');
       assert.equal(await noHot(), false, 'room for it: nothing highlighted');
       await answerCard(game, 'decline');
@@ -425,7 +425,8 @@ describe('rare events and milestones in the shed', () => {
       await landRare(game, 'bigJob');
       await walkTo(game, 'phone');
       await tapLabel(game, 'Pick up');
-      assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .ordercard').textContent), /BIG JOB[\s\S]*× 20/, 'the card shows the job');
+      await game.page.waitForSelector('#kir-hud .callsheet .row.on', { timeout: 6_000 });
+      assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .callsheet').textContent), /the big job[\s\S]*: 20 ×/, 'the call says what the job is');
       assert.equal((await answerCard(game, 'take')).said, 'Took the big job: 20 sheets');
       assert.equal(await game.eval(g => g.jobs.filter(j => j.name.startsWith('BIG JOB')).length), 20);
     } finally { await game.close(); }
