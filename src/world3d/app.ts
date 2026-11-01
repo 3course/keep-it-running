@@ -558,6 +558,7 @@ export class World3D {
     this.updateSpray();
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
     g.signing = this.gesture.drawing; // the driver waits while the pen's moving
+    g.fireHold = tourActive(w); // no fire until the walk-round's done and the first cut's on
     if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active && !this.cafe.holdsClock) {
       this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
       let ticked = false;

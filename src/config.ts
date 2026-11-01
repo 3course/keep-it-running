@@ -153,6 +153,9 @@ export const CONFIG = {
     // The lesson: one scripted spot fire on `day`, the first minute a sheet's cutting from `fromHour`, to teach the extinguisher
     // walk before fires matter. It glows straight away and escalates at escalationMult of the day's rate.
     lesson: { day: 2, fromHour: 10, escalationMult: 0.5 },
+    // The first day (a fresh shed): at most this many spot fires, and none while the walk-round's on (Game.fireHold).
+    // Without it the base rate (× 1.5 on MDF, the bag filling through the afternoon) put 2+ fires on over half of day 1s.
+    firstDayMaxFires: 1,
   },
 
   // The difficulty curve. Breakdowns — machine faults (anything that stops the machine or ruins a sheet) and fires spreading past a

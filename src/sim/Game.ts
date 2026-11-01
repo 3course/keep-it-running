@@ -128,6 +128,8 @@ export class Game {
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
   extinguisherUsesToday = 0;
+  /** The first-day walk-round's still on (set by the view each frame): no fire starts. The sim never sets it. */
+  fireHold = false;
   lessonFireDone = false;      // the scripted spot fire (CONFIG.fire.lesson) has happened
   /** The wall extinguisher's off its hook (set by the view each frame; the sim's fire walk counts on its own). */
   extinguisherAway = false;
@@ -773,6 +775,8 @@ export class Game {
 
   private maybeFire() {
     if (this.fire || this.machineDown || this.machine !== 'cutting') return;
+    // the first day: not while the walk-round's on, and once only (CONFIG.fire.firstDayMaxFires)
+    if (this.fireHold || (this.dayIndex === 1 && this.today.firesSpot >= CONFIG.fire.firstDayMaxFires)) return;
     if (!this.at('fire').chance(this.fireChance())) return;
     // no alarm and no log line: the smoke at the duct and the to-do list are the only tells
     this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 };

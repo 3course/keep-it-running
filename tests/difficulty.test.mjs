@@ -79,6 +79,29 @@ describe('difficulty curve', () => {
   });
 });
 
+describe('the first day: one fire at most, none during the walk-round', () => {
+  /** Cut all day on worn parts with every fire put straight out, so another can start; counts the spot fires. */
+  const firesOn = (g, hold = false) => {
+    g.fireChance = () => 1; // a fire every chance it gets
+    g.fireHold = hold;
+    while (g.phase === 'day') {
+      if (g.fire) { g.fire = null; g.settleMachine(); }
+      for (const d of g.distractions) if (d.order) g.respond(d.id, 'answer');
+      if (g.machine === 'idle' && g.queued.length) g.loadNextSheet();
+      g.bedPile = 0; g.offcutBin = 0; g.offcutPile = 0; g.compressorSheets = 0;
+      g.tick();
+    }
+    return g.today.firesSpot;
+  };
+  it(`day 1: at most ${CONFIG.fire.firstDayMaxFires}, however likely fires are`, () => {
+    for (let seed = 1; seed <= 5; seed++) assert.equal(firesOn(worstCase(seed, 1)), CONFIG.fire.firstDayMaxFires);
+  });
+  it('none while the view holds them (the tour), and the cap is day 1 only', () => {
+    assert.equal(firesOn(worstCase(1, 1), true), 0);
+    assert.ok(firesOn(worstCase(1, 3)) > CONFIG.fire.firstDayMaxFires, 'later days are not capped');
+  });
+});
+
 describe('the lesson fire', () => {
   const L = CONFIG.fire.lesson;
 
