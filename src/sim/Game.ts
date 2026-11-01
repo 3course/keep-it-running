@@ -27,7 +27,7 @@ function emptyStats(day: number): DayStats {
     upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0,
     beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0,
     deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0,
-    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, pickups: 0, palletBlocked: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0, idleMinutes: 0,
+    sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, pickups: 0, palletBlocked: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0, idleMinutes: 0, fastMinutes: 0,
   };
 }
 
@@ -129,6 +129,8 @@ export class Game {
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
   extinguisherUsesToday = 0;
+  /** How fast the clock runs (CONFIG.clock): set each frame by the view from scaleFor(); the sim leaves it at 1. */
+  timeScale = 1;
   /** Yesterday's numbers (Kerr shows them; the week's list resets on Monday). */
   lastDay: DayStats | null = null;
   /** Today's fires as they started: when, how full the extractor bag was and how worn the bit (Kerr reads them). */
@@ -669,10 +671,12 @@ export class Game {
     if (this.lateDropToday && this.minute === CONFIG.jobs.lateDrop.hour * 60) this.addLateDrop();
 
     this.trackIdle();
+    if (this.timeScale > 1) this.today.fastMinutes = (this.today.fastMinutes ?? 0) + 1;
 
     // end of day
     if (!this.overtime && this.minute >= CONFIG.clock.endHour * 60) {
       this.flushIdle();
+      this.logFastForward();
       this.phase = 'endOfDayPrompt';
     } else if (this.overtime && this.minute >= CONFIG.clock.overtimeEndHour * 60) {
       this.say("That's it, lights off.");
@@ -2026,10 +2030,38 @@ export class Game {
   /** The order a sheet belongs to: "Bar front — Footscray (2/3)" → "Bar front — Footscray". */
   private orderOf(j: Job) { return j.name.replace(/\s*\(\d+\/\d+\)$/, ''); }
 
+  /**
+   * Anything happening that keeps the clock at 1x: a cut on (or loading), a fault, a visiting mate, the phone ringing or
+   * you on a call, a truck (or courier) at the dock, a fire, a ute waiting for a pickup, the council in.
+   */
+  get happening(): boolean {
+    return this.machine === 'cutting' || this.machine === 'loading' || this.replacing !== null || !!this.fault || !!this.fire || this.fireResponse !== null
+      || this.distractions.length > 0 || this.dennisRinging || this.busy !== null
+      || !!this.truckOnApron || this.pickupsHere.length > 0 || (this.rare?.phase === 'live');
+  }
+  /**
+   * The time scale, from the state (never from an action): 0 behind a full screen; 1x while anything's happening, you're
+   * moving or something's pending; fast once you've stood still a moment with the machine idle and nothing to do.
+   */
+  scaleFor(v: { held: boolean; moving: boolean; stillMs: number; pending: boolean }): number {
+    if (v.held || this.phase !== 'day') return 0;
+    if (this.happening || v.moving || v.pending || v.stillMs < CONFIG.clock.fastAfterStillMs) return 1;
+    return CONFIG.clock.fastScale;
+  }
+
   /** Nothing left on the board after a sheet: ring today's next order call now (CONFIG.pickup.ringNextCallWhenEmpty). */
   private keepWorkComing() {
     if (!CONFIG.pickup.ringNextCallWhenEmpty || this.queued.length || !this.orderCalls.length) return;
     this.orderCalls[0].minute = Math.min(this.orderCalls[0].minute, this.minute); // rings later this same tick
+  }
+
+  /** The day log's line on the time scale: how much of the day went by fast, and whether that's too much. */
+  private logFastForward() {
+    const m = this.today.fastMinutes ?? 0;
+    if (!m) return; // (the sim never speeds up)
+    const day = (CONFIG.clock.endHour - CONFIG.clock.startHour) * 60, share = m / day;
+    const secs = Math.round(m * CONFIG.clock.realMsPerGameMinute / CONFIG.clock.fastScale / 1000);
+    this.say(`Fast-forward: ${m} game min (${Math.round(share * 100)}% of the day), ${secs}s real${share > CONFIG.clock.fastWarnShare ? ` — over ${Math.round(CONFIG.clock.fastWarnShare * 100)}%: a job-queue problem, not a clock problem` : ''}`, 'info');
   }
 
   /** The machine sitting idle on the clock: a run over CONFIG.ui.idleLogAboveMinutes goes in the day log when it ends. */

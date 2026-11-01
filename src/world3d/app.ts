@@ -199,6 +199,9 @@ export class World3D {
   peopleDay!: PeopleDay;
   /** A visiting mate past "flat out": the yarn, the hand, the beer (src/world3d/mateVisit.ts). */
   mateVisit!: MateVisit;
+  /** The time scale (Game.scaleFor): when you last moved, and until when a snap back to 1x holds the event's pointer and sound. */
+  private lastMovedAt = 0;
+  private snapHoldUntil = 0;
   /** A new game's first morning: the cafe intro to start once the scene's built, and what comes after it (the letter). */
   private introPending = false;
   private afterIntro: (() => void) | null = null;
@@ -608,13 +611,25 @@ export class World3D {
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
     g.signing = this.gesture.drawing; // the driver waits while the pen's moving
     g.fireHold = tourActive(w); // no fire until the walk-round's done and the first cut's on
+    // the time scale, from the state: 0 behind a full screen, 1x while anything's on, fast when nothing is
+    const moving = !!this.path || Math.hypot(this.vel.x, this.vel.z) > 0.05;
+    if (moving) this.lastMovedAt = this.time;
+    const was = g.timeScale;
+    g.timeScale = g.scaleFor({
+      held: this.cafe.active || this.kerr.showing || this.hud.summaryShowing || this.layoutEditor.active,
+      moving, stillMs: (this.time - this.lastMovedAt) * 1000,
+      pending: todoItems(g, w).some(i => i.urgent || i.key === 'next'),
+    });
+    if (was > 1 && g.timeScale === 1 && !moving) this.snapHoldUntil = this.time + CONFIG.clock.snapHoldMs / 1000; // something came up
     if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active && !this.cafe.holdsClock && !this.kerr.showing) {
-      this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
+      this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5) * g.timeScale;
       let ticked = false;
       while (this.acc >= CONFIG.clock.realMsPerGameMinute && g.phase === 'day') {
         this.acc -= CONFIG.clock.realMsPerGameMinute;
         g.tick();
         ticked = true;
+        // fast, and something's just happened: back to 1x this minute (and hold its pointer and sound a moment)
+        if (g.timeScale > 1 && g.happening) { g.timeScale = 1; this.acc = 0; this.snapHoldUntil = this.time + CONFIG.clock.snapHoldMs / 1000; break; }
       }
       if (ticked) { this.syncWorld(); this.save(); }
     }
@@ -679,7 +694,7 @@ export class World3D {
     this.updateRing();
     this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active && !this.cafe?.active); // (new jobs show once you're in the shed)
     if (!this.hud.summaryShowing) {
-      this.hud.update(g, todoItems(g, w), w.done, this.rentClock());
+      this.hud.update(g, todoItems(g, w), w.done, [this.rentClock(), g.timeScale > 1 ? 'waiting…' : ''].filter(Boolean).join(' · '), g.timeScale > 1);
       // the first fault: follow the pointer to where it is (cleared on getting there); the first gesture card (cleared doing one)
       if (g.fault && this.inRange(faultTarget(g, w) ?? 'machine')) this.hints.mark('fault');
       const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
@@ -2037,6 +2052,7 @@ export class World3D {
   private updatePointers() {
     const g = this.g, w = this.w;
     const list: { key: string; icon: string; x: number; y: number; angle: number; ring: boolean }[] = [];
+    if (this.time < this.snapHoldUntil) return; // just snapped back to 1x: a beat before the pointers move
     if (g.phase === 'day' && !this.paused && !this.hud.summaryShowing) {
       const at = (id: ObjectId) => { const v = this.built.objects.get(id)!; return new THREE.Vector3(v.centre.x, v.def.height, v.centre.z); };
       const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
@@ -2108,7 +2124,7 @@ export class World3D {
     const right = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };
     const pan = (dx * right.x + dz * right.z) / dist;
     const volume = THREE.MathUtils.clamp(1 - dist / 32, 0.12, 1);
-    this.ring.update(ringing, this.time, pan, volume);
+    this.ring.update(ringing && this.time >= this.snapHoldUntil, this.time, pan, volume); // (a beat after a snap back to 1x)
     // the compressor, hissing away: its pitch drops as water builds up in the tank
     const h = WORLD.hiss, cp = this.built.objects.get('compressor')!.centre;
     const cx = cp.x - this.pos.x, cz = cp.z - this.pos.z, cd = Math.hypot(cx, cz) || 1;

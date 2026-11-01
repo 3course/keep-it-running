@@ -260,6 +260,7 @@ export interface DayStats {
   layoutMinutes: number;   // minutes the layout cost today: shoving things round, longer walks than the default
   bets: number;            // Dennis's bets: what they cost and lost today (their wins are revenue)
   coffee: number;          // the cafe on the way in
+  fastMinutes: number;     // game minutes that went by at the fast time scale (nothing happening, nothing pending)
   idleMinutes: number;     // the machine sat idle in stretches over CONFIG.ui.idleLogAboveMinutes (the day log's "Idle …" lines)
 }
 

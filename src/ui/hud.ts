@@ -50,6 +50,7 @@ const CSS = `
 #kir-hud .pad li.sheet .sub span { white-space: nowrap; }
 #kir-hud .pad li.sheet.late { color: #9a1f12; }
 #kir-hud .pad li.more { color: #3d6f9e; text-decoration: underline; }
+#kir-hud .clock .waiting { font-size: 0.7em; color: #f2c76b; letter-spacing: 1px; }
 #kir-hud .toast { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); bottom: calc(${F(76)} + ${SAB}); transform: translateX(-50%); max-width: calc(100% - 24px); padding: 10px 16px; border-radius: 22px;
   min-height: ${F(44)}; box-sizing: border-box; background: rgba(20,17,15,.82); color: #efe6d8; font: ${F(18)} 'Courier New', monospace;
   width: max-content; text-align: center; text-wrap: balance; line-height: 1.25; pointer-events: none; cursor: pointer; opacity: 0; transition: opacity .25s; }
@@ -393,11 +394,12 @@ export class Hud {
   }
 
   /** `header`: beside the day at the top of the notepad (the rent clock). */
-  update(g: Game, items: TodoItem[], log: string[], header = '') {
+  update(g: Game, items: TodoItem[], log: string[], header = '', waiting = false) {
     this.updateToast(log);
     const ot = g.overtime ? ' · OT' : '';
     const cashCls = g.cash < 0 ? 'cash neg' : 'cash';
-    const html = `${g.formatTime()}${ot}<br><span class="${cashCls}">${money(g.cash)}${g.cash < 0 ? ' overdrawn' : ''}</span>`;
+    // fast-forwarding: a small "waiting…" under the time, so the speed-up is legible
+    const html = `${g.formatTime()}${ot}<br><span class="${cashCls}">${money(g.cash)}${g.cash < 0 ? ' overdrawn' : ''}</span>${waiting ? '<br><span class="waiting">waiting…</span>' : ''}`;
     if (this.clock.innerHTML !== html) this.clock.innerHTML = html;
 
     const urgent = items.filter(i => i.urgent).length;

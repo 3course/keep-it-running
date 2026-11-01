@@ -56,6 +56,13 @@ export const CONFIG = {
     endHour: 17,          // knock-off; overtime prompt appears here
     overtimeEndHour: 19,  // hard stop
     realMsPerGameMinute: 1000,
+    // Time scale (Game.timeScale, set from Game.scaleFor): 1x while anything's happening; fast when the machine's idle,
+    // nothing's pending and you've stood still a moment; 0 behind a full screen (the cafe, Kerr, the day summary).
+    // The day's length in game minutes doesn't change; the day log says how much of it went by fast.
+    fastScale: 4,
+    fastAfterStillMs: 2000,   // stood still this long (real) before it speeds up
+    snapHoldMs: 500,          // back to 1x for an event: this long before its pointer and sound, so the shift registers
+    fastWarnShare: 0.15,      // more of the day than this fast: that's a job-queue problem, not a clock problem
   },
 
   labour: {
