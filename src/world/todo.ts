@@ -144,7 +144,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (!tourGrab && w.bed === 'empty' && w.carrying === null && nextJob && !g.machineDown) add(!!w.utePresent, 'next', `Grab the next sheet: ${nextJob.name}`, 'plyPallet');
   // work on the board with no ply for it, and nothing for it on order
   const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.lines.some(l => l.type === t)));
-  if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, ['phone', 'desk']);
+  if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, 'desk'); // on the computer
 
   // milestones still to come: tap one to go and look at what it unlocks
   if (CONFIG.milestones) {

@@ -246,7 +246,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, done: 'Talked the bank round', run: () => { g.respond(d.id, 'answer'); } });
       }
       if (g.dennisRinging) a.unshift({ label: `Answer (${CONFIG.dennis.name})`, key: 'dennis', done: `On the phone to ${CONFIG.dennis.name}`, run: () => { if (!g.answerDennis()) return 'He rang off'; uiHooks.dennis(); } });
-      a.push({ label: 'Order ply', key: 'orderply', auto: false, done: 'On to the supplier', run: () => uiHooks.orderPly() });
+      // (the phone takes calls; ply's ordered from the computer — playtest 1)
       // Dennis's ledger hangs by the phone
       if (g.dennis.bets.some(b => b.status !== 'pitched')) a.push({ label: `Read ${CONFIG.dennis.name}'s ledger`, auto: false, done: `Read ${CONFIG.dennis.name}'s ledger`, run: () => uiHooks.ledger() });
       for (const cb of g.callbacks) {

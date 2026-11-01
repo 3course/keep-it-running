@@ -197,7 +197,7 @@ const CASES = {
   async phone(game) {
     await game.eval(g => { g.spawnDistraction('phone'); });
     await walkTo(game, 'phone');
-    assert.ok((await labels(game)).includes('Order ply'), 'you can always order ply from the phone');
+    assert.ok(!(await labels(game)).includes('Order ply'), 'the phone takes calls; ply is ordered on the computer');
     assert.equal((await tapLabel(game, 'Answer')).said, 'Answered the phone');
     assert.deepEqual(await game.eval(g => [g.busy?.label, g.distractions.some(d => d.kind === 'phone')]), ['on the phone', false]);
   },
