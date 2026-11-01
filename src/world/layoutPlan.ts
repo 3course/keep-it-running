@@ -38,7 +38,7 @@ export const SWITCHBOARD = { x: 21, y: 36 };
 export const DEFAULT_PLAN: Plan = {
   plyPallet: { x: 6, y: 25, rot: 0 }, finishedPallet: { x: 19, y: 28, rot: 0 }, extractor: { x: 14, y: 14, rot: 0 },
   bitRack: { x: 7, y: 14, rot: 0 }, offcutBin: { x: 19, y: 22, rot: 0 }, compressor: { x: 6, y: 19, rot: 0 },
-  extinguisher: { x: 28, y: 34, rot: 0 }, fridge: { x: 28, y: 35, rot: 0 }, racks: { x: 24, y: 14, rot: 0 },
+  extinguisher: { x: 28, y: 34, rot: 0 }, fridge: { x: 28, y: 35, rot: 0 }, racks: { x: 27, y: 22, rot: 1 },
   bench: { x: 12, y: 36, rot: 0 }, crates: { x: 26, y: 33, rot: 0 }, corkboard: { x: 8, y: 39, rot: 0 },
 };
 
@@ -49,8 +49,9 @@ export const PRESETS: Record<'default' | 'compact' | 'dockFirst', Plan> = {
   compact: { ...DEFAULT_PLAN, plyPallet: { x: 7, y: 28, rot: 0 }, finishedPallet: { x: 18, y: 28, rot: 0 }, bitRack: { x: 10, y: 20, rot: 0 },
     offcutBin: { x: 18, y: 22, rot: 0 }, extinguisher: { x: 9, y: 22, rot: 0 }, extractor: { x: 12, y: 16, rot: 0 }, compressor: { x: 19, y: 34, rot: 0 } },
   // deliveries and pickups first: both pallets by the roller door, the extractor tucked away up the back
-  dockFirst: { ...DEFAULT_PLAN, plyPallet: { x: 25, y: 23, rot: 0 }, finishedPallet: { x: 23, y: 28, rot: 0 }, extractor: { x: 8, y: 14, rot: 0 },
-    bitRack: { x: 11, y: 14, rot: 0 }, fridge: { x: 28, y: 37, rot: 0 }, crates: { x: 27, y: 41, rot: 0 } },
+  // (playtest 1: the raw sheets moved a cell south of the racks, now in the dock's north end; the fridge and crates stay out of the walled-off smoko corner)
+  dockFirst: { ...DEFAULT_PLAN, plyPallet: { x: 24, y: 25, rot: 0 }, finishedPallet: { x: 23, y: 28, rot: 0 }, extractor: { x: 8, y: 14, rot: 0 },
+    bitRack: { x: 11, y: 14, rot: 0 }, fridge: { x: 28, y: 36, rot: 0 } },
 };
 
 export const rectOf = (id: StationId, p: Placement): Rect => {
@@ -61,7 +62,7 @@ export const rectOf = (id: StationId, p: Placement): Rect => {
 const C = 0.5; // m per cell
 const centre = (r: Rect) => ({ x: (r.x + r.w / 2) * C, z: (r.y + r.h / 2) * C });
 const cellsOf = (r: Rect) => { const out: P[] = []; for (let y = r.y; y < r.y + r.h; y++) for (let x = r.x; x < r.x + r.w; x++) out.push({ x, y }); return out; };
-const INDOOR = new Set<number>([T.FLOOR, T.OFFICE, T.STORAGE, T.DOCK]);
+const INDOOR = new Set<number>([T.FLOOR, T.OFFICE, T.DOCK]); // (storage is walled off for now)
 
 /** Fixed obstacles: the solid things that don't move (and the solid clutter that isn't a station). */
 function fixedSolids(): Rect[] {
@@ -99,8 +100,8 @@ export function problems(plan: Plan): Partial<Record<StationId, string>> {
       const a = centre(r), m = centre(machine);
       if (Math.hypot(a.x - m.x, a.z - m.z) > CONFIG.layout.maxDuctMetres) { out[id] = 'Duct won’t reach the router'; continue; }
     }
-    // you have to be able to get to it
-    if (s.solid && !findPath(COLS, ROWS, walk, MACHINE_SPOT, around(r, walk))) out[id] = "Can't get to it";
+    // you have to be able to get to it (the milk crates too: nothing goes in a walled-off room)
+    if (!findPath(COLS, ROWS, walk, MACHINE_SPOT, around(r, walk))) out[id] = "Can't get to it";
   }
   return out;
 }

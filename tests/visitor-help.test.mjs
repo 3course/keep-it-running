@@ -71,7 +71,7 @@ describe('a visiting mate, in the shed', () => {
   it('"Give us a hand?": he does 1–4 of the jobs that are actually pending, one after another, then stops', async () => {
     const game = await freshGame(env);
     try {
-      await walkTo(game, 'smoko');
+      await walkTo(game, 'racks');
       await setTime(game, 10, 0);
       // pending: two boards on the bed, the old extractor bag, a full offcut bin
       await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); g.bedPile = 2; w.oldBagWaiting = true; g.offcutBin = 1; g.deliveries = []; });
@@ -95,7 +95,7 @@ describe('a visiting mate, in the shed', () => {
   it('"Grab you a beer?": fetch a can, walk it over, and the "Give" prompt is on him', async () => {
     const game = await freshGame(env);
     try {
-      await walkTo(game, 'smoko');
+      await walkTo(game, 'racks');
       await setTime(game, 15, 0);
       await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); });
       const mate = await freshMate(game);
@@ -105,10 +105,16 @@ describe('a visiting mate, in the shed', () => {
       await walkTo(game, 'fridge');
       await tapLabel(game, `Beer ($${CONFIG.beer.cost})`);
       assert.ok(await game.eval(g => !!g.heldCan), 'a can in your hand');
-      // over to him: he stands where he is; you walk up
-      await game.eval((g, w, s) => { const v = s.visitor; s.walkToPoint(v.x + 0.8, v.z); });
+      // over to him: he may wander while he waits, so walk up to wherever he is (re-aiming as he goes)
       const give = `Give ${mate.name} the beer`;
-      await waitForLabel(game, give, 20_000);
+      for (let i = 0; i < 12 && !(await labels(game)).includes(give); i++) {
+        await game.eval((g, w, s) => {
+          const v = s.visitor, side = [[0.8, 0], [-0.8, 0], [0, 0.8], [0, -0.8]].find(([dx, dz]) => s.walkable(Math.floor((v.x + dx) / 0.5), Math.floor((v.z + dz) / 0.5))) ?? [0, 0];
+          s.walkToPoint(v.x + side[0], v.z + side[1]);
+        });
+        await new Promise(r => setTimeout(r, 1200));
+      }
+      await waitForLabel(game, give, 5_000);
       await tapLabel(game, give);
       const st = await game.eval(g => ({ can: !!g.heldCan, beers: g.distractions.find(x => x.kind === 'friend').beers, cash: g.cash}));
       assert.deepEqual([st.can, st.beers], [false, 1], 'his now');

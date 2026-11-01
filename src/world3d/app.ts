@@ -1814,6 +1814,8 @@ export class World3D {
     let route: { x: number; z: number }[] = [];
     if (this.path) route = this.path.slice(this.pathIdx).map(t => ({ x: (t.x + 0.5) * C, z: (t.y + 0.5) * C }));
     else if (Math.hypot(this.vel.x, this.vel.z) > 0.3) route = [{ x: this.pos.x + this.vel.x * 0.6, z: this.pos.z + this.vel.z * 0.6 }]; // on the stick: just ahead
+    // his beer's in your hand: he comes over for it rather than wandering off
+    this.visitor.comeOver = !!mate && this.mateVisit.beerFor === mate.id && (this.g.heldCan?.fill ?? 0) >= 1;
     this.visitor.update(this.paused ? 0 : dt, this.time, mate, { x: this.pos.x, z: this.pos.z, route });
   }
 

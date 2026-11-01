@@ -21,7 +21,7 @@ let CORK = { ...CORK_BUILT };
 const SILL = { x0: 6.6, x1: 8.6, y: 1.0, z: 19.62 };                     // office window, same wall
 const FRIDGE_BUILT = { x0: 14.06, y0: 0.2, z: 18.512 };                 // the bar fridge's side that faces the room (south)
 let FRIDGE_SIDE = { ...FRIDGE_BUILT };
-const SMOKO = { x: 12.75, y: 0.35, z: 21.27 };                           // the upturned crate between the smoko chairs
+const SMOKO = { x: 13.5, y: 0.35, z: 17.25 };                            // smoko's on the milk crates in the dock now (the smoko corner's walled off)
 const SLABS_BUILT = { x: 13.7, z: 18.75 };                               // on the floor beside the fridge
 let SLABS = { ...SLABS_BUILT };
 /** Keepsakes: wall hooks on the factory's north wall and the dock's, the workbench as a shelf, the toilet door. */

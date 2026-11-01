@@ -1627,7 +1627,7 @@ export class Game {
     for (const can of this.cans) {
       if (!can.held && !can.warm && can.fill > 0 && can.downSince !== null && this.minute - can.downSince >= b.warmAfterMinutes) can.warm = true;
     }
-    if (this.looSince === null && this.beersToday - this.beersAtLoo >= b.looAfterBeers) { this.looSince = this.minute; this.say('Need the loo.'); }
+    if (b.loo && this.looSince === null && this.beersToday - this.beersAtLoo >= b.looAfterBeers) { this.looSince = this.minute; this.say('Need the loo.'); }
     // a mate who's in, and empties all over the place: they take that as an invitation (once a visit, within the caps)
     const mate = this.distractions.find(d => d.kind === 'friend' && !d.beers && this.visitorMayHaveBeer(d));
     if (mate && this.emptiesAbout >= b.mateGrabsBeerAt) {

@@ -5,6 +5,10 @@
 // The factory floor is 8 x 12 m. Walk times come from where the rooms sit, not from open floor:
 // the office is off the near (south) end, the extractor and exhaust unit are at the far (north) end
 // through the side door and round the back, and the dock runs down the long east side.
+//
+// Cut for now (playtest 1): the toilet (and its corridor), the smoko corner at the dock's south end, storage and the
+// back shed are walled off — their rooms, objects and code stay, unreachable, to come back one at a time when each has
+// a job. What was kept in them is in the dock: the sheet racks (ply stock) and the spare extractor bags.
 import type { VisitorArea } from '../sim/types.js';
 
 export const COLS = 42;
@@ -89,10 +93,10 @@ export const OBJECTS: PlacedObject[] = [
   { id: 'switchboard', name: 'Switchboard', rect: { x: 21, y: 36, w: 1, h: 1 }, height: 1.6, colour: 0x6a6f74, solid: false },
   // toilet, storage
   { id: 'toilet', name: 'Toilet', rect: { x: 20, y: 45, w: 1, h: 1 }, height: 0.45, colour: 0xf4f4f0, solid: true },
-  { id: 'racks', name: 'Sheet racks', rect: { x: 24, y: 14, w: 5, h: 2 }, height: 1.8, colour: 0x8a6a40, solid: true },
+  { id: 'racks', name: 'Sheet racks', rect: { x: 27, y: 22, w: 2, h: 5 }, height: 1.8, colour: 0x8a6a40, solid: true }, // the dock's north end (was storage)
   // back shed and yard
   { id: 'spareExtinguisher', name: 'Spare extinguisher', rect: { x: 2, y: 2, w: 1, h: 1 }, height: 0.6, colour: 0xc0281e, solid: true },
-  { id: 'bags', name: 'Spare bags', rect: { x: 5, y: 2, w: 2, h: 1 }, height: 0.4, colour: 0xd0c8a8, solid: true },
+  { id: 'bags', name: 'Spare bags', rect: { x: 23, y: 22, w: 2, h: 1 }, height: 0.4, colour: 0xd0c8a8, solid: true }, // the dock's north-west corner (was the back shed)
   { id: 'skip', name: 'Skip', rect: { x: 10, y: 2, w: 3, h: 3 }, height: 1.1, colour: 0xc7782a, solid: true },
 ];
 
@@ -114,7 +118,7 @@ export const DECOR: Decor[] = [
   { kind: 'drums', rect: { x: 20, y: 14, w: 2, h: 2 }, solid: true },
   { kind: 'cable', rect: { x: 18, y: 24, w: 4, h: 1 }, solid: false },        // cable snaking off the machine
   { kind: 'panels', rect: { x: 23, y: 23, w: 2, h: 2 }, solid: true },       // finished panels waiting
-  { kind: 'trolley', rect: { x: 24, y: 37, w: 2, h: 2 }, solid: true },
+  { kind: 'trolley', rect: { x: 23, y: 36, w: 2, h: 2 }, solid: true },
   { kind: 'drums', rect: { x: 27, y: 39, w: 2, h: 2 }, solid: true },
 ];
 
@@ -136,7 +140,6 @@ export const ROLLER_TILES = Array.from({ length: 6 }, (_, i) => ({ x: 29, y: 28 
 export interface Doorway { sign: string; cell: { x: number; y: number }; along: 'x' | 'y'; swing: { x: number; y: number }; light?: boolean }
 export const DOORWAYS: Doorway[] = [
   { sign: 'OFFICE', cell: { x: 6, y: 38 }, along: 'x', swing: { x: 0, y: 1 }, light: true }, // warm light spills out while the phone rings
-  { sign: 'STORAGE', cell: { x: 25, y: 21 }, along: 'x', swing: { x: 0, y: -1 } },
   { sign: 'YARD', cell: { x: 5, y: 16 }, along: 'y', swing: { x: -1, y: 0 } },
 ];
 
@@ -146,8 +149,8 @@ export const VISITOR_AREAS: Record<VisitorArea, Rect> = {
   office: { x: 6, y: 39, w: 12, h: 7 },
   smoko: { x: 23, y: 39, w: 6, h: 7 },
 };
-/** Where a visiting mate walks in: the dock, by the smoko chairs. */
-export const VISITOR_ARRIVAL = { x: 26, y: 37 };
+/** Where a visiting mate walks in: the dock's south end, by the fridge (the smoko corner past it is walled off). */
+export const VISITOR_ARRIVAL = { x: 26, y: 36 };
 
 /**
  * Cells a visitor never stops on: doorways and the cells either side, the roller door and the customer pickup in front
@@ -210,16 +213,18 @@ export function buildGrid(): number[][] {
   fill(g, { x: 22, y: 39, w: 1, h: 7 }, T.WALL);
   // doorways are 2 cells (1 m) wide
   g[38][6] = g[38][7] = T.DOOR;     // office, at its west end
-  g[38][19] = g[38][20] = T.DOOR;   // corridor
-  g[43][20] = g[43][21] = T.DOOR;   // toilet
-  g[21][25] = g[21][26] = T.DOOR;   // storage, off the dock
+  // (cut for now: the corridor/toilet and storage doors are wall, so those rooms can't be reached)
+  // g[38][19] = g[38][20] = T.DOOR;   // corridor
+  g[43][20] = g[43][21] = T.DOOR;   // toilet (behind the walled-off corridor)
+  // g[21][25] = g[21][26] = T.DOOR;   // storage, off the dock
+  fill(g, { x: 23, y: 38, w: 6, h: 1 }, T.WALL); // the smoko corner, walled off from the dock
   g[16][5] = g[17][5] = T.DOOR;     // side door out to the yard
   for (const t of ROLLER_TILES) g[t.y][t.x] = T.ROLLER;
 
   // back shed in the rear yard
   outline(g, { x: 1, y: 1, w: 8, h: 6 }, T.WALL);
   fill(g, { x: 2, y: 2, w: 6, h: 4 }, T.SHED);
-  g[6][5] = g[6][6] = T.DOOR;
+  // g[6][5] = g[6][6] = T.DOOR; // (cut for now: no way in)
   return g;
 }
 

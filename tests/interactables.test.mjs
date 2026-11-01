@@ -7,6 +7,15 @@ import { after, describe, it } from 'node:test';
 import { advance, answerCard, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
+const LAYOUT = await env.load('/src/world/layout.ts');
+const PATHS = await env.load('/src/world/pathfind.ts');
+/** Can you walk from the roller door to anywhere beside this object (the door up, everything else as built)? */
+function reachable(id) {
+  const grid = LAYOUT.buildGrid(), solid = LAYOUT.solidCells(), r = LAYOUT.objectById(id).rect;
+  const walk = (x, y) => x >= 0 && y >= 0 && x < LAYOUT.COLS && y < LAYOUT.ROWS && grid[y][x] !== LAYOUT.T.WALL && !solid.has(y * LAYOUT.COLS + x);
+  const around = []; for (let y = r.y - 1; y <= r.y + r.h; y++) for (let x = r.x - 1; x <= r.x + r.w; x++) around.push({ x, y });
+  return !!PATHS.findPath(LAYOUT.COLS, LAYOUT.ROWS, walk, LAYOUT.START_TILE, around);
+}
 after(() => env.close());
 const C = env.config;
 const $ = n => `$${Math.round(n)}`;
@@ -117,13 +126,11 @@ const CASES = {
     assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.wall]), [null, true]);
   },
 
+  // the back shed's walled off for now (playtest 1): its spare can't be reached, and it isn't offered
   async spareExtinguisher(game) {
     await startFire(game);
-    await walkTo(game, 'spareExtinguisher');
-    assert.equal((await tapLabel(game, 'Grab extinguisher')).said, 'Grabbed the extinguisher');
-    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.shed, w.extinguisherFrom]), ['extinguisher', false, 'shed']);
-    assert.equal((await tapLabel(game, 'Hang it up')).said, 'Extinguisher back on its hook');
-    assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.shed]), [null, true]);
+    assert.equal(reachable('spareExtinguisher'), false, 'the back shed is shut');
+    assert.equal(await game.eval((g, w, s) => s.hud.pad.textContent.includes('Spare extinguisher')), false);
   },
 
   // the "Extinguisher by the exhaust" upgrade: not there until it's bought, then a third hook out in the yard
@@ -209,11 +216,12 @@ const CASES = {
     assert.deepEqual(await game.eval(g => [!!g.heldCan, g.cash]), [true, cash - C.beer.cost]);
   },
 
+  // the toilet's walled off for now (playtest 1): it can't be reached, and beer never sends you to it
   async toilet(game) {
-    await game.eval(g => { g.looSince = g.minute; });
-    await walkTo(game, 'toilet');
-    assert.equal((await tapLabel(game, 'Use the loo')).said, 'Off to the loo');
-    assert.deepEqual(await game.eval((g, w) => [g.needLoo, w.toiletUntil !== null]), [false, true]);
+    assert.equal(reachable('toilet'), false, 'the corridor is shut');
+    await setTime(game, C.beer.fridgeUnlockHour);
+    const needs = await game.eval(g => { const tick = Object.getPrototypeOf(g).tick; for (let i = 0; i < 4; i++) { g.beersToday += 1; tick.call(g); } return g.needLoo; });
+    assert.equal(needs, false, 'no "Need the loo"');
   },
   // the layout put the compressor on the extractor's circuit: the breaker trips
   async switchboard(game) {

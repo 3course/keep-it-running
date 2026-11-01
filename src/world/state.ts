@@ -75,7 +75,8 @@ export type Hook = 'wall' | 'shed' | 'exhaust';
 export const HOOKS: { hook: Hook; id: ObjectId }[] = [
   { hook: 'wall', id: 'extinguisher' }, { hook: 'shed', id: 'spareExtinguisher' }, { hook: 'exhaust', id: 'exhaustExtinguisher' },
 ];
-export const hookThere = (g: Game, h: Hook) => h !== 'exhaust' || g.upgrades.has('exhaustExtinguisher');
+// the back shed's walled off for now, so its spare isn't there to grab
+export const hookThere = (g: Game, h: Hook) => h !== 'shed' && (h !== 'exhaust' || g.upgrades.has('exhaustExtinguisher'));
 /** An extinguisher hanging on this hook now (a save from before the exhaust hook counts it as hung). */
 export const onHook = (g: Game, w: WorldState, h: Hook) => hookThere(g, h) && w.hooks[h] !== false;
 /** How full the offcut bin is before it's worth bagging (the bigger bin lets it fill further). */

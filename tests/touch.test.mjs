@@ -16,10 +16,10 @@ const hhmm = ([h, m]) => `${h}:${String(m).padStart(2, '0')}`;
 const YARN = '"Yeah, what\'s up?"', HAND = '"Give us a hand?"', BEER_LATER = '"Beer after two?"', BEER_NOW = '"Grab you a beer?"';
 const yes = shown => shown.filter(t => t !== FLAT_OUT);
 
-/** New game, you at the smoko chairs, the clock at `time`, `beers` already given out today, and a mate who's just walked in. */
+/** New game, you at the sheet racks in the dock (nothing of their own to tap), the clock at `time`, `beers` already given out today, and a mate who's just walked in. */
 async function mateDropsIn([h, m], { mate: mateId, beers } = {}) {
   const game = await freshGame(env);
-  await walkTo(game, 'smoko');
+  await walkTo(game, 'racks');
   await setTime(game, h, m);
   if (beers) await game.eval((g, w, s, b) => { g.visitorBeers = b; }, beers);
   const mate = await freshMate(game, mateId);
@@ -157,7 +157,7 @@ describe('visits', () => {
 });
 
 describe('his answer buttons sit over what he says (playtest 1)', () => {
-  for (const spot of ['smoko', 'machine', 'phone']) {
+  for (const spot of ['racks', 'machine', 'phone']) {
     it(`you at the ${spot}: no button under his bubble, and the labels paint over it`, async () => {
       const game = await freshGame(env);
       try {

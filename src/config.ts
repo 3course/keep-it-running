@@ -220,7 +220,7 @@ export const CONFIG = {
     beersPerDay: 4,            // all mates together
     wanderMin: 4,              // minutes at one spot before moving on to another
     wanderMax: 8,
-    areas: ['floor', 'office', 'smoko'] as const,
+    areas: ['floor', 'office'] as ('floor' | 'office' | 'smoko')[], // where they wander (the smoko corner's walled off for now)
     // Bars for the night-out stories ({bar}, {suburb}). Placeholders: names and suburbs unverified, swap freely.
     bars: [
       { name: 'Dr Morse', suburb: 'Abbotsford' },
@@ -375,6 +375,7 @@ export const CONFIG = {
     decayMinutes: 60,              // effects wear off linearly over this long after the last sip
     warmAfterMinutes: 30,          // a can put down this long goes warm
     friendDurationMult: 1.5,       // friends stay longer once you've had one
+    loo: false,                    // the toilet's walled off for now (playtest 1): no "Need the loo" until it's back
     looAfterBeers: 2,              // "Need the loo" after this many cans since the last visit
     looEveryMinutes: 10,           // each this long without going…
     looSlowStep: 0.05,             // …costs this much walk speed…

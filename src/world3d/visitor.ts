@@ -21,6 +21,8 @@ function segDist(px: number, pz: number, ax: number, az: number, bx: number, bz:
 export interface PlayerTrack { x: number; z: number; route: { x: number; z: number }[] }
 
 export class VisitorWalker {
+  /** Set by the view each frame: you're bringing him the beer he's waiting on, so he comes over to you. */
+  comeOver = false;
   id: number | null = null;  // the visit being walked
   x = 0;
   z = 0;
@@ -87,7 +89,7 @@ export class VisitorWalker {
       this.follow(dt);
       return;
     }
-    const talking = !!d.ask || d.engaged;
+    const talking = !!d.ask || d.engaged || this.comeOver;
     this.wantKey = talking ? 'you' : `wander:${d.wander?.area}:${d.wander?.spot}`;
 
     if (time >= this.asideUntil && this.inTheWay(you)) {
