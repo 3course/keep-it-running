@@ -1,6 +1,7 @@
 // Goose-style HUD as plain DOM laid over the canvas: clock and cash top-right, a notepad tab on the
 // left edge, floating action labels on objects, the virtual stick, and the few modal moments
 // (5pm, paused, end of day/week). DOM keeps text crisp over the chunky low-res 3D render.
+import { dismissLetters } from './letterCard.js';
 import { CONFIG, type JobTypeId } from '../config.js';
 import { BUILD_TAG } from './clipboard.js';
 import type { Game } from '../sim/Game.js';
@@ -111,7 +112,7 @@ const CSS = `
   background: rgba(20,17,15,.15); display: none; pointer-events: none; }
 #kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: ${F(40)}; height: ${F(40)}; margin: calc(${F(-20)}) 0 0 calc(${F(-20)}); border-radius: 50%; background: rgba(255,255,255,.6); }
 #kir-hud .tag { position: absolute; right: calc(4px + ${SAR}); bottom: calc(2px + ${SAB}); font: ${F(10)} 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
-#kir-hud .summary { position: absolute; inset: 0; background: #14110f; color: #efe6d8; pointer-events: auto; overflow-y: auto; display: none;
+#kir-hud .summary { position: absolute; inset: 0; z-index: 50; /* over every card (gesture 30, letters, order card): only the renderer failure sits higher */ background: #14110f; color: #efe6d8; pointer-events: auto; overflow-y: auto; display: none;
   padding: calc(14px + ${SAT}) calc(14px + ${SAR}) calc(30px + ${SAB}) calc(14px + ${SAL}); box-sizing: border-box; font: ${F(17)} 'Courier New', monospace; }
 #kir-hud .summary > * { max-width: ${F(560)}; margin-left: auto; margin-right: auto; }
 #kir-hud .summary h1 { font-size: ${F(26)}; font-weight: normal; margin: 0; }
@@ -518,7 +519,7 @@ export class Hud {
   hideStick() { this.stick.style.display = 'none'; }
 
   /** Show the end-of-day/week screen; returns the element to fill. */
-  showSummary(): HTMLDivElement { this.close(); this.summary.style.display = 'block'; this.summary.scrollTop = 0; return this.summary; }
+  showSummary(): HTMLDivElement { this.close(); dismissLetters(); this.summary.style.display = 'block'; this.summary.scrollTop = 0; return this.summary; }
   hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
   get summaryShowing() { return this.summary.style.display === 'block'; }
   setHudVisible(v: boolean) {

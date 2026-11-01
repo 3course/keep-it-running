@@ -103,6 +103,18 @@ describe('the lease, in the shed', () => {
     assert.match(await game.eval((g, w, s) => s.hud.pad.textContent), new RegExp(`Rent: \\$${CONFIG.lease.rentDue.toLocaleString('en-AU')} by day 20 · day 1`));
     await game.close();
   });
+  it('the day summary is never under the letter: opening it puts the letter away (read)', async () => {
+    const game = await freshGame(env);
+    assert.ok(await game.page.evaluate(() => !!document.querySelector('#kir-hud .lettercard:not(.gone)')), 'the letter is up');
+    await game.eval(g => { g.phase = 'daySummary'; });
+    await game.page.waitForFunction(() => getComputedStyle(document.querySelector('#kir-hud .summary')).display === 'block');
+    assert.equal(await game.page.evaluate(() => document.querySelectorAll('#kir-hud .lettercard:not(.gone)').length), 0, 'no letter left up');
+    assert.ok(await game.eval((g, w) => w.lease.letterRead), 'and it counts as read');
+    // whatever else is up, the top of the screen is the summary
+    const top = await game.page.evaluate(() => { const r = document.querySelector('#kir-hud .summary').getBoundingClientRect(); const e = document.elementFromPoint(r.left + r.width / 2, r.top + 120); return !!e?.closest('#kir-hud .summary'); });
+    assert.ok(top, 'the summary is on top');
+    await game.close();
+  });
   it('Friday: a group night — another mate on the way without being rung', async () => {
     const game = await freshGame(env);
     await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); g.day = 5; g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; s.knockoff.atFive(); });

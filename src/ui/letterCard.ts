@@ -7,6 +7,11 @@ const CSS = `
 #kir-hud .lettercard h3 { margin: 0 0 6px; font: 700 13px 'Courier New', monospace; letter-spacing: 1px; text-transform: uppercase; }
 #kir-hud .lettercard.gone { opacity: 0; }
 `;
+/** Letters still up, each with its own put-away (which counts as read). */
+const open = new Set<() => void>();
+/** Put away every letter that's up: the day summary never sits under one. */
+export function dismissLetters() { for (const close of [...open]) close(); }
+
 export function showLetter(parent: HTMLElement, title: string, lines: string[], gone: () => void) {
   if (!document.getElementById('kir-letter-css')) { const s = document.createElement('style'); s.id = 'kir-letter-css'; s.textContent = CSS; document.head.appendChild(s); }
   const el = document.createElement('div');
@@ -14,7 +19,8 @@ export function showLetter(parent: HTMLElement, title: string, lines: string[], 
   el.innerHTML = `<h3>${title}</h3>${lines.map(l => `<p>${l.replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!)}</p>`).join('')}`;
   parent.appendChild(el);
   let done = false;
-  const close = () => { if (done) return; done = true; el.classList.add('gone'); setTimeout(() => el.remove(), 350); gone(); window.removeEventListener('pointerdown', close, true); };
+  const close = () => { if (done) return; done = true; open.delete(close); el.classList.add('gone'); setTimeout(() => el.remove(), 350); gone(); window.removeEventListener('pointerdown', close, true); };
+  open.add(close);
   window.addEventListener('pointerdown', close, true);
   setTimeout(close, 12000);
   return el;
