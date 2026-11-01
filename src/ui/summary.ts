@@ -136,6 +136,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
   ];
   el.innerHTML = `
     <h1>End of day ${d.day}</h1>
+    <p class="sub shift">Shift #${g.seed}</p>
     <p class="sub">Cash ${money(g.cash)} · Rapport ${g.rapport}</p>
     ${ppl?.lease?.ending ? `<section class="ending"><h2>The Lease</h2><h1>${escapeHtml(ppl.lease.ending.headline)}</h1>${ppl.lease.ending.lines.map(l => `<p>${escapeHtml(l)}</p>`).join('')}<button class="again">Start another lease</button></section>` : ''}
     ${ppl?.lease && !ppl.lease.ending ? `<p class="story leaseline"><b>The Lease:</b> day ${ppl.lease.day} of ${ppl.lease.of}. Rent ${money(ppl.lease.rent)} due on day ${ppl.lease.of}; ${money(ppl.lease.cash)} in the bank${ppl.lease.cash >= ppl.lease.rent ? ' — on track.' : ` — ${money(ppl.lease.rent - ppl.lease.cash)} to go.`}</p>` : ''}

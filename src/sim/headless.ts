@@ -19,8 +19,18 @@ import type { LayoutEffects } from './types.js';
 import { NEUTRAL_LAYOUT } from './Game.js';
 import { PRESETS, effectsOf, measure } from '../world/layoutPlan.js';
 import { simOnly, type BetKind } from './dennis.js';
+import { Rng } from './rng.js';
 
 type Policy = (g: Game) => void;
+
+/** The scripts' own coin flips (a sloppy guess, an average operator getting round to it): the player's dice, on a
+ * stream of their own, so how a script plays can't reorder the shift's events (those come from the game's streams). */
+const policyRng = new WeakMap<Game, Rng>();
+function P(g: Game): Rng {
+  let r = policyRng.get(g);
+  if (!r) policyRng.set(g, r = Rng.derive(g.seed, 'policy'));
+  return r;
+}
 
 /** Open sheets due today (or overdue) already exceed what can be cut before 5pm: the game's "board's full" warning. */
 const overCommitted = (g: Game) => g.overCommitted;
@@ -72,7 +82,7 @@ function sloppyOrders(g: Game) {
     const n = g.stock[t.id];
     if (n > REORDER_AT) { mem.delete(t.id); continue; }
     if (onOrder(g, t.id)) continue;
-    if (!mem.has(t.id)) mem.set(t.id, g.rng.chance(0.3));
+    if (!mem.has(t.id)) mem.set(t.id, P(g).chance(0.3));
     const forgot = mem.get(t.id)!;
     if (!forgot || (n === 0 && g.starvedTypes.includes(t.id))) g.orderPly(t.id, 4); // a few at a time, every time
   }
@@ -105,14 +115,14 @@ function averageRare(g: Game): boolean {
 const sloppyDodges = new WeakMap<Game, Map<number, boolean>>();
 /** Sloppy: leaves the inspector standing half the time, wanders off mid-walk, and only clears the slats for a truck. */
 function sloppyRare(g: Game): boolean {
-  if (g.inspectorTouring) { if (g.rng.chance(0.6)) g.escort(60); return true; }
+  if (g.inspectorTouring) { if (P(g).chance(0.6)) g.escort(60); return true; }
   if (g.inspectorWaiting && g.canAct) {
     let m = sloppyDodges.get(g);
     if (!m) sloppyDodges.set(g, m = new Map());
-    if (!m.has(g.dayIndex)) m.set(g.dayIndex, g.rng.chance(0.5));
+    if (!m.has(g.dayIndex)) m.set(g.dayIndex, P(g).chance(0.5));
     if (!m.get(g.dayIndex) && g.showCouncilRound()) return true;
   }
-  if (g.dockBlocked && g.canAct && g.truckOnApron && g.rng.chance(0.5)) return g.clearDebris();
+  if (g.dockBlocked && g.canAct && g.truckOnApron && P(g).chance(0.5)) return g.clearDebris();
   return false;
 }
 
@@ -143,7 +153,7 @@ function averageChores(g: Game): boolean {
   if (g.bedFull) return g.clearBed();
   return false;
 }
-const averageClamps = (g: Game) => (g.rng.chance(1 / 4) ? CLAMPS - 1 : CLAMPS);
+const averageClamps = (g: Game) => (P(g).chance(1 / 4) ? CLAMPS - 1 : CLAMPS);
 
 // sloppy's call on each spill: true = gets round to clearing it today
 const sloppyClears = new WeakMap<Game, Map<string, boolean>>();
@@ -155,14 +165,14 @@ function sloppyChores(g: Game): boolean {
     let m = sloppyClears.get(g);
     if (!m) sloppyClears.set(g, m = new Map());
     const key = `${g.dayIndex}-${g.today.binOverflows}`;
-    if (!m.has(key)) m.set(key, g.rng.chance(0.5));
-    if (m.get(key) && g.rng.chance(0.05)) return g.clearOffcutPile();
+    if (!m.has(key)) m.set(key, P(g).chance(0.5));
+    if (m.get(key) && P(g).chance(0.05)) return g.clearOffcutPile();
   }
   if (g.compressorDue && g.today.sheetsLifted > 0) return g.drainCompressor();
   if (g.bedFull) return g.clearBed();
   return false;
 }
-const sloppyClamps = (g: Game) => (g.rng.chance(0.5) ? CLAMPS - 2 : CLAMPS - 1);
+const sloppyClamps = (g: Game) => (P(g).chance(0.5) ? CLAMPS - 2 : CLAMPS - 1);
 
 /** Dennis on the phone: every script picks up and answers the run's way (`-- dennis`: yes to everything, or no). */
 let dennisSays: 'yes' | 'no' = 'no';
@@ -176,7 +186,7 @@ function answersDennis(g: Game) {
 
 /** The breaker: competent resets it straight away, average soon after, sloppy when they notice. True: that's this minute. */
 function resetsPower(g: Game, chance: number): boolean {
-  if (!g.powerTripped || !g.canAct || !g.rng.chance(chance)) return false;
+  if (!g.powerTripped || !g.canAct || !P(g).chance(chance)) return false;
   return g.resetPower();
 }
 
@@ -238,7 +248,7 @@ const sloppy: Policy = (g) => {
   if (g.fire) {
     let calls = sloppyIgnores.get(g);
     if (!calls) sloppyIgnores.set(g, calls = new Map());
-    if (!calls.has(g.fire.id)) calls.set(g.fire.id, g.rng.chance(0.2));
+    if (!calls.has(g.fire.id)) calls.set(g.fire.id, P(g).chance(0.2));
     const ignoring = calls.get(g.fire.id)! && g.fire.stage === 'spot';
     // finishes whatever step they're in the middle of first
     const midStep = g.fault && (g.fault.phase === 'working' || g.fault.phase === 'wrongCall');
@@ -248,11 +258,11 @@ const sloppy: Policy = (g) => {
     const f = g.fault;
     if (f.phase === 'diagnose') {
       const untried = f.def.diagnoses.filter(d => !f.triedDiagnoses.includes(d.id));
-      g.diagnose(g.rng.pick(untried).id); // guesses
+      g.diagnose(P(g).pick(untried).id); // guesses
     } else if (f.phase === 'choosePath') {
-      g.choosePath(g.rng.pick(g.availablePaths()).id);
+      g.choosePath(P(g).pick(g.availablePaths()).id);
     } else if (f.phase === 'step') {
-      if (g.rng.chance(0.6)) g.doStep(); // dawdles
+      if (P(g).chance(0.6)) g.doStep(); // dawdles
     }
     return;
   }
@@ -263,15 +273,15 @@ const sloppy: Policy = (g) => {
   }
   for (const c of g.callbacks) g.callBack(c.id);
   sloppyOrders(g);
-  if (g.rng.chance(0.5)) handleTruck(g); // gets round to it
+  if (P(g).chance(0.5)) handleTruck(g); // gets round to it
   // a can at 2pm and another at 4pm, or as soon after as they're free (the empty goes in the bin first); the loo once it's really slowing them down
   const due = (g.minute >= 16 * 60 ? 2 : g.minute >= 14 * 60 ? 1 : 0) - g.beersToday;
   if (due > 0 && g.canAct) { if (g.heldCan) g.binCan(); g.buyBeer(); }
   // the fridge in sight of the router (the layout): an extra can on a hot arvo
-  else if (g.layout.beerTemptation > 1 && g.minute >= 14 * 60 && g.beersToday < 3 && g.canAct && g.rng.chance((g.layout.beerTemptation - 1) * 0.01)) { if (g.heldCan) g.binCan(); g.buyBeer(); }
+  else if (g.layout.beerTemptation > 1 && g.minute >= 14 * 60 && g.beersToday < 3 && g.canAct && P(g).chance((g.layout.beerTemptation - 1) * 0.01)) { if (g.heldCan) g.binCan(); g.buyBeer(); }
   if (g.needLoo && g.looSlow >= 0.15) g.useToilet();
   if (sloppyChores(g)) return;
-  if (g.machine === 'idle' && g.queued.length && g.rng.chance(0.5)) g.loadNextSheet(CONFIG.chores ? sloppyClamps(g) : CLAMPS);
+  if (g.machine === 'idle' && g.queued.length && P(g).chance(0.5)) g.loadNextSheet(CONFIG.chores ? sloppyClamps(g) : CLAMPS);
 };
 
 // average's reaction to each fire and fault, decided when it turns up: the absolute minute they get round to it
@@ -284,7 +294,7 @@ const now = (g: Game) => g.dayIndex * 24 * 60 + g.minute;
 function averageReacts(g: Game, key: string, minLag: number, maxLag: number): boolean {
   let m = averageGetsTo.get(g);
   if (!m) averageGetsTo.set(g, m = new Map());
-  if (!m.has(key)) m.set(key, now(g) + (g.rng.chance(1 / 3) ? g.rng.int(minLag, maxLag) : 0));
+  if (!m.has(key)) m.set(key, now(g) + (P(g).chance(1 / 3) ? P(g).int(minLag, maxLag) : 0));
   return now(g) >= m.get(key)!;
 }
 
@@ -294,7 +304,7 @@ const averageHeedsCalls = new WeakMap<Game, Map<string, boolean>>();
 function averageHeeds(g: Game, key: string): boolean {
   let m = averageHeedsCalls.get(g);
   if (!m) averageHeedsCalls.set(g, m = new Map());
-  if (!m.has(key)) m.set(key, g.rng.chance(2 / 3));
+  if (!m.has(key)) m.set(key, P(g).chance(2 / 3));
   return m.get(key)!;
 }
 
@@ -304,7 +314,7 @@ function averageLetsTalk(g: Game, d: { id: number; approaches?: number }): boole
   let m = averageTalks.get(g);
   if (!m) averageTalks.set(g, m = new Map());
   const key = `${d.id}-${d.approaches}`;
-  if (!m.has(key)) m.set(key, g.rng.chance(1 / 3));
+  if (!m.has(key)) m.set(key, P(g).chance(1 / 3));
   return m.get(key)!;
 }
 
@@ -314,7 +324,7 @@ function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
   if (!m) averagePutsOff.set(g, m = new Map());
   const health = g.wear[key];
   if (health >= at) { m.delete(key); return false; }
-  if (!m.has(key)) m.set(key, g.rng.chance(1 / 3));
+  if (!m.has(key)) m.set(key, P(g).chance(1 / 3));
   return !m.get(key) || health < 0.08;
 }
 
@@ -334,7 +344,7 @@ const average: Policy = (g) => {
     if (f.phase === 'diagnose') {
       const right = f.def.diagnoses.find(d => d.correct)!;
       const untried = f.def.diagnoses.filter(d => !f.triedDiagnoses.includes(d.id));
-      g.diagnose(g.rng.chance(0.75) ? right.id : g.rng.pick(untried).id);
+      g.diagnose(P(g).chance(0.75) ? right.id : P(g).pick(untried).id);
     } else if (f.phase === 'choosePath') {
       const byCost = [...g.availablePaths()].sort((a, b) => a.steps.reduce((s, x) => s + x.cost, 0) - b.steps.reduce((s, x) => s + x.cost, 0));
       g.choosePath(byCost[0].id);
@@ -343,7 +353,7 @@ const average: Policy = (g) => {
     }
     return;
   }
-  if (g.truckOnApron?.stage === 'waiting' && g.rng.chance(0.5)) handleTruck(g);
+  if (g.truckOnApron?.stage === 'waiting' && P(g).chance(0.5)) handleTruck(g);
   for (const d of g.distractions) {
     // a mate who comes up: a yarn (or the beer they asked for) when the machine's idle; while it's cutting, sends
     // them off two times in three and lets them talk (they start a yarn anyway) the third
@@ -363,10 +373,10 @@ const average: Policy = (g) => {
     // in overtime, only a sheet that'll be off the bed by lights-out (a half-cut one is scrap)
     const next = g.nextUp();
     const fits = !g.overtime || (!!next && g.minute + CONFIG.jobs.loadMinutes + next.cutMinutes < CONFIG.clock.overtimeEndHour * 60);
-    if (fits && g.rng.chance(0.8) && g.loadNextSheet(CONFIG.chores ? averageClamps(g) : CLAMPS)) return;
+    if (fits && P(g).chance(0.8) && g.loadNextSheet(CONFIG.chores ? averageClamps(g) : CLAMPS)) return;
   }
   if (averageChores(g)) return; // with the sheet cutting
-  if (g.rng.chance(0.7)) handleTruck(g);
+  if (P(g).chance(0.7)) handleTruck(g);
 };
 
 interface Script {
@@ -547,6 +557,11 @@ function report(name: string, seed: number, { g, idle }: WeekResult) {
 }
 
 const args = (globalThis as { process?: { argv: string[] } }).process?.argv ?? []; // no Node types in this project
+/** `-- seed=12345` (or `seed=1,2,3`): play exactly those seeds — the number on a shift's day summary — in place of 1..count. */
+const pinnedSeeds = args.find(a => /^seed=\d+(,\d+)*$/.test(a))?.slice(5).split(',').map(Number);
+function seedList(count: number): number[] {
+  return pinnedSeeds ?? Array.from({ length: count }, (_, i) => i + 1);
+}
 // Dennis is off unless asked for (`-- dennis`): the default report is the economy as it was before him
 if (!args.includes('dennis')) (CONFIG.dennis as { enabled: boolean }).enabled = false;
 /** The layout every game in this run plays on. */
@@ -556,7 +571,8 @@ if (args.includes('baseline')) Object.assign(CONFIG as unknown as Record<string,
 // `-- nochores`: the chores without teeth, as the economy was before them
 if (args.includes('nochores')) Object.assign(CONFIG as unknown as Record<string, boolean>, { chores: false });
 console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'}, chores ${CONFIG.chores ? 'on' : 'off'})`);
-if (args[2] === 'upgrades') upgradeStudy();
+if (args[2] === 'determinism') determinismCheck();
+else if (args[2] === 'upgrades') upgradeStudy();
 else if (args[2] === 'layouts') layoutStudy();
 else if (args[2] === 'dennis') dennisStudy();
 else if (args.includes('--lease') || args[2] === 'lease') leaseStudy();
@@ -568,7 +584,7 @@ else defaultReport();
  * trade-offs would be too weak: one layout would just be best).
  */
 function layoutStudy() {
-  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 10 }, (_, i) => i + 1);
+  const seeds = seedList(Number(args.slice(3).find(a => /^\d+$/.test(a))) || 10);
   const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
   const pct = (v: number) => `${(v * 100).toFixed(1)}%`.padStart(6);
   const out: Record<string, Record<string, number>> = {};
@@ -591,7 +607,7 @@ function layoutStudy() {
 
 /** The usual run: no upgrades, 5 seeds (`-- seeds=20` for more), week 1, week 2 and steady state. */
 function defaultReport() {
-  const SEEDS = Array.from({ length: Number(args.find(a => /^seeds=\d+$/.test(a))?.slice(6)) || 5 }, (_, i) => i + 1);
+  const SEEDS = seedList(Number(args.find(a => /^seeds=\d+$/.test(a))?.slice(6)) || 5);
   const detail = args.includes('week1') ? 'week1' : args.includes('week2') ? 'week2' : 'steady';
   const runs = SCRIPTS.map(script => ({
     script,
@@ -672,7 +688,7 @@ function defaultReport() {
  * Margin is operating margin: upgrades are capex and stay out of it, as in the game.
  */
 function upgradeStudy() {
-  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 20 }, (_, i) => i + 1); // `-- upgrades 100` for more
+  const seeds = seedList(Number(args.slice(3).find(a => /^\d+$/.test(a))) || 20); // `-- upgrades 100` for more
   const pct = (v: number, w = 5) => `${(v * 100).toFixed(1)}%`.padStart(w);
   const pts = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}`.padStart(6);
   const mean = (xs: number[]) => xs.reduce((s, x) => s + x, 0) / xs.length;
@@ -751,7 +767,7 @@ function upgradeStudy() {
  */
 function dennisStudy() {
   simOnly.kind = (dennisOnly() as BetKind | undefined) ?? null;
-  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 20 }, (_, i) => i + 1);
+  const seeds = seedList(Number(args.slice(3).find(a => /^\d+$/.test(a))) || 20);
   const comp = SCRIPTS.find(s => s.name === 'competent')!;
   const tally: Record<string, { n: number; won: number; net: number; open: number }> = {};
   const run = (seed: number, on: boolean, says: 'yes' | 'no') => {
@@ -789,7 +805,7 @@ function playLease(sc: Script, seed: number, dealt?: (FortuneKind | null)[]) {
 }
 
 function leaseStudy() {
-  const seeds = Array.from({ length: Number(args.slice(3).find(a => /^\d+$/.test(a))) || 40 }, (_, i) => i + 1);
+  const seeds = seedList(Number(args.slice(3).find(a => /^\d+$/.test(a))) || 40);
   const due = CONFIG.lease.rentDue;
   console.log(`\nThe Lease: ${CONFIG.lease.weeks} weeks from day 1, ${seeds.length} seeds. Rent due at the end: $${due} in the bank.`);
   const ends: Record<string, number[]> = {};
@@ -838,3 +854,86 @@ function leaseStudy() {
   console.log('rent due →  ' + SCRIPTS.map(s => s.name.padStart(10)).join(''));
   for (const d of [-3000, -2000, -1000, -500, 0, 500, 1000, 2000].map(x => CONFIG.lease.rentDue + x)) console.log(`$${d}`.padEnd(11) + SCRIPTS.map(s => rate(ends[s.name], d).padStart(10)).join(''));
 }
+
+/**
+ * `npm run sim -- determinism [seed=N]` (default: today's shift seed, 20261101-style): is a seed one shift, every time?
+ *  1. Each script plays two weeks on the seed twice; the full event trace (every log line, with day and minute) must
+ *     match line for line. Its fingerprint is printed, so two separate runs (two machines) can be compared too.
+ *  2. The three scripts play the same seed very differently (different walking, timing, faults, fires). What the world
+ *     brings must still be the same for all three: each morning's board, the day's order calls (when, how many sheets
+ *     and their own seed; one script's list can only be shorter, by the calls lost to yesterday's pulled sheets), the
+ *     mates' planned visits, and every order call that rang for two scripts at the same minute must be the same call.
+ * Exits non-zero on a mismatch.
+ */
+function determinismCheck() {
+  const proc = (globalThis as { process?: { exitCode?: number } }).process;
+  const melb = new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const seeds = pinnedSeeds ?? [Number(melb.replace(/-/g, ''))];
+  const fnv = (lines: string[]) => { let h = 2166136261; for (const c of lines.join('\n')) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return (h >>> 0).toString(16).padStart(8, '0'); };
+  interface Morning { day: number; board: string[]; calls: string[]; mates: number[]; lateDrop: boolean }
+  const traced = (script: Script, seed: number) => {
+    const trace: string[] = [], mornings: Morning[] = [];
+    let g!: Game;
+    const morning = (game: Game) => {
+      g = game;
+      const say = (g as unknown as { say: (t: string, tone?: string) => void }).say;
+      if (!(say as { traced?: boolean }).traced) { // first morning: hook the shed log
+        for (const l of g.log) trace.push(`${l.dayIndex} ${g.formatTime(l.minute)} ${l.text}`);
+        const hooked = function (this: Game, text: string, tone?: string) { trace.push(`${g.dayIndex} ${g.formatTime(g.minute)} ${text}`); say.call(this, text, tone); };
+        (hooked as { traced?: boolean }).traced = true;
+        (g as unknown as { say: typeof hooked }).say = hooked;
+      }
+      mornings.push({
+        day: g.dayIndex,
+        board: g.jobs.filter(j => g.freshToday.includes(j.id)).map(j => `${j.name}|${j.type}|${j.cutMinutes}m|$${j.price}`),
+        calls: g.orderCalls.map(c => `${g.formatTime(c.minute)} ${c.sheets}sh #${c.roll}`),
+        mates: [...g.mateVisits], lateDrop: g.lateDropToday,
+      });
+    };
+    playWeek(script, seed, 1, 2, {}, morning);
+    return { trace, mornings };
+  };
+  let bad = 0;
+  const fail = (msg: string) => { bad++; console.log(`  MISMATCH ${msg}`); };
+  for (const seed of seeds) {
+    console.log(`\nDeterminism, seed ${seed} (two weeks from day 1, each script twice):`);
+    const runs = SCRIPTS.map(sc => ({ sc, a: traced(sc, seed), b: traced(sc, seed) }));
+    for (const { sc, a, b } of runs) {
+      const same = a.trace.length === b.trace.length && a.trace.every((l, i) => l === b.trace[i]);
+      if (!same) {
+        const i = a.trace.findIndex((l, k) => l !== b.trace[k]);
+        fail(`${sc.name}: run 1 and run 2 differ at event ${i}: "${a.trace[i]}" vs "${b.trace[i]}"`);
+      }
+      console.log(`  ${sc.name.padEnd(10)} ${String(a.trace.length).padStart(5)} events  fingerprint ${fnv(a.trace)}  ${same ? 'identical both runs' : 'DIFFERENT'}`);
+    }
+    // the world's side, across scripts that played it differently
+    const [ref, ...others] = runs;
+    const rings = (t: string[]) => new Map(t.filter(l => l.includes('Phone ringing')).map(l => [l.split(' ').slice(0, 2).join(' '), l]));
+    const refRings = rings(ref.a.trace);
+    let days = 0, calls = 0, ringsCompared = 0;
+    for (const o of others) {
+      ref.a.mornings.forEach((m, i) => {
+        const n = o.a.mornings[i];
+        if (!n || n.day !== m.day) { fail(`${o.sc.name}: day ${m.day} missing`); return; }
+        days++;
+        if (m.board.join() !== n.board.join()) fail(`day ${m.day} morning board: ${ref.sc.name} [${m.board.join('; ')}] vs ${o.sc.name} [${n.board.join('; ')}]`);
+        if (m.mates.join() !== n.mates.join()) fail(`day ${m.day} mate visits: ${m.mates} vs ${n.mates}`);
+        if (m.lateDrop !== n.lateDrop) fail(`day ${m.day} late drop-off: ${m.lateDrop} vs ${n.lateDrop}`);
+        const [short, long] = m.calls.length <= n.calls.length ? [m.calls, n.calls] : [n.calls, m.calls];
+        if (!short.every((c, k) => c === long[k])) fail(`day ${m.day} order calls: ${ref.sc.name} [${m.calls.join(', ')}] vs ${o.sc.name} [${n.calls.join(', ')}]`);
+        calls += short.length;
+      });
+      for (const [at, line] of rings(o.a.trace)) {
+        const r = refRings.get(at);
+        if (r === undefined) continue;
+        ringsCompared++;
+        if (r !== line) fail(`call at day/time ${at}: ${ref.sc.name} "${r}" vs ${o.sc.name} "${line}"`);
+      }
+    }
+    console.log(`  across scripts: ${days} mornings, ${calls} scheduled order calls and ${ringsCompared} calls that rang in both compared against ${ref.sc.name}`);
+    console.log(`  day 1 for everyone on this seed: board ${ref.a.mornings[0].board.length} sheets, calls at ${ref.a.mornings[0].calls.map(c => c.split(' ')[0]).join(', ')}; mates at ${ref.a.mornings[0].mates.map(m => g0time(m)).join(', ')}`);
+  }
+  console.log(bad ? `\n${bad} mismatch(es): the seed does NOT fix the shift.` : `\nOK: same seed, same shift — every run, every script.`);
+  if (bad && proc) proc.exitCode = 1;
+}
+function g0time(m: number) { const h = Math.floor(m / 60), mm = m % 60; return `${((h + 11) % 12) + 1}:${String(mm).padStart(2, '0')}${h >= 12 ? 'pm' : 'am'}`; }

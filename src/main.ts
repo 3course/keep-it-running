@@ -5,17 +5,21 @@ import { World3D } from './world3d/app.js';
 import { describeGpu, probeGpu, type GpuInfo } from './world3d/gpu.js';
 import { readSave } from './world/save.js';
 import { newWorld } from './world/state.js';
-import { dailyStart } from './world/daily.js';
+import { dailyStart, seedParam, shiftSeed } from './world/daily.js';
 
 initAnalytics();
 
 // ?daily: today's daily (Melbourne date), from the canonical start, saving nothing but the result
 const daily = new URLSearchParams(location.search).has('daily');
-// Closing the app is a pause: pick up exactly where the last session left off, clock stopped.
-const saved = daily ? null : readSave();
-// ?seed=N starts a new game on that seed (reproducible: the browser tests use it); otherwise a random one
-const seed = Number(new URLSearchParams(location.search).get('seed')) || undefined;
-const start = daily ? dailyStart() : null;
+// The seed for a new game: ?seed=N to reproduce a run (the browser tests use it), otherwise today's shift — the
+// Melbourne date as YYYYMMDD, so everyone starting today gets the same day.
+const asked = seedParam(location.search);
+const seed = shiftSeed(location.search);
+// Closing the app is a pause: pick up exactly where the last session left off, clock stopped. A ?seed=N other than
+// the saved game's starts that run fresh instead (it replaces the save once it autosaves).
+const stored = daily ? null : readSave();
+const saved = stored && (asked === undefined || stored.game.seed === asked) ? stored : null;
+const start = daily ? dailyStart(undefined, seed) : null;
 const game = start?.game ?? saved?.game ?? new Game(seed);
 const world = start?.world ?? saved?.world ?? newWorld(game);
 // ?event=<id> (council, bigJob, uteClip): force that rare event on day 1, landing soon after the clock starts

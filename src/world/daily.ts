@@ -14,15 +14,27 @@ export function melbourneDate(now = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Australia/Melbourne', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
 }
 
+/** The shift's seed for a Melbourne date: YYYYMMDD as a number ("2026-11-01" → 20261101), the "Shift #" on the summary. */
 export function dailySeed(date: string): number {
-  let h = 2166136261;
-  for (const c of `kir-daily|${date}`) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
-  return (h >>> 0) % 2147483646 + 1;
+  return Number(date.replace(/-/g, ''));
 }
 
-/** The day's game and shed, from scratch. */
-export function dailyStart(date = melbourneDate()): { game: Game; world: WorldState } {
-  const game = new Game(dailySeed(date), DAILY_DAY);
+/** `?seed=N` from a query string (a positive whole number), or undefined. */
+export function seedParam(search: string): number | undefined {
+  const raw = new URLSearchParams(search).get('seed');
+  if (raw === null || !/^\d+$/.test(raw.trim())) return undefined;
+  const n = Number(raw);
+  return n > 0 && n <= 0xffffffff ? n : undefined;
+}
+
+/** The seed a new game plays on: `?seed=N` to reproduce a run, otherwise today's shift (the Melbourne date). */
+export function shiftSeed(search: string, now = new Date()): number {
+  return seedParam(search) ?? dailySeed(melbourneDate(now));
+}
+
+/** The day's game and shed, from scratch. `seed`: today's by default (`?seed=N` replays another). */
+export function dailyStart(date = melbourneDate(), seed = dailySeed(date)): { game: Game; world: WorldState } {
+  const game = new Game(seed, DAILY_DAY);
   const world = newWorld(game);
   world.tour = null;
   const p = world.people = newPeople();

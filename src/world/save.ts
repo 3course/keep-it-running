@@ -20,7 +20,7 @@ type Loose = Record<string, unknown>;
 function gameToJson(g: Game): Loose {
   const out: Loose = {};
   for (const [k, v] of Object.entries(g as unknown as Loose)) out[k] = v;
-  out.rng = { s: (g.rng as unknown as { s: number }).s };
+  out.actionRng = { s: (g.actionRng as unknown as { s: number }).s };
   out.visitorRng = { s: (g.visitorRng as unknown as { s: number }).s };
   out.upgrades = [...g.upgrades];
   out.current = g.current ? g.current.id : null;
@@ -32,9 +32,12 @@ function gameFromJson(data: Loose): Game {
   const g = new Game();
   const target = g as unknown as Loose;
   for (const [k, v] of Object.entries(data)) target[k] = v;
-  const rng = new Rng();
-  (rng as unknown as { s: number }).s = (data.rng as { s: number }).s;
-  g.rng = rng;
+  // the player's stream; a save from before the world's rolls got their own streams had one `rng` for everything,
+  // and carries on from where it was (the world's rolls are derived from the seed, so there's nothing else to restore)
+  const ar = new Rng();
+  (ar as unknown as { s: number }).s = ((data.actionRng ?? data.rng) as { s: number }).s;
+  g.actionRng = ar;
+  delete target.rng;
   // a save from before visitors had their own stream: the new game's (reseeded tomorrow) does
   if (data.visitorRng) {
     const vr = new Rng();

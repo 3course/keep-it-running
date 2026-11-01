@@ -107,6 +107,7 @@ export interface Distraction {
   customer?: string;      // phone: who's calling with the order
   big?: boolean;          // phone: the big-job call (a rare event)
   preview?: OrderPreview; // phone: the sheets on offer, once you've picked up (Game.previewOrder)
+  roll?: number;          // phone: this call's own seed (sheets, price, a rush job), so answering late doesn't change them
   // friend: a mate visiting (CONFIG.visitors)
   mate?: string;          // which mate (src/data/mates.ts)
   ask?: VisitorAsk | null; // what they've come up to you to say; null while they wander
@@ -165,7 +166,11 @@ export interface Callback {
   orderType: JobTypeId;
   expiresMinute: number;  // minutes since midnight today; after this they've gone elsewhere
   big?: boolean;          // the big job (a rare event)
+  roll?: number;          // the call's own seed (Distraction.roll): ringing back offers the same sheets
 }
+
+/** An order call booked for later today; `roll` seeds what it turns out to be, whenever it rings and is answered. */
+export interface OrderCall { minute: number; sheets: number; roll?: number }
 
 /**
  * Today's rare event (CONFIG.rareEvent), from the morning roll to done. 'scheduled' → 'tell' (its cue, `tell.seconds`

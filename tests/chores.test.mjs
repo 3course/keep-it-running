@@ -34,7 +34,7 @@ function cutOne(g, clamps = CH.clamp.clamps) {
   g.busy = null;
   return j;
 }
-const always = g => { g.rng.chance = p => p > 0; }; // whatever can go wrong, does
+const always = g => { g.actionRng.chance = p => p > 0; }; // whatever can go wrong, does
 
 describe('chores, on Game', () => {
   it('clamps: all four, and nothing shifts; each left off is a chance it shifts mid-cut and is ruined', () => {
