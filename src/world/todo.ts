@@ -139,7 +139,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
     add(false, `pickup-${p.id}`, p.slipped ? `${who}: "running late, after lunch ok?" Now ~${pickupTime(g, p.dueAt)}` : `Texted ${who}, picking up ~${pickupTime(g, p.dueAt)}`, 'finishedPallet');
   }
   const tourGrab = tourActive(w) && !w.tour!.visited.includes('plyPallet');
-  if (!tourGrab && w.bed === 'empty' && w.carrying === null && g.nextUp() && !g.machineDown) add(false, 'next', 'Grab the next sheet', 'plyPallet');
+  // what's next, named, whenever the bed's free: there's always something to start, a pickup or not
+  const nextJob = g.nextUp();
+  if (!tourGrab && w.bed === 'empty' && w.carrying === null && nextJob && !g.machineDown) add(!!w.utePresent, 'next', `Grab the next sheet: ${nextJob.name}`, 'plyPallet');
   // work on the board with no ply for it, and nothing for it on order
   const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.lines.some(l => l.type === t)));
   if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, ['phone', 'desk']);

@@ -243,6 +243,9 @@ export const CONFIG = {
     slipChance: 0.1,              // they text back "running late, after lunch ok?"…
     slipMinutes: [60, 90] as [number, number], // …and turn up this much later
     honkAfterMinutes: 2,          // a ute left waiting at the roller door honks after this long
+    // A sheet off with nothing left on the board: today's next order call rings now rather than at its slot, so there's
+    // always something to start before the ute comes (playtest 1: a pickup with nothing to cut was dead time).
+    ringNextCallWhenEmpty: true,
   },
 
   // Ply on the pallet is real stock, one line per job type. You order it; a truck brings it.
@@ -451,6 +454,7 @@ export const CONFIG = {
 
   ui: {
     swapHintBelow: 0.3,   // the to-do list says "Swap the …" once a consumable's health drops below this
+    idleLogAboveMinutes: 2, // the day log notes every stretch the machine sat idle longer than this (game minutes)
   },
 
   startingMarginHint: 0.15,

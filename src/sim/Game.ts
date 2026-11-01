@@ -128,6 +128,10 @@ export class Game {
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
   extinguisherUsesToday = 0;
+  // the machine's current idle stretch (for the day log): minutes, since when, and why if it's obvious
+  idleRun = 0;
+  idleFrom = 0;
+  idleWhy = '';
   /** The first-day walk-round's still on (set by the view each frame): no fire starts. The sim never sets it. */
   fireHold = false;
   lessonFireDone = false;      // the scripted spot fire (CONFIG.fire.lesson) has happened
@@ -438,6 +442,7 @@ export class Game {
     this.freshToday = fresh.map(j => j.id);
     this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
+    this.idleRun = 0; this.idleFrom = 0; this.idleWhy = '';
     this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false;
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
@@ -642,8 +647,11 @@ export class Game {
     // afternoon drop-off
     if (this.lateDropToday && this.minute === CONFIG.jobs.lateDrop.hour * 60) this.addLateDrop();
 
+    this.trackIdle();
+
     // end of day
     if (!this.overtime && this.minute >= CONFIG.clock.endHour * 60) {
+      this.flushIdle();
       this.phase = 'endOfDayPrompt';
     } else if (this.overtime && this.minute >= CONFIG.clock.overtimeEndHour * 60) {
       this.say("That's it, lights off.");
@@ -917,6 +925,7 @@ export class Game {
     const held = CONFIG.dennis.enabled ? this.dennis.bets.find(b => b.status === 'open' && b.jobs?.includes(j.id)) : undefined;
     if (held) { held.held += pay; this.say(`${j.name} delivered: paid when ${CONFIG.dennis.name}'s ${held.kind === 'terms' ? 'terms come due' : 'invoice clears'}.`); }
     this.textCustomer(j, held ? 0 : pay); // paid when they pick it up
+    this.keepWorkComing();
     // the edge-bander's share, in its ledger line: edged panels pay the premium
     if (j.type === 'joinery' && CONFIG.dennis.enabled && dennisJoineryMult(this) > 1) {
       const bander = this.dennis.bets.find(b => b.kind === 'bandsaw' && (b.status === 'open' || b.status === 'won' || b.status === 'lost') && (b.until ?? -1) >= this.dayIndex);
@@ -1983,6 +1992,29 @@ export class Game {
   private get absNow() { return this.dayIndex * 1440 + this.minute; }
   /** The order a sheet belongs to: "Bar front — Footscray (2/3)" → "Bar front — Footscray". */
   private orderOf(j: Job) { return j.name.replace(/\s*\(\d+\/\d+\)$/, ''); }
+
+  /** Nothing left on the board after a sheet: ring today's next order call now (CONFIG.pickup.ringNextCallWhenEmpty). */
+  private keepWorkComing() {
+    if (!CONFIG.pickup.ringNextCallWhenEmpty || this.queued.length || !this.orderCalls.length) return;
+    this.orderCalls[0].minute = Math.min(this.orderCalls[0].minute, this.minute); // rings later this same tick
+  }
+
+  /** The machine sitting idle on the clock: a run over CONFIG.ui.idleLogAboveMinutes goes in the day log when it ends. */
+  private trackIdle() {
+    const idle = this.machine === 'idle' && !this.machineDown;
+    if (!idle) { this.flushIdle(); return; }
+    if (this.idleRun === 0) {
+      this.idleFrom = this.minute - 1;
+      this.idleWhy = !this.queued.length ? 'nothing on the board' : !this.nextUp() ? 'no ply for what is' : '';
+    }
+    this.idleRun += 1;
+  }
+  private flushIdle() {
+    if (this.idleRun > CONFIG.ui.idleLogAboveMinutes) {
+      this.say(`Idle ${this.idleRun} min, ${this.formatTime(this.idleFrom)}–${this.formatTime(this.idleFrom + this.idleRun)}${this.idleWhy ? ` (${this.idleWhy})` : ''}`, 'info');
+    }
+    this.idleRun = 0; this.idleWhy = '';
+  }
 
   /** Off the machine: text the customer. They'll come lead + jitter later, or at their deadline if that's later; after
    * the cutoff, next morning. A sheet of an order whose ute's still on its way rides along with it. */

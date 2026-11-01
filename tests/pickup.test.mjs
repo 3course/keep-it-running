@@ -10,6 +10,8 @@ after(() => server.close());
 const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { CONFIG } = await server.ssrLoadModule('/src/config.ts');
 const P = CONFIG.pickup;
+const T = await server.ssrLoadModule('/src/world/todo.ts');
+const S = await server.ssrLoadModule('/src/world/state.ts');
 
 /** A day with nothing going wrong and nobody visiting, at `hour`. */
 function calm(seed, hour) {
@@ -113,5 +115,49 @@ describe('customer pickup', () => {
     const rev = g.today.revenue;
     assert.equal(g.handOver(), 1);
     assert.equal(g.pallet, 0); assert.ok(g.today.revenue > rev);
+  });
+});
+
+describe('pickups never leave you with nothing to start (playtest 1)', () => {
+  it('the last sheet off with the board empty: today\'s next order call rings now, not at its slot', () => {
+    let checked = 0;
+    for (let seed = 1; seed <= 10; seed++) {
+      const g = calm(seed, 9);
+      if (!g.orderCalls.some(c => c.minute > g.minute + 10)) continue;
+      g.orderCalls = g.orderCalls.filter(c => c.minute > g.minute + 10); // nothing about to ring anyway
+      const slot = g.orderCalls[0].minute;
+      for (const j of g.jobs) if (j.status === 'queued' && j !== g.jobs.find(x => x.status === 'queued')) j.status = 'done';
+      finishOne(g); // the only sheet: the board's empty now
+      assert.equal(g.queued.length, 0);
+      assert.ok(g.distractions.some(d => d.kind === 'phone' && d.order), `seed ${seed}: an order's ringing straight away (slot was ${g.formatTime(slot)})`);
+      checked++;
+    }
+    assert.ok(checked >= 5);
+  });
+  it(`the day log notes an idle stretch over ${CONFIG.ui.idleLogAboveMinutes} min, with when and why`, () => {
+    const g = calm(1, 9);
+    for (const j of g.jobs) j.status = 'done'; // nothing on the board
+    g.orderCalls = [];
+    const from = g.minute;
+    for (let k = 0; k < 6; k++) g.tick();
+    g.jobs.push({ ...g.jobs[0], id: 999, status: 'queued', progress: 0, dueDay: g.dayIndex + 1 });
+    g.stock[g.jobs.at(-1).type] = 5;
+    assert.ok(g.loadNextSheet()); g.tick();
+    const line = g.log.find(l => l.text.startsWith('Idle '));
+    assert.ok(line, 'logged');
+    assert.match(line.text, new RegExp(`^Idle \\d+ min, ${g.formatTime(from).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+    assert.match(line.text, /nothing on the board/);
+    // a short gap isn't logged
+    const g2 = calm(2, 9); g2.tick(); g2.tick(); g2.machine = 'cutting'; g2.tick();
+    assert.ok(!g2.log.some(l => l.text.startsWith('Idle ')));
+  });
+  it('a ute at the door with the bed free: the next sheet, named, is near the top of the notepad', () => {
+    const g = calm(3, 10), w = S.newWorld(g);
+    for (const t of CONFIG.jobs.types) g.stock[t.id] = 5; // ply on the pallet
+    w.tour = null; w.utePresent = true; w.finishedStack = 1;
+    const items = T.todoItems(g, w);
+    const next = items.find(i => i.key === 'next');
+    assert.ok(next, 'it\'s there'); assert.ok(next.urgent, 'up with the pickup');
+    assert.equal(next.text, `Grab the next sheet: ${g.nextUp().name}`);
   });
 });
