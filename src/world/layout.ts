@@ -104,20 +104,20 @@ export const OBJECTS: PlacedObject[] = [
 export type DecorKind = 'offcutStack' | 'pallet' | 'bench' | 'broom' | 'bin' | 'trolley' | 'hose' | 'drums' | 'panels' | 'cable';
 export interface Decor { kind: DecorKind; rect: Rect; solid: boolean }
 
+// (playtest 1: no clutter that looks like somewhere to stack — the half-empty pallet by the raw sheets and the stack of
+// finished panels in the dock are gone; the finished pallet is the one place finished sheets go.)
 // Clutter hugs the walls and corners; lanes from the machine to every door stay clear:
 // west of the machine to the side door, south-west to the office door, south to the corridor,
 // east to the dock opening, north to the extractor.
 export const DECOR: Decor[] = [
   { kind: 'offcutStack', rect: { x: 6, y: 28, w: 1, h: 3 }, solid: true },   // leaning on the west wall
   { kind: 'offcutStack', rect: { x: 17, y: 14, w: 3, h: 1 }, solid: true },  // leaning on the north wall
-  { kind: 'pallet', rect: { x: 6, y: 31, w: 3, h: 3 }, solid: true },        // second, half-empty pallet
   { kind: 'bin', rect: { x: 10, y: 37, w: 1, h: 1 }, solid: true },        // against the office wall, clear of its door
   { kind: 'broom', rect: { x: 17, y: 37, w: 1, h: 1 }, solid: false },
   { kind: 'bench', rect: { x: 12, y: 36, w: 3, h: 2 }, solid: true },        // workbench with clamps
   { kind: 'hose', rect: { x: 6, y: 22, w: 1, h: 1 }, solid: false },         // air hose coiled on a hook
   { kind: 'drums', rect: { x: 20, y: 14, w: 2, h: 2 }, solid: true },
   { kind: 'cable', rect: { x: 18, y: 24, w: 4, h: 1 }, solid: false },        // cable snaking off the machine
-  { kind: 'panels', rect: { x: 23, y: 23, w: 2, h: 2 }, solid: true },       // finished panels waiting
   { kind: 'trolley', rect: { x: 23, y: 36, w: 2, h: 2 }, solid: true },
   { kind: 'drums', rect: { x: 27, y: 39, w: 2, h: 2 }, solid: true },
 ];

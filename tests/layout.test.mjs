@@ -76,3 +76,11 @@ describe('layout mode in the shed', () => {
     await game.close();
   });
 });
+
+describe('one place finished sheets go (playtest 1)', () => {
+  it('one finished pallet; no clutter that looks like somewhere to stack', async () => {
+    const L = await env.load('/src/world/layout.ts');
+    assert.equal(L.OBJECTS.filter(o => o.id === 'finishedPallet').length, 1);
+    assert.deepEqual(L.DECOR.filter(d => d.kind === 'pallet' || d.kind === 'panels'), []);
+  });
+});
