@@ -285,7 +285,7 @@ export const CONFIG = {
   // The Lease (src/world/lease.ts): a run of 4 weeks on one seed; the rent's due at the end, in the bank.
   lease: {
     weeks: 4,
-    rentDue: 5600,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
+    rentDue: 5750,              // the landlord's letter (npm run sim -- --lease 200 fit: set so sloppy makes it ~45% of the time, the dealt weeks included)
     // the endings, by the spare at day 20 (cash less the rent): src/world/leaseEnding.ts
     endings: {
       graceShort: 1500,        // short by up to this: "scraped it" — the landlord takes what's there, the rest rides to the next lease
