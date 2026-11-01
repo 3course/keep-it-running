@@ -36,8 +36,9 @@ export const WORLD = {
 
   visitorSpeed: 1.6,                   // m/s: a visiting mate ambles
   visitorTalkRange: 2.0,               // m: close enough to answer a mate who's come up to you
-  // signing for a delivery: a trace of a faint signature (src/ui/gesture.ts)
-  sign: { minSeconds: 2.5, footTapAfterSeconds: 5, wobblePerCan: 0.5 },
+  // signing for a delivery (src/ui/gesture.ts): one continuous stroke at least strokeFrac of the docket's width signs it
+  // (the dotted signature is only decoration); a "Tap to sign" button turns up after fallbackSeconds without one
+  sign: { strokeFrac: 0.4, fallbackSeconds: 4, footTapAfterSeconds: 5, wobblePerCan: 0.5 },
   inspectorSpeed: 1.2,                 // m/s: the council inspector, clipboard in hand
   inspectorStayClose: 3.0,             // m: the walk-round only counts while you're this close to them
   inspectorLinger: 14,                 // s they spend looking at each stop on the round

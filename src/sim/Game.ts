@@ -534,6 +534,9 @@ export class Game {
   }
 
   /** Advance one game minute. No-op outside the working day. */
+  /** The player's pen is moving on a signature pad right now (the view sets it): whoever's waiting for it waits. */
+  signing = false;
+
   tick() {
     if (this.phase !== 'day') return;
     this.minute += 1;
@@ -1044,6 +1047,7 @@ export class Game {
     }
     for (const dist of [...this.distractions]) {
       if (dist.kind === 'friend') this.tickVisitor(dist);
+      if (dist.kind === 'courier' && this.signing) continue; // the courier waits while you sign
       dist.remaining -= 1;
       if (dist.remaining > 0) continue;
       this.removeDistraction(dist.id);
@@ -1295,6 +1299,7 @@ export class Game {
 
   private tickDeliveries() {
     const d = this.truckOnApron;
+    if (d?.stage === 'waiting' && this.signing) d.signBy += 1; // pen on the docket: the driver waits
     if (d?.stage === 'waiting' && this.minute >= d.signBy) this.driverLeaves(d);
     this.arriveDeliveries();
   }

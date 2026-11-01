@@ -376,8 +376,8 @@ export function inspectorStatus(g: Game): string | null {
   return null;
 }
 
-/** Signing for a delivery: trace the signature, at least a couple of seconds; beer wobbles the pen (WORLD.sign). */
+/** Signing for a delivery: one long stroke on the docket; beer wobbles the pen (WORLD.sign). */
 function signGesture(g: Game): GestureSpec {
   const S = WORLD.sign;
-  return { kind: 'sign', icon: '🧾', minSeconds: S.minSeconds, waitSeconds: S.footTapAfterSeconds, wobble: Math.min(1, g.alcohol * S.wobblePerCan) };
+  return { kind: 'sign', icon: '🧾', strokeFrac: S.strokeFrac, fallbackSeconds: S.fallbackSeconds, waitSeconds: S.footTapAfterSeconds, wobble: Math.min(1, g.alcohol * S.wobblePerCan) };
 }

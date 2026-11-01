@@ -336,8 +336,25 @@ export class World3D {
 
   // ---------- input ----------
 
+  /**
+   * A card that wants the finger is up (a gesture card like the signature pad, the order card, the notepad, a HUD modal):
+   * the world's input layer (the stick and tap-to-walk) ignores every touch until it's gone. Public for tests.
+   */
+  get uiBlocking(): boolean {
+    return this.gesture?.active != null || !!this.orderCard?.showing || !!this.hud?.modalOpen;
+  }
+
+  /** Drop a stick or tap in progress (a card opened under it). */
+  private dropPointer() {
+    if (!this.ptr) return;
+    this.ptr = null;
+    this.stickVec = { x: 0, y: 0 };
+    this.hud.hideStick();
+  }
+
   private bindInput(canvas: HTMLCanvasElement) {
     canvas.addEventListener('pointerdown', e => {
+      if (this.uiBlocking) { this.dropPointer(); return; } // the card has the finger, not the world
       this.ring.unlock(); // audio may only start after a gesture
       this.sfx.unlock();
       if (this.reveal.active) { this.reveal.skip(); this.skipEl.style.display = 'none'; e.preventDefault(); return; } // a tap skips the reveal, and only that
@@ -355,6 +372,7 @@ export class World3D {
     canvas.addEventListener('pointermove', e => {
       if (this.layoutEditor.active) { this.layoutEditor.pointer('move', e); return; }
       if (this.tracing.active) { this.tracing.pointer('move', e); return; }
+      if (this.uiBlocking) { this.dropPointer(); return; }
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
       const L = this.hud.toLogical(e.clientX, e.clientY);
@@ -371,6 +389,7 @@ export class World3D {
       if (this.layoutEditor.active) this.layoutEditor.pointer('up', e);
       if (this.tracing.active) this.tracing.pointer('up', e);
       this.objectHold = false;
+      if (this.uiBlocking) { this.dropPointer(); return; } // no tap-to-walk through a card
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
       const L = this.hud.toLogical(e.clientX, e.clientY);
@@ -538,6 +557,7 @@ export class World3D {
 
     this.updateSpray();
     // first day: the clock waits at 7:00 while you walk round, until the first cut starts
+    g.signing = this.gesture.drawing; // the driver waits while the pen's moving
     if (g.phase === 'day' && !this.paused && !tourActive(w) && !this.layoutEditor.active && !this.cafe.holdsClock) {
       this.acc += Math.min(dtMs, CONFIG.clock.realMsPerGameMinute * 5);
       let ticked = false;

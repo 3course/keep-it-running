@@ -219,6 +219,11 @@ export class Hud {
   /** A note after the build tag: which render tier this device is on, when it isn't the full one. */
   setTagNote(note: string) { this.tag.textContent = `${BUILD_TAG} · ${note}`; }
   get plyShowing() { return this.ply.style.display === 'flex'; }
+  /** A card that takes the screen's taps is up: the notepad (portrait), or any of the HUD's modals. */
+  get modalOpen(): boolean {
+    if (this.isOpen && !this.land) return true;
+    return [this.ply, this.eod, this.pausedEl, this.logPanel, this.summary].some(m => m.style.display !== '' && m.style.display !== 'none');
+  }
   isOpen = false;
 
   constructor(private canvas: HTMLCanvasElement, private cb: HudCallbacks) {

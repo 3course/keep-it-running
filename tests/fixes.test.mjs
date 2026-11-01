@@ -190,31 +190,31 @@ describe('the rest, by hand', () => {
     } finally { await game.close(); }
   });
 
-  it('signing for a delivery: trace the signature; not before its minimum, lifting off pauses, the driver taps his foot', async () => {
+  it('signing for a delivery: one long stroke signs it; a short one does not; "Tap to sign" after a few seconds', async () => {
     const game = await freshGame(env);
     try {
       // open the signature card (short foot-tap wait so the test needn't stand about)
-      await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); window.signedAt = null; window.openedAt = performance.now();
-        s.gesture.open({ kind: 'sign', icon: '🧾', minSeconds: 2.5, waitSeconds: 1 }, () => { window.signedAt = performance.now(); }, () => false); });
-      const card = () => game.page.evaluate(() => { const c = document.querySelector('#kir-hud .gesture[data-kind="sign"]'); return c ? { p: Number(getComputedStyle(c.querySelector('.progress')).getPropertyValue('--p') || 0), foot: c.querySelector('.waiting').classList.contains('on') } : null; });
+      await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); window.signed = 0;
+        s.gesture.open({ kind: 'sign', icon: '🧾', strokeFrac: 0.4, fallbackSeconds: 1, waitSeconds: 1 }, () => { window.signed++; }, () => false); });
+      const card = () => game.page.evaluate(() => { const c = document.querySelector('#kir-hud .gesture[data-kind="sign"]'); return c ? { p: Number(getComputedStyle(c.querySelector('.progress')).getPropertyValue('--p') || 0), foot: c.querySelector('.waiting').classList.contains('on'), tap: c.querySelector('.tapsign').classList.contains('on') } : null; });
       await frames(game, 3);
-      // a quick scribble straight across: no signature, nothing signed
-      const d = (await gestureNow(game)).parts[0];
-      const cdp = await game.context.newCDPSession(game.page);
-      const t = (type, x, y) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: type === 'touchEnd' ? [] : [{ x, y }] });
-      await t('touchStart', d.x - d.w * 0.45, d.y); for (let i = 0; i <= 8; i++) await t('touchMove', d.x - d.w * 0.45 + d.w * 0.9 * i / 8, d.y + d.h * 0.4); await t('touchEnd');
-      assert.ok((await card()).p < 0.2, 'a scribble across the docket is not a signature');
-      // half the trace, then lift: paused, not finished, and the progress stays
+      // a short dab: not a signature, the card stays
       await doGesture(game, { early: true });
-      const half = await card();
-      assert.ok(half && half.p > 0.2 && half.p < 0.985, `paused at ${half?.p}`);
-      assert.equal(await game.page.evaluate(() => window.signedAt), null, 'lifting early does not sign');
-      assert.ok(half.foot, 'the driver is tapping his foot');
-      // finish it: never sooner than the minimum after the pen first went down
+      const dab = await card();
+      assert.ok(dab && dab.p > 0 && dab.p < 1, `a short stroke shows some progress (${dab?.p}) but doesn't sign`);
+      assert.equal(await game.page.evaluate(() => window.signed), 0);
+      // a long stroke across, nowhere near the dotted guide: signed
       await doGesture(game);
-      const took = await game.page.evaluate(() => (window.signedAt - window.openedAt) / 1000);
-      assert.ok(took >= 2.5, `signed after ${took.toFixed(2)} s`);
-      await cdp.detach();
+      await game.page.waitForFunction(() => window.signed === 1);
+      assert.equal(await card(), null, 'card closed');
+      // again, but this time just wait: the "Tap to sign" button turns up and finishes it
+      await game.eval((g, w, s) => s.gesture.open({ kind: 'sign', icon: '🧾', fallbackSeconds: 1, waitSeconds: 1 }, () => { window.signed++; }, () => false));
+      assert.equal((await card()).tap, false, 'no button straight away');
+      await game.page.waitForFunction(() => document.querySelector('#kir-hud .gesture .tapsign.on'), null, { timeout: 3_000 });
+      assert.ok((await card()).foot, 'the driver is tapping his foot');
+      const b = await game.page.evaluate(() => { const r = document.querySelector('#kir-hud .gesture .tapsign').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await game.page.touchscreen.tap(b.x, b.y);
+      await game.page.waitForFunction(() => window.signed === 2);
     } finally { await game.close(); }
   });
 

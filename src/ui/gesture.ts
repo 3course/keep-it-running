@@ -4,8 +4,9 @@
 //   hold   press and keep the thumb down until the ring fills (lifting early starts it again)
 //   taps   tap each target (clips, clamps, the collet), in any order
 //   drag   drag the handle along the track, all the way (letting go short snaps it back)
-//   sign   trace the faint signature on the docket with a finger: it takes a couple of seconds at least, lifting off
-//          pauses (you carry on where you stopped), a line under it fills as you go, and beer puts a wobble in the ink
+//   sign   sign the docket: one continuous stroke at least ~40% of its width does it (the dotted signature is only
+//          decoration); a line under it fills as you go, beer puts a wobble in the ink, and a "Tap to sign" button
+//          turns up if it isn't signed after a few seconds
 //   pick   tap the right one of a few (the bit for the sheet on the bed)
 //
 // A fumble (beer) spoils a finished gesture: the card shakes and it has to be done again.
@@ -14,14 +15,14 @@ export type GestureSpec =
   | { kind: 'hold'; icon: string; seconds: number }
   | { kind: 'taps'; icon: string; n: number }
   | { kind: 'drag'; icon: string; dir: 'up' | 'down' | 'left' | 'right' }
-  | { kind: 'sign'; icon: string; minSeconds?: number; waitSeconds?: number; wobble?: number } // wobble 0..1 (beer)
+  | { kind: 'sign'; icon: string; strokeFrac?: number; fallbackSeconds?: number; waitSeconds?: number; wobble?: number } // wobble 0..1 (beer)
   | { kind: 'pick'; icon: string; options: { colour: string; mark: string }[]; match?: string }; // match: a swatch of what to match
 
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
 #kir-hud .gesture { position: absolute; left: 50%; bottom: ${F(96)}; transform: translateX(-50%); width: ${F(320)}; pointer-events: auto;
   background: #efe6d8; border: 3px solid #14110f; border-radius: 14px; box-shadow: 0 6px 0 rgba(20,17,15,.35); padding: ${F(10)};
-  touch-action: none; user-select: none; -webkit-user-select: none; z-index: 6; }
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; z-index: 30; }
 #kir-hud .gesture .top { display: flex; align-items: center; justify-content: space-between; height: ${F(34)}; }
 #kir-hud .gesture .icon { font-size: ${F(30)}; line-height: 1; display: flex; align-items: center; gap: ${F(6)}; }
 #kir-hud .gesture .match { display: inline-block; width: ${F(44)}; height: ${F(30)}; border: 3px solid #14110f; border-radius: 4px; }
@@ -44,10 +45,15 @@ const CSS = `
   background: #f2c76b; border: 3px solid #14110f; display: grid; place-items: center; font-size: ${F(26)}; }
 #kir-hud .gesture .goal { position: absolute; width: ${F(60)}; height: ${F(60)}; transform: translate(-50%,-50%); border-radius: 50%;
   border: 3px dashed #3f9a4a; }
-#kir-hud .gesture .docket { position: absolute; inset: ${F(4)} ${F(8)}; background: #fffdf6; border: 2px solid #14110f; border-radius: 6px; }
-#kir-hud .gesture .docket::after { content: '✕'; position: absolute; left: 8%; bottom: 22%; font: ${F(20)} serif; color: #8a7a62; }
-#kir-hud .gesture .docket .line { position: absolute; left: 6%; right: 6%; bottom: 22%; border-bottom: 2px solid #8a7a62; }
-#kir-hud .gesture canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#kir-hud .gesture .docket { position: absolute; inset: ${F(4)} ${F(8)}; background: #fffdf6; border: 2px solid #14110f; border-radius: 6px; pointer-events: auto;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#kir-hud .gesture .docket::after { content: '✕'; position: absolute; left: 8%; bottom: 22%; font: ${F(20)} serif; color: #8a7a62; pointer-events: none; }
+#kir-hud .gesture .docket .line { position: absolute; left: 6%; right: 6%; bottom: 22%; border-bottom: 2px solid #8a7a62; pointer-events: none; }
+#kir-hud .gesture canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: auto;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+#kir-hud .gesture .tapsign { position: absolute; right: ${F(14)}; top: ${F(10)}; display: none; pointer-events: auto; z-index: 1;
+  font: 700 ${F(17)} sans-serif; min-height: ${F(44)}; padding: 0 ${F(14)}; border-radius: 10px; border: 2px solid #14110f; background: #f2c76b; color: #14110f; }
+#kir-hud .gesture .tapsign.on { display: block; }
 #kir-hud .gesture .progress { position: absolute; left: ${F(8)}; right: ${F(8)}; bottom: ${F(-6)}; height: ${F(5)}; background: #d9cdb8; border-radius: 3px; overflow: hidden; }
 #kir-hud .gesture .progress i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: #3f9a4a; }
 #kir-hud .gesture .waiting { font: ${F(15)} sans-serif; color: #6a5a46; display: none; }
@@ -73,6 +79,8 @@ export class GesturePad {
   private reset: () => void = () => {};
   /** Taps only: told each time a target's tapped (clamps count as they go on, even if you stop short). */
   private onTap: ((n: number) => void) | null = null;
+  /** Sign only: the pen is on the docket right now (the view pauses whoever's waiting for the signature). */
+  drawing = false;
 
   constructor(private parent: HTMLElement) {
     if (!document.getElementById('kir-gesture-css')) {
@@ -102,7 +110,7 @@ export class GesturePad {
     const area = document.createElement('div'); area.className = 'area';
     el.append(top, area);
     // keep the thumb's touches off the world underneath (no walking while you work)
-    for (const t of ['pointerdown', 'pointermove', 'pointerup', 'click'] as const) el.addEventListener(t, e => e.stopPropagation());
+    for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'click'] as const) el.addEventListener(t, e => e.stopPropagation());
     this.parent.appendChild(el);
     this.build(spec, area);
   }
@@ -110,7 +118,7 @@ export class GesturePad {
   close() {
     cancelAnimationFrame(this.raf);
     this.el?.remove();
-    this.el = null; this.spec = null; this.onDone = null; this.holdStart = null;
+    this.el = null; this.spec = null; this.onDone = null; this.holdStart = null; this.drawing = false;
   }
 
   /** For tests and desktop keys: finish it as if done by hand (a fumble still spoils it). */
@@ -219,58 +227,94 @@ export class GesturePad {
         break;
       }
       case 'sign': {
-        // the docket, a faint signature to follow, the ink, and a progress line under it
+        // the docket, a faint dotted signature (decoration only), the ink, and a progress line under it. Any one
+        // continuous stroke at least strokeFrac of the docket's width signs it; lifting short starts the stroke again.
         const docket = document.createElement('div'); docket.className = 'docket'; docket.dataset.g = 'sign';
         const line = document.createElement('div'); line.className = 'line'; docket.appendChild(line);
         const cv = document.createElement('canvas'); docket.appendChild(cv);
         const bar = document.createElement('div'); bar.className = 'progress'; bar.appendChild(document.createElement('i'));
-        area.append(docket, bar, ghost);
+        const tapSign = document.createElement('button'); tapSign.className = 'tapsign'; tapSign.textContent = 'Tap to sign';
+        area.append(docket, bar, ghost, tapSign);
         const waiting = document.createElement('span'); waiting.className = 'waiting'; waiting.textContent = "🦶 the driver's tapping his foot";
         this.el?.querySelector('.icon')?.appendChild(waiting);
         const guide = signatureGuide();
         docket.dataset.guide = JSON.stringify(guide.map(([x, y]) => [Math.round(x * 1000) / 1000, Math.round(y * 1000) / 1000]));
-        const minMs = (spec.minSeconds ?? 2.5) * 1000, waitMs = (spec.waitSeconds ?? 5) * 1000, wob = spec.wobble ?? 0;
+        const need = spec.strokeFrac ?? 0.4, fallbackMs = (spec.fallbackSeconds ?? 4) * 1000, waitMs = (spec.waitSeconds ?? 5) * 1000, wob = spec.wobble ?? 0;
         const ctx = cv.getContext('2d')!;
-        let size = { w: 1, h: 1 }, k = 0, down = false, lastT = 0, inkLast: { x: number; y: number } | null = null, wt = 0;
+        // css: the canvas's size in CSS px; the backing store is that × devicePixelRatio, drawn in CSS px through a transform
+        let css = { w: 1, h: 1 }, pointerId: number | null = null, last: { x: number; y: number } | null = null, inkLast: { x: number; y: number } | null = null;
+        let len = 0, best = 0, wt = 0;
         const t0 = performance.now();
-        const fit = () => { const r = cv.getBoundingClientRect(); if (r.width && (cv.width !== Math.round(r.width) || cv.height !== Math.round(r.height))) { cv.width = Math.round(r.width); cv.height = Math.round(r.height); } size = { w: cv.width || 1, h: cv.height || 1 }; };
-        const at = (u: number) => { const n = guide.length - 1, f = Math.max(0, Math.min(n, u * n)), i0 = Math.floor(f), i1 = Math.min(n, i0 + 1), t = f - i0; return [guide[i0][0] + (guide[i1][0] - guide[i0][0]) * t, guide[i0][1] + (guide[i1][1] - guide[i0][1]) * t]; };
+        const fit = () => {
+          const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+          if (!r.width || !r.height) return;
+          const bw = Math.round(r.width * dpr), bh = Math.round(r.height * dpr);
+          if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; inkLast = null; }
+          css = { w: r.width, h: r.height };
+          ctx.setTransform(cv.width / r.width, 0, 0, cv.height / r.height, 0, 0);
+        };
+        const progress = () => bar.style.setProperty('--p', Math.min(1, Math.max(len, best) / (need * css.w)).toFixed(3));
         const draw = () => {
-          ctx.clearRect(0, 0, size.w, size.h);
-          // the guide: faint, dashed, the bit still to go
+          ctx.clearRect(0, 0, css.w, css.h);
           ctx.setLineDash([4, 5]); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(29,58,138,.22)'; ctx.beginPath();
-          guide.forEach(([x, y], i) => (i ? ctx.lineTo(x * size.w, y * size.h) : ctx.moveTo(x * size.w, y * size.h))); ctx.stroke(); ctx.setLineDash([]);
-          bar.style.setProperty('--p', k.toFixed(3));
+          guide.forEach(([x, y], i) => (i ? ctx.lineTo(x * css.w, y * css.h) : ctx.moveTo(x * css.w, y * css.h))); ctx.stroke(); ctx.setLineDash([]);
+          progress();
         };
         const ink = (x: number, y: number) => {
-          // beer: a slow drift and a little shake on the pen (the after-hours trace's wobble)
-          if (wob > 0) { wt += 0.35; const a = size.h * 0.12 * wob; x += Math.sin(wt * 1.3) * a + (Math.random() - 0.5) * a * 0.5; y += Math.cos(wt * 0.9) * a + (Math.random() - 0.5) * a * 0.5; }
+          // beer: a slow drift and a little shake on the pen (the ink only; the stroke still counts where the finger went)
+          if (wob > 0) { wt += 0.35; const a = css.h * 0.12 * wob; x += Math.sin(wt * 1.3) * a + (Math.random() - 0.5) * a * 0.5; y += Math.cos(wt * 0.9) * a + (Math.random() - 0.5) * a * 0.5; }
           ctx.lineWidth = 3; ctx.lineCap = 'round'; ctx.strokeStyle = '#1d3a8a';
           if (inkLast) { ctx.beginPath(); ctx.moveTo(inkLast.x, inkLast.y); ctx.lineTo(x, y); ctx.stroke(); }
+          else { ctx.beginPath(); ctx.arc(x, y, 1.5, 0, Math.PI * 2); ctx.fillStyle = '#1d3a8a'; ctx.fill(); }
           inkLast = { x, y };
         };
-        this.reset = () => { k = 0; inkLast = null; fit(); draw(); };
-        const pt = (e: PointerEvent) => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) / (r.width || 1), y: (e.clientY - r.top) / (r.height || 1) }; };
-        const follow = (p: { x: number; y: number }, now: number) => {
-          // move along the guide only while the finger's on the next stretch of it, and no faster than minSeconds allows
-          const cap = Math.max(0, now - lastT) / minMs; lastT = now;
-          let best = k;
-          for (let u = k; u <= Math.min(1, k + 0.12); u += 0.004) { const [gx, gy] = at(u); if (Math.hypot((p.x - gx) * 2.2, p.y - gy) < 0.2) best = u; }
-          k = Math.min(1, k + Math.min(best - k, cap));
-          ink(p.x * size.w, p.y * size.h);
-          draw();
-          if (k >= 0.985) { down = false; this.complete(); }
+        this.reset = () => { len = 0; best = 0; last = inkLast = null; pointerId = null; this.drawing = false; fit(); draw(); };
+        // finger → CSS px inside the canvas, from where it really is on screen right now
+        const pt = (e: { clientX: number; clientY: number }) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+        const move = (p: { x: number; y: number }) => {
+          if (last) len += Math.hypot(p.x - last.x, p.y - last.y);
+          last = p;
+          ink(p.x, p.y);
+          progress();
         };
-        docket.addEventListener('pointerdown', e => { e.preventDefault(); docket.setPointerCapture?.(e.pointerId); fit(); down = true; lastT = performance.now(); inkLast = null; follow(pt(e), lastT); });
-        docket.addEventListener('pointermove', e => { if (down) follow(pt(e), performance.now()); });
-        const lift = () => { down = false; inkLast = null; }; // a pause, not the end: carry on from where you stopped
-        docket.addEventListener('pointerup', lift); docket.addEventListener('pointercancel', lift);
+        const end = () => {
+          if (pointerId === null) return;
+          pointerId = null; this.drawing = false; inkLast = null; last = null;
+          best = Math.max(best, len);
+          const signed = len >= need * css.w;
+          len = 0;
+          if (signed) this.complete(); else progress();
+        };
+        // the whole docket takes the pen (the ✕ and the line are drawn over the canvas); points are mapped into the canvas
+        docket.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (pointerId !== null) return; // one pen
+          try { docket.setPointerCapture(e.pointerId); } catch { /* fine: the card swallows the touches anyway */ }
+          fit();
+          pointerId = e.pointerId; this.drawing = true; len = 0; last = null; inkLast = null;
+          move(pt(e));
+        });
+        docket.addEventListener('pointermove', e => {
+          if (e.pointerId !== pointerId) return;
+          e.preventDefault();
+          // coalesced points keep a fast stroke smooth (and its length honest)
+          const evs = (e as PointerEvent & { getCoalescedEvents?: () => PointerEvent[] }).getCoalescedEvents?.() ?? [];
+          for (const c of evs.length ? evs : [e]) move(pt(c));
+        });
+        const lift = (e: PointerEvent) => { if (e.pointerId === pointerId) end(); };
+        docket.addEventListener('pointerup', lift); docket.addEventListener('pointercancel', lift); docket.addEventListener('lostpointercapture', lift);
+        // iOS: without these the page can still try to scroll/zoom/select under the finger and cancel the pointer
+        const stop = (e: TouchEvent) => { if (e.cancelable) e.preventDefault(); e.stopPropagation(); };
+        docket.addEventListener('touchstart', stop, { passive: false });
+        docket.addEventListener('touchmove', stop, { passive: false });
+        tapSign.addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); this.drawing = false; this.complete(); });
         const tick = (now: number) => {
-          // the ghost shows where to go next; after a while the driver starts tapping his foot
-          const [gx, gy] = at(Math.min(1, k + 0.04));
-          ghost.style.left = `${(8 + 84 * gx).toFixed(1)}%`; ghost.style.top = `${(5 + 90 * gy).toFixed(1)}%`;
-          ghost.style.opacity = down ? '0' : String(0.35 + 0.35 * Math.abs(Math.sin(now / 350)));
+          // the ghost sweeps along the line to show a stroke; after a while the driver starts tapping his foot
+          const u = ((now - t0) / 1600) % 1;
+          ghost.style.left = `${(15 + 70 * u).toFixed(1)}%`; ghost.style.top = '62%';
+          ghost.style.opacity = this.drawing ? '0' : String(0.6 * (1 - u));
           if (now - t0 > waitMs) waiting.classList.add('on');
+          if (now - t0 > fallbackMs) tapSign.classList.add('on');
           this.raf = requestAnimationFrame(tick);
         };
         requestAnimationFrame(() => { fit(); draw(); });
