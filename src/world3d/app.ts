@@ -1797,7 +1797,14 @@ export class World3D {
     b.style.display = p.behind ? 'none' : 'block';
     // keep the whole bubble on screen, even when the mate's at the edge (their pointer shows where)
     const half = b.offsetWidth / 2 + 6;
-    const x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x)), y = Math.max(b.offsetHeight + 80, Math.min(this.vh - 20, p.y));
+    const x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x));
+    let y = Math.max(b.offsetHeight + 80, Math.min(this.vh - 20, p.y)); // (its bottom: the bubble hangs up from here)
+    // his answer buttons are up: the bubble clears the stack — above it, or under it if there's no room above
+    const lbl = this.labelEls.find(l => l.id === `visitor-${mate!.id}`)?.el;
+    if (lbl && lbl.style.display !== 'none' && lbl.querySelector('button')) {
+      const stackBottom = parseFloat(lbl.style.top), stackTop = stackBottom - lbl.offsetHeight;
+      y = stackTop - 8 >= b.offsetHeight + 80 ? Math.min(y, stackTop - 8) : Math.max(y, stackBottom + 8 + b.offsetHeight);
+    }
     b.style.left = `${x.toFixed(1)}px`; b.style.top = `${y.toFixed(1)}px`;
   }
 

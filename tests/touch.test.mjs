@@ -5,7 +5,7 @@
 // a mate who's just walked in. (Helping and handing over a beer: tests/visitor-help.test.mjs.)
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { advance, freshGame, freshMate, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, frames, freshGame, freshMate, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -154,4 +154,30 @@ describe('visits', () => {
       assert.ok(!(await labels(game)).some(t => /beer/i.test(t)), 'no beer offered');
     } finally { await game.close(); }
   });
+});
+
+describe('his answer buttons sit over what he says (playtest 1)', () => {
+  for (const spot of ['smoko', 'machine', 'phone']) {
+    it(`you at the ${spot}: no button under his bubble, and the labels paint over it`, async () => {
+      const game = await freshGame(env);
+      try {
+        await game.page.evaluate(() => document.querySelectorAll('.lettercard').forEach(e => e.remove()));
+        await walkTo(game, spot);
+        await setTime(game, 10, 0);
+        await freshMate(game);
+        await waitForLabel(game, YARN, 20_000);
+        await frames(game);
+        const r = await game.page.evaluate(() => {
+          const bub = document.querySelector('#kir-hud .bubble.say'), b = bub.getBoundingClientRect();
+          const his = [...document.querySelectorAll('#kir-hud .lbl')].find(l => [...l.querySelectorAll('button')].some(x => x.textContent.includes("what's up")));
+          const hits = [...his.querySelectorAll('button')].filter(x => { const q = x.getBoundingClientRect(); return q.left < b.right && q.right > b.left && q.top < b.bottom && q.bottom > b.top; }).map(x => x.textContent);
+          const labels = document.querySelector('#kir-hud .labels');
+          return { shown: getComputedStyle(bub).display !== 'none', hits, labelsAfter: !!(bub.compareDocumentPosition(labels) & Node.DOCUMENT_POSITION_FOLLOWING) };
+        });
+        assert.ok(r.shown, 'his line is up');
+        assert.deepEqual(r.hits, [], 'none of his answer buttons under the bubble');
+        assert.ok(r.labelsAfter, 'the labels layer paints over the speech bubbles');
+      } finally { await game.close(); }
+    });
+  }
 });

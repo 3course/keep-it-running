@@ -289,7 +289,8 @@ export class Hud {
       document.addEventListener('fullscreenchange', () => { fs.title = document.fullscreenElement ? 'Leave fullscreen' : 'Fullscreen'; });
     }
     try { this.pinned = localStorage.getItem('kir-pad-pinned') !== '0'; } catch { /* default: pinned */ }
-    this.stage.append(this.labels, this.bubble, this.mateBubble, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
+    // the speech bubbles go under the labels: a mate's answer buttons always sit over what he's saying
+    this.stage.append(this.bubble, this.mateBubble, this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
     if (this.fsBtn) this.stage.appendChild(this.fsBtn);
     document.body.appendChild(this.root);
     this.layout(window.innerWidth, window.innerHeight);
