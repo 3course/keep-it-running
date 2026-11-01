@@ -177,6 +177,10 @@ describe('the daily', () => {
   it('the same seed for everyone on a date (Melbourne), a canonical start', () => {
     assert.equal(D.dailySeed('2026-10-31'), D.dailySeed('2026-10-31'));
     assert.notEqual(D.dailySeed('2026-10-31'), D.dailySeed('2026-11-01'));
+    assert.equal(D.dailySeed('2026-11-01'), 20261101, 'the shift number is the date, YYYYMMDD');
+    assert.equal(D.shiftSeed('', new Date('2026-10-31T14:30:00Z')), 20261101, 'no ?seed: today in Melbourne');
+    assert.equal(D.shiftSeed('?seed=12345'), 12345, '?seed=N overrides it');
+    assert.equal(D.seedParam('?seed=abc'), undefined); assert.equal(D.seedParam('?seed=0'), undefined); assert.equal(D.seedParam('?daily=1'), undefined);
     assert.equal(D.melbourneDate(new Date('2026-10-31T14:30:00Z')), '2026-11-01', 'already tomorrow in Melbourne');
     const { game, world } = D.dailyStart('2026-10-31');
     assert.equal(game.dayIndex, D.DAILY_DAY); assert.equal(world.people.gifts.length, 2); assert.equal(world.people.fullTime, false); assert.equal(world.layout, undefined);

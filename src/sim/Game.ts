@@ -6,7 +6,7 @@ import { dennisAnswer, dennisCallMult, dennisDecide, dennisFaultMult, dennisFire
   dennisStartDay, dennisTick, newDennis, type Bet, type DennisState } from './dennis.js';
 import type { Fortune, LayoutEffects, Pickup, WalkIn } from './types.js';
 import type {
-  ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderPreview,
+  ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderCall, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
 } from './types.js';
 
@@ -33,7 +33,11 @@ function emptyStats(day: number): DayStats {
 
 export class Game {
   readonly seed: number;
-  rng: Rng;
+  /**
+   * The player's own rolls (a misclick, a beer fumble, a clamp left off biting): sequential, and apart from the world's,
+   * which each come from their own stream (`at`, the day's, each call's) so nothing the player does reorders them.
+   */
+  actionRng: Rng;
   /** Everything a visiting mate decides (when they come up, what they say, where they wander): its own stream, reseeded each day. */
   visitorRng = new Rng(0);
   phase: Phase = 'day';
@@ -74,6 +78,7 @@ export class Game {
   mateReturn: { mate: string; minute: number } | null = null;
   /** Today's planned mate visits (minutes of day, CONFIG.visitors.perDay), when the last one left, and whether one's been after two. */
   mateVisits: number[] = [];
+  mateArrivals = 0;            // mates in today so far: keys who the next one is (with the minute), so each arrival is its own roll
   mateLeftAt = -9999;
   mateAfterTwo = false;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
@@ -94,7 +99,7 @@ export class Game {
   fault: ActiveFault | null = null;
   courierPenaltyPending = false;
   rushJobsToday = 0;
-  orderCalls: { minute: number; sheets: number }[] = []; // today's order calls still to ring, soonest first
+  orderCalls: OrderCall[] = []; // today's order calls still to ring, soonest first
   lateDropToday = false;     // rolled at 7am so the demand floor can count it
   lostYesterday = 0;         // sheets lost at close yesterday; costs order calls today
 
@@ -168,7 +173,7 @@ export class Game {
   /** `firstDay`: the dayIndex to start on (the balance sim starts later to play a week past the difficulty ramp). */
   constructor(seed?: number, firstDay = 1) {
     this.seed = seed ?? (Date.now() >>> 0);
-    this.rng = new Rng(this.seed);
+    this.actionRng = Rng.derive(this.seed, 'action');
     this.dayIndex = firstDay;
     this.startDay();
     // the first morning's ply was ordered (and paid for) last week: the truck's at the door
@@ -236,7 +241,8 @@ export class Game {
   dennisJobs(type: JobTypeId, sheets: number, dueDays: number, priceMult: number, label: string, rush: boolean): number[] {
     const t = CONFIG.jobs.types.find(x => x.id === type)!, close = CONFIG.clock.endHour * 60;
     const due = rush ? { day: this.dayIndex, minute: Math.min(close, this.minute + CONFIG.jobs.orders.rushMinutes) } : { day: this.dayIndex + dueDays, minute: close };
-    const jobs = Array.from({ length: sheets }, (_, i) => this.makeJob(t, `${rush ? 'RUSH — ' : ''}${CONFIG.dennis.name}'s ${label}${sheets > 1 ? ` (${i + 1}/${sheets})` : ''}`, due.day, due.minute, { priceMult }));
+    const r = this.at('dennisJobs');
+    const jobs = Array.from({ length: sheets }, (_, i) => this.makeJob(r, t, `${rush ? 'RUSH — ' : ''}${CONFIG.dennis.name}'s ${label}${sheets > 1 ? ` (${i + 1}/${sheets})` : ''}`, due.day, due.minute, { priceMult }));
     this.jobs.push(...jobs);
     this.today.sheetsDemanded += sheets;
     this.say(`${sheets} sheet${sheets > 1 ? 's' : ''} on the board: ${CONFIG.dennis.name}'s ${label}.`, 'good');
@@ -258,7 +264,8 @@ export class Game {
   /** An order put on the board from outside the phone (the Lease's big order): `sheets` of a type, due by close on `dueDay`. */
   leaseOrder(type: JobTypeId, sheets: number, dueDay: number, priceMult: number, label: string): number[] {
     const t = CONFIG.jobs.types.find(x => x.id === type)!, close = CONFIG.clock.endHour * 60;
-    const jobs = Array.from({ length: sheets }, (_, i) => this.makeJob(t, `${label}${sheets > 1 ? ` (${i + 1}/${sheets})` : ''}`, dueDay, close, { priceMult }));
+    const r = this.at('leaseOrder', dueDay);
+    const jobs = Array.from({ length: sheets }, (_, i) => this.makeJob(r, t, `${label}${sheets > 1 ? ` (${i + 1}/${sheets})` : ''}`, dueDay, close, { priceMult }));
     this.jobs.push(...jobs);
     this.today.sheetsDemanded += sheets;
     this.say(`Order in: ${label}, ${sheets} × ${t.material}.`, 'good');
@@ -332,7 +339,8 @@ export class Game {
     const d = this.today;
     const m = d.revenue > 0 ? `${Math.round(((d.revenue - d.costs) / d.revenue) * 100)}%` : '—';
     const head = [
-      `Keep It Running — day ${d.day} (week day ${this.day}/${CONFIG.week.days})`,
+      `Keep It Running — Shift #${this.seed} — day ${d.day} (week day ${this.day}/${CONFIG.week.days})`,
+      `Replay this shift: ?seed=${this.seed}`,
       `Revenue $${Math.round(d.revenue)} · costs $${Math.round(d.costs)} · margin ${m} · cash $${Math.round(this.cash)}`,
       `Sheets: ${d.sheetsDone} delivered (${d.sheetsLate} late), ${d.sheetsScrapped} scrapped · faults ${d.faults} · fires ${d.firesSpot} · beers ${d.beers}`,
       ...(CONFIG.chores ? [`Chores: ${d.sheetsShifted} shifted (clamps), ${d.sheetsLifted} lifted (compressor), boards lost $${Math.round(d.choreBoards)} · offcut bin overflowed ${d.binOverflows}×`] : []),
@@ -385,6 +393,11 @@ export class Game {
     return (CONFIG.competence.max - this.competence) * CONFIG.competence.inputDelayMsPerPoint;
   }
 
+  /** A world roll for this minute of today: the seed, the stream, the day and the minute decide it, nothing else. */
+  private at(stream: string, ...keys: number[]): Rng { return Rng.derive(this.seed, stream, this.dayIndex, this.minute, ...keys); }
+  /** An order call's own stream (its sheets, price, deadline), whenever it's answered; a call from an old save gets one now. */
+  private callRng(roll?: number): Rng { return roll ? new Rng(roll) : this.at('call'); }
+
   // ---------- day lifecycle ----------
 
   private startDay() {
@@ -411,9 +424,11 @@ export class Game {
     this.extinguisherUsesToday = 0;
     // unfinished work carries over; delivered, scrapped and lost jobs drop off the board
     const carried = this.jobs.filter(j => j.status === 'queued');
-    const fresh = this.generateJobs();
-    this.lateDropToday = this.rng.chance(CONFIG.jobs.lateDrop.chance);
-    this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0));
+    // the morning: its own stream per day, so yesterday's play can't change what today's board and calls are
+    const day = Rng.derive(this.seed, 'day', this.dayIndex);
+    const fresh = this.generateJobs(day);
+    this.lateDropToday = day.chance(CONFIG.jobs.lateDrop.chance);
+    this.orderCalls = this.scheduleOrderCalls(fresh.length + (this.lateDropToday ? 1 : 0), day);
     // a quiet week (the Lease): the morning board's thin too
     const f = this.fortuneNow;
     if (f && f.calls < 1) fresh.splice(Math.max(1, Math.round(fresh.length * f.calls)));
@@ -421,7 +436,7 @@ export class Game {
     this.freshToday = fresh.map(j => j.id);
     this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
-    this.mateVisits = this.planMateVisits(); this.mateLeftAt = -9999; this.mateAfterTwo = false;
+    this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false;
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
       dennisStartDay(this); // his own seeded rolls: off, nothing else changes
@@ -430,7 +445,7 @@ export class Game {
       if (mult > 1) {
         const r = new Rng((this.seed * 31 + this.dayIndex * 977) >>> 0 || 1), o = CONFIG.jobs.orders;
         const extra = Math.round(this.orderCalls.length * (mult - 1));
-        for (let i = 0; i < extra; i++) this.orderCalls.push({ minute: Math.round(r.range(o.spreadFromHour * 60, o.spreadToHour * 60)), sheets: r.int(o.sheetsMin, o.sheetsMax) });
+        for (let i = 0; i < extra; i++) this.orderCalls.push({ minute: Math.round(r.range(o.spreadFromHour * 60, o.spreadToHour * 60)), sheets: r.int(o.sheetsMin, o.sheetsMax), roll: r.seed() });
         this.orderCalls.sort((a, b) => a.minute - b.minute);
       }
     }
@@ -438,21 +453,22 @@ export class Game {
     this.say(`Day ${this.day}. ${this.jobs.length} sheets on the board${carryNote}. Roller door's up.`);
   }
 
-  private scheduleOrderCalls(otherSheets: number): { minute: number; sheets: number }[] {
+  private scheduleOrderCalls(otherSheets: number, r: Rng): OrderCall[] {
     const o = CONFIG.jobs.orders;
     const from = o.spreadFromHour * 60, to = o.spreadToHour * 60;
-    const sheets = () => this.rng.int(o.sheetsMin, o.sheetsMax);
-    const n = this.rng.int(o.callsMin, o.callsMax);
-    // first call guaranteed early; the rest spaced evenly across the window with jitter
-    const calls = [{ minute: Math.round(this.rng.range(o.firstCallFromHour * 60, o.firstCallToHour * 60)), sheets: sheets() }];
+    const sheets = () => r.int(o.sheetsMin, o.sheetsMax);
+    const n = r.int(o.callsMin, o.callsMax);
+    // first call guaranteed early; the rest spaced evenly across the window with jitter. Each carries the seed for
+    // what it turns out to be (type, customer, sheets on offer), so when it's answered doesn't change what it is.
+    const calls: OrderCall[] = [{ minute: Math.round(r.range(o.firstCallFromHour * 60, o.firstCallToHour * 60)), sheets: sheets(), roll: r.seed() }];
     for (let i = 1; i < n; i++) {
       const centre = from + (to - from) * (i + 0.5) / n;
-      const minute = Math.round(centre + this.rng.range(-o.jitterMinutes, o.jitterMinutes));
-      calls.push({ minute: Math.min(to, Math.max(from, minute)), sheets: sheets() });
+      const minute = Math.round(centre + r.range(-o.jitterMinutes, o.jitterMinutes));
+      calls.push({ minute: Math.min(to, Math.max(from, minute)), sheets: sheets(), roll: r.seed() });
     }
     // demand floor: keep adding calls until the day offers enough sheets
     while (otherSheets + calls.reduce((s, c) => s + c.sheets, 0) < o.minDemandSheets) {
-      calls.push({ minute: Math.round(this.rng.range(from, to)), sheets: sheets() });
+      calls.push({ minute: Math.round(r.range(from, to)), sheets: sheets(), roll: r.seed() });
     }
     calls.sort((a, b) => a.minute - b.minute);
     // the Lease's wobble: a big customer's gone quiet (fewer calls for a few days)
@@ -484,35 +500,35 @@ export class Game {
     return this.formatTime(j.deadlineMinute);
   }
 
-  private generateJobs(): Job[] {
-    const n = this.rng.int(CONFIG.jobs.perDayMin, CONFIG.jobs.perDayMax);
+  private generateJobs(r: Rng): Job[] {
+    const n = r.int(CONFIG.jobs.perDayMin, CONFIG.jobs.perDayMax);
     const jobs: Job[] = [];
-    const names = [...JOB_NAMES].sort(() => this.rng.next() - 0.5);
+    const names = [...JOB_NAMES].sort(() => r.next() - 0.5);
     const first = CONFIG.clock.startHour * 60 + CONFIG.jobs.firstDeadlineMinutesAfterOpen;
     const last = CONFIG.clock.endHour * 60 + CONFIG.jobs.lastDeadlineMinutesAfterClose;
     const gap = (last - first) / Math.max(1, n - 1);
     for (let i = 0; i < n; i++) {
-      jobs.push(this.makeJob(this.pickType(), names[i % names.length], this.dayIndex, Math.round(first + gap * i)));
+      jobs.push(this.makeJob(r, this.pickType(r), names[i % names.length], this.dayIndex, Math.round(first + gap * i)));
     }
     return jobs;
   }
 
-  private pickType(): JobType {
-    return this.rng.weighted(CONFIG.jobs.types, t => t.weight)!;
+  private pickType(r: Rng): JobType {
+    return r.weighted(CONFIG.jobs.types, t => t.weight)!;
   }
   jobType(j: Job): JobType {
     return CONFIG.jobs.types.find(t => t.id === j.type)!;
   }
 
   /** One sheet of the given type. Price is a standard sheet's (basis board, standard cut time) times the type's priceMult. */
-  private makeJob(t: JobType, name: string, dueDay: number, deadlineMinute: number, opts: { priceMult?: number; cutMinutesLess?: number } = {}): Job {
-    const baseCut = this.rng.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax - (opts.cutMinutesLess ?? 0));
+  private makeJob(r: Rng, t: JobType, name: string, dueDay: number, deadlineMinute: number, opts: { priceMult?: number; cutMinutesLess?: number } = {}): Job {
+    const baseCut = r.int(CONFIG.jobs.cutMinutesMin, CONFIG.jobs.cutMinutesMax - (opts.cutMinutesLess ?? 0));
     return {
       id: this.nextJobId++,
       name,
       material: t.material,
       materialCost: Math.round(t.boardCost * this.materialMult()),
-      price: Math.round(this.priceFor(CONFIG.jobs.priceBasisBoardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1) * (t.id === 'joinery' && CONFIG.dennis.enabled ? dennisJoineryMult(this) : 1)),
+      price: Math.round(this.priceFor(r, CONFIG.jobs.priceBasisBoardCost, baseCut) * t.priceMult * (opts.priceMult ?? 1) * (t.id === 'joinery' && CONFIG.dennis.enabled ? dennisJoineryMult(this) : 1)),
       cutMinutes: Math.max(1, Math.round(baseCut * t.cutMult)),
       deadlineMinute, dueDay,
       progress: 0, status: 'queued', paidLate: false, chipRisk: t.chipRisk, type: t.id,
@@ -525,9 +541,9 @@ export class Game {
   upgradeEffect(id: UpgradeId): number {
     return CONFIG.upgrades.find(u => u.id === id)!.effect;
   }
-  private priceFor(boardCost: number, cutMinutes: number): number {
+  private priceFor(r: Rng, boardCost: number, cutMinutes: number): number {
     const j = CONFIG.jobs;
-    return Math.round(boardCost * this.rng.range(j.priceMarkupMin, j.priceMarkupMax) + cutMinutes * j.machineRatePerMinute);
+    return Math.round(boardCost * r.range(j.priceMarkupMin, j.priceMarkupMax) + cutMinutes * j.machineRatePerMinute);
   }
   private addRapport(n: number) {
     this.rapport = Math.max(CONFIG.rapport.min, Math.min(CONFIG.rapport.max, this.rapport + n));
@@ -592,7 +608,7 @@ export class Game {
       else this.maybeFault(false);
       // a compressor on the extractor's circuit trips the power now and then (only rolled when the layout's like that)
       const trip = this.layout.powerTripPerMinute + (CONFIG.dennis.enabled ? dennisPowerTrip(this) : 0);
-      if (trip > 0 && this.machine === 'cutting' && !this.powerTripped && this.rng.chance(trip)) {
+      if (trip > 0 && this.machine === 'cutting' && !this.powerTripped && this.at('powerTrip').chance(trip)) {
         this.powerTripped = true; this.machine = 'paused';
         this.say('Power tripped. The breaker at the switchboard.', 'bad');
       }
@@ -611,7 +627,8 @@ export class Game {
     this.tickCallbacks();
     this.maybeDistraction();
     while (this.orderCalls.length && this.minute >= this.orderCalls[0].minute) {
-      this.spawnOrderCall(this.orderCalls.shift()!.sheets);
+      const c = this.orderCalls.shift()!;
+      this.spawnOrderCall(c.sheets, c.roll);
     }
     if (this.rare) this.tickRare();
     if (CONFIG.dennis.enabled) dennisTick(this);
@@ -668,8 +685,9 @@ export class Game {
       if (this.friendPresent) p *= CONFIG.faults.attentionSplitChanceMult;
     }
     p *= this.breakdownMult;
-    if (!this.rng.chance(p)) return;
-    const def = this.rng.weighted(FAULTS, d => this.faultWeight(d, atStart));
+    const r = this.at(atStart ? 'faultAtLoad' : 'fault');
+    if (!r.chance(p)) return;
+    const def = r.weighted(FAULTS, d => this.faultWeight(d, atStart));
     if (!def) return;
     this.fault = {
       def, phase: 'diagnose', minutesOpen: 0, triedDiagnoses: [], busyRemaining: 0, busyLabel: '',
@@ -755,7 +773,7 @@ export class Game {
 
   private maybeFire() {
     if (this.fire || this.machineDown || this.machine !== 'cutting') return;
-    if (!this.rng.chance(this.fireChance())) return;
+    if (!this.at('fire').chance(this.fireChance())) return;
     // no alarm and no log line: the smoke at the duct and the to-do list are the only tells
     this.fire = { id: this.nextFireId++, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 };
     this.today.firesSpot += 1;
@@ -935,7 +953,8 @@ export class Game {
   private maybeDistraction() {
     this.dueMateVisit();
     if (this.distractions.length >= CONFIG.distractions.maxActive) return;
-    if (!this.rng.chance(CONFIG.distractions.chancePerMinute)) return;
+    const r = this.at('distraction');
+    if (!r.chance(CONFIG.distractions.chancePerMinute)) return;
     const d = CONFIG.distractions;
     const kinds: { kind: DistractionKind; w: number }[] = [
       { kind: 'friend', w: d.friend.weight },
@@ -944,18 +963,19 @@ export class Game {
       { kind: 'bank', w: this.cash < 0 ? d.bank.weight : 0 },
     ];
     if (this.distractions.some(x => x.kind === 'friend')) kinds[0].w = 0;
-    const pick = this.rng.weighted(kinds, k => k.w);
+    const pick = r.weighted(kinds, k => k.w);
     if (!pick || pick.kind === 'friend') return; // mates come when they're planned (dueMateVisit), not off this roll
-    this.spawnDistraction(pick.kind);
+    this.spawnDistraction(pick.kind, undefined, r);
   }
 
-  private spawnDistraction(kind: DistractionKind, mateId?: string) {
+  /** `r`: the stream it came in on (the minute's distraction roll); a planned mate's arrival gets its own. */
+  private spawnDistraction(kind: DistractionKind, mateId?: string, r: Rng = this.at('mate', kind === 'friend' ? this.mateArrivals++ : 0)) {
     const d = CONFIG.distractions;
     const id = this.nextDistractionId++;
     let dist: Distraction;
     switch (kind) {
       case 'friend': {
-        const mate = (mateId && MATES.find(m => m.id === mateId)) || this.rng.pick(MATES.filter(m => m.id !== this.lastMate));
+        const mate = (mateId && MATES.find(m => m.id === mateId)) || r.pick(MATES.filter(m => m.id !== this.lastMate));
         this.lastMate = mate.id;
         const v = CONFIG.visitors;
         const dur = Math.round(v.visitMinutes * (this.beersToday > 0 ? CONFIG.beer.friendDurationMult : 1));
@@ -967,7 +987,7 @@ export class Game {
         break;
       }
       case 'phone':
-        dist = { id, kind, title: 'Phone ringing', line: 'A customer. Could be a quote.', remaining: d.phone.window, engaged: false };
+        dist = { id, kind, title: 'Phone ringing', line: 'A customer. Could be a quote.', remaining: d.phone.window, engaged: false, roll: r.seed() };
         break;
       case 'courier':
         dist = { id, kind, title: 'Courier at the door', line: 'Board delivery. Needs a signature.', remaining: d.courier.window, engaged: false };
@@ -982,21 +1002,23 @@ export class Game {
   }
 
   /** Scheduled order calls ring regardless of the distraction cap — it's the job coming in. */
-  private spawnOrderCall(sheets: number) {
-    const t = this.pickType();
+  private spawnOrderCall(sheets: number, roll?: number) {
+    const r = this.callRng(roll);
+    const t = this.pickType(r);
     this.today.sheetsDemanded += sheets;
     this.distractions.push({
       id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — new order',
       line: `${t.name}: ${sheets} sheet${sheets > 1 ? 's' : ''} of ${t.material}.`,
       remaining: CONFIG.distractions.phone.window, engaged: false, order: sheets, orderType: t.id,
-      customer: this.rng.pick(CUSTOMERS),
+      customer: r.pick(CUSTOMERS), roll: r.seed(),
     });
     this.say(`Phone ringing — ${t.name.toLowerCase()} order, ${sheets} × ${t.material}`, 'info');
   }
 
-  private addOrder(sheets: number, typeId: JobTypeId, big = false, ready?: OrderPreview) {
-    if (big) { this.addBigJob(sheets, typeId, ready?.jobs); return; }
-    const { jobs, kind, label } = ready ?? this.orderJobs(sheets, typeId);
+  /** `roll`: the call's own seed (Distraction.roll), so the sheets are the same whenever it's answered. */
+  private addOrder(sheets: number, typeId: JobTypeId, big = false, ready?: OrderPreview, roll?: number) {
+    if (big) { this.addBigJob(sheets, typeId, ready?.jobs, roll); return; }
+    const { jobs, kind, label } = ready ?? this.orderJobs(sheets, typeId, this.callRng(roll));
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
     this.jobs.push(...jobs);
     const close = CONFIG.clock.endHour * 60;
@@ -1005,12 +1027,12 @@ export class Game {
   }
 
   /** The sheets an order call brings, not yet on the board. */
-  private orderJobs(sheets: number, typeId: JobTypeId): OrderPreview {
+  private orderJobs(sheets: number, typeId: JobTypeId, r: Rng): OrderPreview {
     const o = CONFIG.jobs.orders;
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
-    const name = this.rng.pick(JOB_NAMES);
+    const name = r.pick(JOB_NAMES);
     const f = this.fortuneNow;
-    const kind = this.rng.weighted(['today', 'tomorrow', 'rush'] as const, k => o.deadlineMix[k] * (k === 'rush' && f ? f.rushMult : 1))!;
+    const kind = r.weighted(['today', 'tomorrow', 'rush'] as const, k => o.deadlineMix[k] * (k === 'rush' && f ? f.rushMult : 1))!;
     const close = CONFIG.clock.endHour * 60;
     const due = kind === 'rush' ? { day: this.dayIndex, minute: this.minute + o.rushMinutes }
       : { day: this.dayIndex + (kind === 'tomorrow' ? 1 : 0), minute: close };
@@ -1018,7 +1040,7 @@ export class Game {
     const priceMult = (kind === 'rush' ? CONFIG.jobs.rush.priceMult : 1) * (f?.priceMult ?? 1);
     const jobs: Job[] = [];
     for (let i = 0; i < sheets; i++) {
-      jobs.push(this.makeJob(t, sheets > 1 ? `${label} (${i + 1}/${sheets})` : label, due.day, due.minute, { priceMult }));
+      jobs.push(this.makeJob(r, t, sheets > 1 ? `${label} (${i + 1}/${sheets})` : label, due.day, due.minute, { priceMult }));
     }
     return { jobs, kind, label };
   }
@@ -1032,7 +1054,8 @@ export class Game {
     if (!dist || dist.kind !== 'phone' || !dist.order) return null;
     if (!dist.preview) {
       const t = CONFIG.jobs.types.find(x => x.id === dist.orderType)!;
-      dist.preview = dist.big ? { jobs: this.bigJobJobs(dist.order, t), kind: 'tomorrow', label: 'BIG JOB — Hallam townhouses' } : this.orderJobs(dist.order, dist.orderType!);
+      const r = this.callRng(dist.roll);
+      dist.preview = dist.big ? { jobs: this.bigJobJobs(dist.order, t, r), kind: 'tomorrow', label: 'BIG JOB — Hallam townhouses' } : this.orderJobs(dist.order, dist.orderType!, r);
     }
     return dist.preview;
   }
@@ -1059,10 +1082,10 @@ export class Game {
         case 'phone':
           if (dist.order) {
             // an order call always leaves a voicemail; it's only lost if you don't ring back in time
-            const customer = dist.customer ?? this.rng.pick(CUSTOMERS);
+            const customer = dist.customer ?? this.callRng(dist.roll).pick(CUSTOMERS);
             this.callbacks.push({
               id: dist.id, customer, sheets: dist.order, orderType: dist.orderType!,
-              expiresMinute: this.minute + CONFIG.jobs.orders.callbackMinutes, big: dist.big,
+              expiresMinute: this.minute + CONFIG.jobs.orders.callbackMinutes, big: dist.big, roll: dist.roll,
             });
             this.say(`Missed the call. ${customer} left a voicemail: ${dist.order} sheets. Ring back by ${this.formatTime(this.minute + CONFIG.jobs.orders.callbackMinutes)}.`);
           } else {
@@ -1101,7 +1124,7 @@ export class Game {
       return true;
     }
     this.say(`Rang ${c.customer} back.`);
-    this.addOrder(c.sheets, c.orderType, c.big);
+    this.addOrder(c.sheets, c.orderType, c.big, undefined, c.roll);
     return true;
   }
 
@@ -1157,8 +1180,9 @@ export class Game {
     const over = this.compressorSheets - ch.compressor.sheetsPerDrain;
     const pShift = ch.clamp.shiftChanceByMissing[missing];
     const pLift = over > 0 ? Math.min(ch.compressor.liftChanceMax, over * ch.compressor.liftChancePerSheetOver) : 0;
-    const by = pShift > 0 && this.rng.chance(pShift) ? 'shift' : pLift > 0 && this.rng.chance(pLift) ? 'lift' : null;
-    if (by) j.ruin = { by, at: this.rng.int(Math.max(1, Math.round(j.cutMinutes * 0.2)), Math.max(1, Math.round(j.cutMinutes * 0.8))) };
+    const r = this.actionRng; // the player left the clamp off: their roll, not the world's
+    const by = pShift > 0 && r.chance(pShift) ? 'shift' : pLift > 0 && r.chance(pLift) ? 'lift' : null;
+    if (by) j.ruin = { by, at: r.int(Math.max(1, Math.round(j.cutMinutes * 0.2)), Math.max(1, Math.round(j.cutMinutes * 0.8))) };
   }
 
   /** Every sheet off the machine, good or ruined: offcuts in the bin (or on the floor), and the compressor runs on. */
@@ -1273,7 +1297,7 @@ export class Game {
     if ('error' in q) { this.say(q.error, 'bad'); return null; }
     const s = CONFIG.supply;
     // same-day trucks run a few minutes either side of the quote
-    const minute = q.day === this.dayIndex ? q.minute + this.rng.int(-s.leadJitter, s.leadJitter) : q.minute;
+    const minute = q.day === this.dayIndex ? q.minute + this.at('truck', this.nextDeliveryId).int(-s.leadJitter, s.leadJitter) : q.minute;
     this.courierPenaltyPending = false;
     // the boards are stock: cash goes, but they're not today's cost until they're cut
     this.cash -= q.boards;
@@ -1356,9 +1380,9 @@ export class Game {
     if (!f || f.phase !== 'diagnose' || !this.canAct) return false;
     let chosen = f.def.diagnoses.find(d => d.id === diagId);
     if (!chosen) return false;
-    if (this.rng.chance(this.misclickChance())) {
+    if (this.actionRng.chance(this.misclickChance())) {
       const others = f.def.diagnoses.filter(d => d.id !== diagId && !f.triedDiagnoses.includes(d.id));
-      if (others.length) { chosen = this.rng.pick(others); this.say('Fumbled it. Wrong button.', 'bad'); }
+      if (others.length) { chosen = this.actionRng.pick(others); this.say('Fumbled it. Wrong button.', 'bad'); }
     }
     f.triedDiagnoses.push(chosen.id);
     if (chosen.correct) {
@@ -1456,9 +1480,12 @@ export class Game {
           return true;
         }
         this.addRapport(d.phone.answerRapportGain);
-        if (dist.order) this.addOrder(dist.order, dist.orderType!, dist.big, dist.preview);
-        else if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && this.rng.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob();
-        else this.say('Just a quote. Followed up later.');
+        if (dist.order) this.addOrder(dist.order, dist.orderType!, dist.big, dist.preview, dist.roll);
+        else {
+          const r = this.callRng(dist.roll);
+          if (this.rushJobsToday < CONFIG.jobs.rush.maxPerDay && r.chance(CONFIG.rapport.rushJobChance * (this.rapport / CONFIG.rapport.max))) this.addRushJob(r);
+          else this.say('Just a quote. Followed up later.');
+        }
         return true;
       case 'courier':
         if (!this.canAct) return false;
@@ -1477,11 +1504,11 @@ export class Game {
     return false;
   }
 
-  private addRushJob() {
-    const r = CONFIG.jobs.rush;
-    const j = this.makeJob(this.pickType(), `RUSH — ${this.rng.pick(JOB_NAMES)}`, this.dayIndex, 0,
-      { priceMult: r.priceMult, cutMinutesLess: r.cutMinutesLess });
-    j.deadlineMinute = this.minute + j.cutMinutes + r.deadlineSlackMinutes;
+  private addRushJob(r: Rng) {
+    const rush = CONFIG.jobs.rush;
+    const j = this.makeJob(r, this.pickType(r), `RUSH — ${r.pick(JOB_NAMES)}`, this.dayIndex, 0,
+      { priceMult: rush.priceMult, cutMinutesLess: rush.cutMinutesLess });
+    j.deadlineMinute = this.minute + j.cutMinutes + rush.deadlineSlackMinutes;
     this.jobs.push(j);
     this.today.sheetsDemanded += 1;
     this.rushJobsToday += 1;
@@ -1489,7 +1516,8 @@ export class Game {
   }
 
   private addLateDrop() {
-    const j = this.makeJob(this.pickType(), `DROP-OFF — ${this.rng.pick(JOB_NAMES)}`, this.dayIndex,
+    const r = this.at('lateDrop');
+    const j = this.makeJob(r, this.pickType(r), `DROP-OFF — ${r.pick(JOB_NAMES)}`, this.dayIndex,
       CONFIG.clock.overtimeEndHour * 60, { priceMult: CONFIG.jobs.lateDrop.priceMult });
     this.jobs.push(j);
     this.today.sheetsDemanded += 1;
@@ -1548,7 +1576,7 @@ export class Game {
 
   /** A finished step that has to be done again: a beer's worth of clumsiness. */
   private fumbled(what: string): boolean {
-    if (this.fumbleChance <= 0 || !this.rng.chance(this.fumbleChance)) return false;
+    if (this.fumbleChance <= 0 || !this.actionRng.chance(this.fumbleChance)) return false;
     this.today.fumbles += 1;
     this.say(`Fumbled: ${what}. Again.`, 'bad');
     return true;
@@ -1775,7 +1803,7 @@ export class Game {
     const re = CONFIG.rareEvent;
     if (this.dayIndex < re.fromDay) return;
     const r = new Rng((Math.imul(this.seed ^ 0x5bd1e995, 0x85ebca6b) + Math.imul(this.dayIndex, 0xc2b2ae35)) >>> 0);
-    if (!r.chance(re.dayChance)) return;
+    if (!r.chance(re.dayChance)) return; // (seeded as before rather than through Rng.derive, so the rare-event days don't move)
     const slot = (e: RareEvent) => this.orderCalls.findIndex(c => c.minute >= e.earliestHour * 60);
     const def = r.weighted(re.events.filter(e => slot(e) >= 0), e => e.weight);
     if (def) this.scheduleRare(def, this.orderCalls[slot(def)].minute);
@@ -1815,12 +1843,13 @@ export class Game {
       r.waitLeft = def.waitMinutes; r.escortSec = 0; r.touring = false;
       this.say("The council's here: an inspector with a clipboard at the roller door. Stop the machine and walk them round.", 'bad');
     } else if (r.id === 'bigJob') {
-      const t = this.pickType();
+      const rr = this.at('bigJob');
+      const t = this.pickType(rr);
       this.today.sheetsDemanded += def.sheets!;
       this.distractions.push({
         id: this.nextDistractionId++, kind: 'phone', title: 'Phone ringing — big job', big: true,
         line: `Big job: ${def.sheets} sheets of ${t.material}, ${def.dueDays} days.`,
-        remaining: CONFIG.distractions.phone.window, engaged: false, order: def.sheets, orderType: t.id, customer: 'Hallam Builders',
+        remaining: CONFIG.distractions.phone.window, engaged: false, order: def.sheets, orderType: t.id, customer: 'Hallam Builders', roll: rr.seed(),
       });
       this.say(`Phone ringing — a big job: ${def.sheets} × ${t.material} in ${def.dueDays} days`, 'info');
     } else {
@@ -1892,11 +1921,11 @@ export class Game {
   }
 
   /** The 20 sheets, all due at close in `dueDays`, at the big-job price. */
-  private addBigJob(sheets: number, typeId: JobTypeId, ready?: Job[]) {
+  private addBigJob(sheets: number, typeId: JobTypeId, ready?: Job[], roll?: number) {
     const def = this.rareDef('bigJob');
     const t = CONFIG.jobs.types.find(x => x.id === typeId)!;
     let value = 0;
-    for (const j of ready ?? this.bigJobJobs(sheets, t)) {
+    for (const j of ready ?? this.bigJobJobs(sheets, t, this.callRng(roll))) {
       value += j.price;
       this.jobs.push(j);
     }
@@ -1904,10 +1933,10 @@ export class Game {
     this.bigJobAnswered(true, sheets, 'taken', value);
   }
 
-  private bigJobJobs(sheets: number, t: JobType): Job[] {
+  private bigJobJobs(sheets: number, t: JobType, r: Rng): Job[] {
     const def = this.rareDef('bigJob');
     const dueDay = this.dayIndex + def.dueDays!, close = CONFIG.clock.endHour * 60;
-    return Array.from({ length: sheets }, (_, i) => this.makeJob(t, `BIG JOB — Hallam townhouses (${i + 1}/${sheets})`, dueDay, close, { priceMult: def.priceMult }));
+    return Array.from({ length: sheets }, (_, i) => this.makeJob(r, t, `BIG JOB — Hallam townhouses (${i + 1}/${sheets})`, dueDay, close, { priceMult: def.priceMult }));
   }
 
   private bigJobAnswered(taken: boolean, sheets: number, how: 'taken' | 'declined' | 'missed', value = 0) {
