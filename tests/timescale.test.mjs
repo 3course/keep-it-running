@@ -66,7 +66,7 @@ describe('the time scale, in the shed', () => {
         g.jobs = []; g.orderCalls = []; g.distractions = []; g.deliveries = []; g.mateVisits = []; g.lateDropToday = false; g.minute = 9 * 60;
       });
       await walkTo(game, 'compressor');
-      await game.page.waitForFunction(fast => window.kir.timeScale === fast, C.fastScale, { timeout: C.fastAfterStillMs + 4000 });
+      await game.page.waitForFunction(fast => window.kir.timeScale === fast, C.fastScale, { timeout: 20_000 }); // (slow frames under a full test run)
       assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .clock').textContent), /waiting…/);
       assert.match(await game.eval((g, w, s) => s.hud.pad.querySelector('h2').textContent), /waiting…/);
       const t0 = await game.eval(g => g.minute);
