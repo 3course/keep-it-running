@@ -80,6 +80,7 @@ export class Game {
   mateVisits: number[] = [];
   mateArrivals = 0;            // mates in today so far: keys who the next one is (with the minute), so each arrival is its own roll
   mateLeftAt = -9999;
+  mateHeldFor = -1;            // the planned visit already logged as held (so the day log says it once)
   mateAfterTwo = false;
   /** The power's tripped (a compressor on the extractor's circuit): the machine waits for the breaker. */
   powerTripped = false;
@@ -443,7 +444,9 @@ export class Game {
     this.today.sheetsDemanded += fresh.length;
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
     this.idleRun = 0; this.idleFrom = 0; this.idleWhy = '';
-    this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false;
+    this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false; this.mateHeldFor = -1;
+    // (debug, for playtest logs) when today's mates are due
+    this.say(`[visits] planned: ${this.mateVisits.map(m => this.formatTime(m)).join(', ') || 'none'}`);
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
     if (CONFIG.dennis.enabled) {
       dennisStartDay(this); // his own seeded rolls: off, nothing else changes
@@ -954,13 +957,19 @@ export class Game {
     const P = CONFIG.visitors.perDay, due = this.mateVisits[0];
     if (due === undefined || this.minute < due) return;
     if (this.distractions.some(x => x.kind === 'friend') || this.minute < this.mateLeftAt + P.minGapMinutes) {
-      if (this.minute > P.toHour * 60 + 30) this.mateVisits.shift(); // too late in the day now
+      if (this.mateHeldFor !== due) {
+        this.mateHeldFor = due;
+        this.say(`[visits] ${this.formatTime(due)} held: ${this.distractions.some(x => x.kind === 'friend') ? 'a mate is still here' : `the last left at ${this.formatTime(this.mateLeftAt)}, ${P.minGapMinutes} min gap`}`);
+      }
+      if (this.minute > P.toHour * 60 + 30) { this.mateVisits.shift(); this.say(`[visits] ${this.formatTime(due)} dropped: too late in the day`); }
       return;
     }
-    if (this.minute >= P.afterHour * 60 && this.mateAfterTwo) { this.mateVisits = []; return; }
+    if (this.minute >= P.afterHour * 60 && this.mateAfterTwo) { this.say(`[visits] ${this.mateVisits.map(m => this.formatTime(m)).join(', ')} dropped: one's been after two already`); this.mateVisits = []; return; }
     this.mateVisits.shift();
     if (this.minute >= P.afterHour * 60) this.mateAfterTwo = true;
     this.spawnDistraction('friend');
+    const d = this.distractions.find(x => x.kind === 'friend');
+    this.say(`[visits] ${this.formatTime(due)} fired: ${d ? this.mateName(d) : 'a mate'} walked in`);
   }
 
   private maybeDistraction() {
@@ -1079,6 +1088,7 @@ export class Game {
     const back = this.mateReturn;
     if (back && this.minute >= back.minute && !this.distractions.some(x => x.kind === 'friend')) {
       this.mateReturn = null; this.spawnDistraction('friend', back.mate);
+      this.say(`[visits] back after two as promised`);
       if (this.minute >= CONFIG.visitors.perDay.afterHour * 60) { this.mateAfterTwo = true; this.mateVisits = this.mateVisits.filter(t => t < CONFIG.visitors.perDay.afterHour * 60); }
     }
     for (const dist of [...this.distractions]) {

@@ -255,3 +255,26 @@ describe('how often a mate drops in (CONFIG.visitors.perDay)', () => {
     assert.ok(count[1] > 20 && count[2] > 20, `both happen: ${count}`);
   });
 });
+
+describe('the visit scheduler, in the day log (playtest 1: a day with no mate)', () => {
+  it('every day: 1–2 planned, logged when planned and when each one walks in', () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const g = new Game(seed);
+      for (let day = 1; day <= 3; day++) {
+        const planned = g.mateVisits.length;
+        assert.ok(planned >= 1 && planned <= 2, `seed ${seed} day ${g.dayIndex}: ${planned} planned`);
+        let arrived = 0;
+        const spawn = g.spawnDistraction.bind(g);
+        g.spawnDistraction = (k, ...a) => { if (k === 'friend') arrived++; return spawn(k, ...a); };
+        while (g.phase === 'day') g.tick();
+        g.spawnDistraction = spawn;
+        const today = g.log.filter(l => l.dayIndex === g.dayIndex).map(l => l.text);
+        assert.ok(today.some(t => t.startsWith('[visits] planned: ')), 'the plan is in the log');
+        assert.ok(arrived >= 1, `seed ${seed} day ${g.dayIndex}: someone came`);
+        assert.equal(today.filter(t => /^\[visits\] .* fired: /.test(t)).length, arrived, 'a line for each one that walked in');
+        if (g.phase === 'endOfDayPrompt') g.knockOff();
+        g.nextDay();
+      }
+    }
+  });
+});
