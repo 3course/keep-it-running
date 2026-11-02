@@ -63,12 +63,20 @@ export class Cafe {
   private shot = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
   private weight = 0;
   private birds: THREE.Group[] = [];
+  /** The cafe's name, crisp: DOM lettering over the sign board (a 3D texture is a few pixels at the render resolution). */
+  private signEl: HTMLDivElement;
+  private signAt = new THREE.Vector3();
   /** The first morning: three beats, then walk over to the shed (no order, nothing overheard). */
   private introMode = false;
   private skipChip: HTMLButtonElement | null = null;
 
   constructor(private d: CafeDeps) {
     this.talk = new Talk(d.parent, 'day');
+    this.signEl = document.createElement('div');
+    this.signEl.className = 'sign cafesign';
+    this.signEl.textContent = CONFIG.cafe.name.toUpperCase();
+    this.signEl.style.display = 'none';
+    d.parent.appendChild(this.signEl);
     this.build();
     this.set.visible = false;
     d.scene.add(this.set);
@@ -277,6 +285,7 @@ export class Cafe {
     if (wasIntro) { w.introDone = true; try { localStorage.setItem('kir-intro-seen', '1'); } catch { /* fine */ } }
     this.active = false;
     this.talk.clear();
+    this.signEl.style.display = 'none';
     this.set.visible = false;
     this.d.setHud(true);
     this.d.arrive();
@@ -294,6 +303,9 @@ export class Cafe {
       const s = this.d.project(f.headWorld(new THREE.Vector3()));
       this.talk.place(id, s.x, s.y, !s.behind);
     }
+    const sp = this.d.project(this.signAt);
+    this.signEl.style.display = sp.behind ? 'none' : 'block';
+    this.signEl.style.left = `${Math.round(sp.x)}px`; this.signEl.style.top = `${Math.round(sp.y)}px`;
     const r = this.d.project(this.set.position.clone().add(O).add(new THREE.Vector3(3.2, 2.6, -1.2)));
     this.talk.place('radio', r.x, r.y, !r.behind);
     // the dog's tail, the magpies
@@ -337,10 +349,10 @@ export class Cafe {
     const cafe = new THREE.Group();
     cafe.add(boxAt(4.2, 3, 0.4, toon(0x2e5e4e), 0, 0, 0), boxAt(2.4, 1.3, 0.05, toon(0xf6e2a8, true, { emissive: 0x6a5020 }), -0.4, 0.8, 0.22), boxAt(0.9, 2, 0.05, toon(0x5a3a28), 1.4, 0, 0.22));
     for (let i = 0; i < 6; i++) cafe.add(boxAt(0.7, 0.06, 1.1, toon(i % 2 ? 0xf4efe0 : 0xd9643a), -1.75 + i * 0.7, 2.3, 0.7));
-    const sign = signTex(CONFIG.cafe.name);
-    const sm = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 0.5), new THREE.MeshBasicMaterial({ map: sign, transparent: true }));
-    sm.position.set(0, 2.62, 0.23); cafe.add(sm);
+    // the sign board; its name is DOM lettering laid over it (signEl), crisp at any render resolution
+    cafe.add(boxAt(2.5, 0.5, 0.05, toon(0x1f3f34), 0, 2.38, 0.22));
     cafe.position.copy(at(0.4, -1.6)); g.add(cafe);
+    this.signAt.copy(cafe.position).add(new THREE.Vector3(0, 2.63, 0.26));
     // the op shop next door, shut
     const op = new THREE.Group();
     op.add(boxAt(3.4, 3, 0.4, toon(0x8a6a5a), 0, 0, 0), boxAt(2.8, 1.8, 0.05, toon(0x9aa0a6), 0, 0.3, 0.22));
@@ -370,7 +382,7 @@ export class Cafe {
     }
   }
 
-  dispose() { this.talk.clear(); this.chip?.remove(); this.skipChip?.remove(); this.d.scene.remove(this.set); }
+  dispose() { this.talk.clear(); this.chip?.remove(); this.skipChip?.remove(); this.signEl.remove(); this.d.scene.remove(this.set); }
 }
 
 function signTex(text: string, colour = '#f4efe0') {

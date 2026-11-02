@@ -25,8 +25,13 @@ const CSS = `
 
 export interface Reply { text: string; cls?: string }
 
+/** The bubble's tail (CSS px, below its bottom edge), the air between its tip and the head, and a head's half-size on screen. */
+const TAIL = 12, CLEAR = 4, HEAD = 16;
+
 export class Talk {
   private bubbles = new Map<string, HTMLDivElement>();
+  /** Where each speaker's head is on screen (last placed), so a bubble can keep off the others. */
+  private heads = new Map<string, { x: number; y: number; on: boolean }>();
   private replies: HTMLDivElement;
   /** Taps anywhere (not on a reply) hurry the current line along. */
   onTap: (() => void) | null = null;
@@ -55,15 +60,32 @@ export class Talk {
     if (!this.cls) for (const [k, o] of this.bubbles) if (k !== who) o.style.display = 'none';
   }
 
-  /** Follow a speaker on screen (CSS px of the top of their head). Off screen: hide. */
+  /**
+   * Follow a speaker on screen (CSS px of the top of their head). Off screen: hide. The bubble sits clear of their head
+   * (its tail ends a few pixels above it), and slides sideways off anyone else's head it would cover (or rises over it).
+   */
   place(who: string, x: number, y: number, visible = true) {
+    this.heads.set(who, { x, y, on: visible });
     const b = this.bubbles.get(who);
     if (!b) return;
-    // kept on screen; the tail still points at whoever's talking
-    const vw = this.parent.clientWidth || window.innerWidth, half = b.offsetWidth / 2, pad = 8;
-    const cx = Math.max(half + pad, Math.min(vw - half - pad, x));
-    b.style.left = `${Math.round(cx)}px`; b.style.top = `${Math.round(Math.max(b.offsetHeight + pad, y))}px`;
-    b.style.setProperty('--tail', `${Math.round(Math.max(16, Math.min(b.offsetWidth - 16, half + (x - cx))))}px`);
+    const vw = this.parent.clientWidth || window.innerWidth, w = b.offsetWidth, h = b.offsetHeight, half = w / 2, pad = 8;
+    const clamp = (c: number) => Math.max(half + pad, Math.min(vw - half - pad, c));
+    // the bottom edge: the tail and a little air above the speaker's head
+    let bottom = Math.max(h + pad, y - TAIL - CLEAR);
+    let cx = clamp(x);
+    // anyone else's head under it: slide the bubble off it (the side nearer the speaker), or failing that, go above it
+    for (const [k, o] of this.heads) {
+      if (k === who || !o.on) continue;
+      const covers = () => o.x > cx - half - HEAD && o.x < cx + half + HEAD && o.y > bottom - h - HEAD && o.y - HEAD < bottom;
+      if (!covers()) continue;
+      const left = clamp(o.x - HEAD - half), right = clamp(o.x + HEAD + half);
+      const opts = [left, right].filter(c => Math.abs(c - o.x) >= half + HEAD - 1).sort((a, c) => Math.abs(a - x) - Math.abs(c - x));
+      if (opts.length) cx = opts[0];
+      else bottom = Math.max(h + pad, Math.min(bottom, o.y - HEAD - CLEAR));
+    }
+    b.style.left = `${Math.round(cx)}px`; b.style.top = `${Math.round(bottom)}px`;
+    // the tail still points at whoever's talking
+    b.style.setProperty('--tail', `${Math.round(Math.max(16, Math.min(w - 16, half + (x - cx))))}px`);
     if (!visible) b.style.display = 'none';
   }
 
@@ -87,7 +109,7 @@ export class Talk {
   /** For tests: the replies on offer. */
   get options() { return [...this.replies.querySelectorAll('button')].map(b => b.textContent ?? ''); }
 
-  clear() { for (const b of this.bubbles.values()) b.remove(); this.bubbles.clear(); this.hideReplies(); this.onTap = null; }
+  clear() { for (const b of this.bubbles.values()) b.remove(); this.bubbles.clear(); this.heads.clear(); this.hideReplies(); this.onTap = null; }
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
