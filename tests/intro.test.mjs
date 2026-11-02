@@ -60,6 +60,31 @@ describe('the first morning, at the cafe', () => {
     } finally { await context.close(); }
   });
 
+  it('the sign (Little Bird, on the upper façade): fully on screen and never under a speech bubble; the job card waits till the shed', async () => {
+    const { page, context } = await open('?seed=3');
+    try {
+      let samples = 0, withBubble = 0;
+      for (let k = 0; k < 80; k++) {
+        const r = await page.evaluate(() => {
+          const s = document.querySelector('.cafesign').getBoundingClientRect();
+          const bs = [...document.querySelectorAll('#kir-hud .talk')].filter(b => b.style.display !== 'none').map(b => b.getBoundingClientRect());
+          return { done: !window.kirScene.cafe.active || window.kirScene.cafe.talk.asking, inView: s.width > 0 && s.left >= 0 && s.top >= 0 && s.right <= innerWidth && s.bottom <= innerHeight,
+            bubbles: bs.length, overlap: bs.some(r => r.left < s.right && r.right > s.left && r.top < s.bottom && r.bottom > s.top),
+            card: !!document.querySelector('#kir-hud .jobcard.show') };
+        });
+        if (r.done) break;
+        if (k > 3) { // (past the camera's ease in)
+          samples++; if (r.bubbles) withBubble++;
+          assert.ok(r.inView, 'the sign is on screen'); assert.equal(r.overlap, false, 'no bubble over the sign'); assert.equal(r.card, false, 'no job card over the cafe');
+        }
+        await page.waitForTimeout(200);
+      }
+      assert.ok(samples > 10 && withBubble > 10, `checked with bubbles up (${withBubble} of ${samples})`);
+      await page.evaluate(() => window.kirScene.cafe.leave());
+      await page.waitForFunction(() => !!document.querySelector('#kir-hud .jobcard.show'), null, { timeout: 5000 });
+    } finally { await context.close(); }
+  });
+
   it("seen it before (another run): a chip skips it", async () => {
     const { page, context } = await open('?seed=2', true);
     try {

@@ -41,10 +41,26 @@ export class JobCard {
   /** Everything on the board now counts as seen (a resumed game, a new page). */
   prime(g: Game) { for (const j of g.jobs) this.seen.add(j.id); }
   /** The order card just showed these: don't show them again when they land. */
+  /** The job on the card now, and one put away while a full scene was up (shown again after). */
+  private shownId: number | null = null;
+  private held: number | null = null;
+
   quiet(ms = 1500) { this.quietUntil = performance.now() + ms; }
 
-  /** Look for jobs that weren't on the board last time. Call every frame; cheap. */
+  /**
+   * Look for jobs that weren't on the board last time. Call every frame; cheap. Not `allowed` (a full scene's up, like
+   * the cafe): a card that's showing is put away to come back after, and new jobs wait to be shown (not marked seen).
+   */
   update(g: Game, allowed: boolean) {
+    if (!allowed) {
+      if (this.el.classList.contains('show') && this.shownId !== null) { this.held = this.shownId; this.hide(); }
+      return;
+    }
+    if (this.held !== null) {
+      const j = g.jobs.find(x => x.id === this.held && x.status === 'queued');
+      this.held = null;
+      if (j && g.jobs.every(x => this.seen.has(x.id))) { this.show(g, j); return; }
+    }
     const fresh: Job[] = [];
     for (const j of g.jobs) if (!this.seen.has(j.id)) { this.seen.add(j.id); fresh.push(j); }
     if (!fresh.length || !allowed || performance.now() < this.quietUntil) return;
@@ -61,6 +77,7 @@ export class JobCard {
       <div class="ft"><span>${esc(j.material)}</span><span>due ${esc(g.dueLabel(j))}</span></div>
       ${more > 0 ? `<div class="ft"><span>+ ${more} more sheet${more > 1 ? 's' : ''} on the board</span></div>` : ''}`;
     this.el.dataset.design = d.id;
+    this.shownId = j.id;
     this.el.classList.add('show');
     window.clearTimeout(this.timer);
     this.timer = window.setTimeout(() => this.hide(), this.showMs);

@@ -182,9 +182,9 @@ export class Cafe {
     this.heard = this.overheard(lastNight);
     this.lineLeft = 0.8;
     this.talk.onTap = () => { this.lineLeft = Math.min(this.lineLeft, 0.05); };
-    // the shot
-    this.shot.look.copy(O).add(new THREE.Vector3(0.9, 1.15, -0.9));
-    this.shot.pos.copy(this.shot.look).add(new THREE.Vector3(0.3, 0.9, 7.6));
+    // the shot: wide enough for the upstairs, so the name on the upper façade is in it (above the bubbles)
+    this.shot.look.copy(O).add(new THREE.Vector3(1.05, 1.15, -0.6));
+    this.shot.pos.copy(this.shot.look).add(new THREE.Vector3(0.3, 1.2, 10.5));
     this.d.sfx.unlock();
     logEvent(w, `Coffee at ${CONFIG.cafe.name}`);
   }
@@ -349,10 +349,30 @@ export class Cafe {
     const cafe = new THREE.Group();
     cafe.add(boxAt(4.2, 3, 0.4, toon(0x2e5e4e), 0, 0, 0), boxAt(2.4, 1.3, 0.05, toon(0xf6e2a8, true, { emissive: 0x6a5020 }), -0.4, 0.8, 0.22), boxAt(0.9, 2, 0.05, toon(0x5a3a28), 1.4, 0, 0.22));
     for (let i = 0; i < 6; i++) cafe.add(boxAt(0.7, 0.06, 1.1, toon(i % 2 ? 0xf4efe0 : 0xd9643a), -1.75 + i * 0.7, 2.3, 0.7));
+    // two storeys: the flat upstairs, brick, two sash windows, a cornice. The name's up there, on the upper façade under
+    // the cornice — in the sky of a portrait shot, clear of the speech bubbles over the regulars' heads
+    cafe.add(boxAt(4.2, 2.9, 0.36, toon(0xa85a40), 0, 3, -0.02));                          // upstairs, brick
+    for (const wx of [-1.15, 1.15]) {
+      cafe.add(boxAt(0.9, 1.25, 0.05, toon(0xe9dcc0), wx, 3.35, 0.17));                     // sash frame
+      cafe.add(boxAt(0.74, 1.09, 0.05, toon(0x3a4a5a, true, { emissive: 0x1a2430 }), wx, 3.43, 0.19)); // the glass
+      cafe.add(boxAt(0.74, 0.05, 0.06, toon(0xe9dcc0), wx, 3.95, 0.2));                     // the meeting rail
+    }
+    cafe.add(boxAt(4.4, 0.16, 0.5, toon(0xe9dcc0), 0, 5.9, 0));                              // cornice
+    cafe.add(boxAt(4.2, 0.08, 0.42, toon(0xe9dcc0), 0, 2.98, 0));                            // string course between the floors
     // the sign board; its name is DOM lettering laid over it (signEl), crisp at any render resolution
-    cafe.add(boxAt(2.5, 0.5, 0.05, toon(0x1f3f34), 0, 2.38, 0.22));
+    cafe.add(boxAt(2.6, 0.55, 0.05, toon(0x1f3f34), 0, 5.12, 0.18));
     cafe.position.copy(at(0.4, -1.6)); g.add(cafe);
-    this.signAt.copy(cafe.position).add(new THREE.Vector3(0, 2.63, 0.26));
+    this.signAt.copy(cafe.position).add(new THREE.Vector3(0, 5.4, 0.22));
+    // a chalkboard A-frame by the door: squiggles, nothing to read
+    const board = new THREE.Group();
+    for (const sz of [-1, 1]) {
+      const leaf = new THREE.Group();
+      leaf.add(boxAt(0.46, 0.62, 0.03, toon(0x6a4a30), 0, 0, 0), boxAt(0.38, 0.5, 0.01, toon(0x2a2e2c), 0, 0.06, sz * 0.02));
+      for (let k = 0; k < 3; k++) leaf.add(boxAt(0.24 - k * 0.05, 0.02, 0.01, toon(0xe9e6dc), -0.03 + k * 0.02, 0.42 - k * 0.11, sz * 0.03));
+      leaf.rotation.x = sz * 0.22; leaf.position.z = sz * 0.07;
+      board.add(leaf);
+    }
+    board.position.copy(at(2.05, -0.75)); board.rotation.y = -0.4; g.add(board);
     // the op shop next door, shut
     const op = new THREE.Group();
     op.add(boxAt(3.4, 3, 0.4, toon(0x8a6a5a), 0, 0, 0), boxAt(2.8, 1.8, 0.05, toon(0x9aa0a6), 0, 0.3, 0.22));
