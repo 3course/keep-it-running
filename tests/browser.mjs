@@ -177,11 +177,10 @@ export async function holdLabel(game, text, { aim = false } = {}) {
 
 /** Answer the order card that's up: tap ✓ ('take') or ✕ ('decline'). Returns the action log entry. */
 export async function answerCard(game, act) {
-  // the order call fills in on the notepad a line at a time; the answers come up once it has
-  await game.page.waitForSelector('#kir-hud .callsheet .row.on', { timeout: 6_000 });
-  await game.page.waitForTimeout(300); // the notepad's slid open
+  // the answered call is a card; Accept / Decline come up once they've told you the job
+  await game.page.waitForSelector('#kir-hud .callcard .row.on', { timeout: 8_000 });
   const before = await game.eval((g, w, scene) => scene.actionLog.length);
-  const r = await game.page.evaluate(a => { const b = document.querySelector(`#kir-hud .callsheet [data-act=${a}]`).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, act);
+  const r = await game.page.evaluate(a => { const b = document.querySelector(`#kir-hud .callcard [data-act=${a}]`).getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; }, act);
   await game.page.touchscreen.tap(r.x, r.y);
   return game.page.waitForFunction(n => window.kirScene.actionLog[n] ?? null, before, { timeout: 2_000 }).then(h => h.jsonValue());
 }

@@ -13,7 +13,7 @@ import { Hud } from '../ui/hud.js';
 import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { track } from '../analytics.js';
 import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, uteActions, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
-import { CallSheet, type CallLine } from '../ui/callSheet.js';
+import { CallCard } from '../ui/callCard.js';
 import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
@@ -155,7 +155,7 @@ export class World3D {
   gesture!: GesturePad;
   /** The yes/no card for an order call you've picked up (public for tests). */
   /** An order call you've picked up, filling in on the notepad as they describe it. */
-  callSheet!: CallSheet;
+  callCard!: CallCard;
   private gestureAt: string | null = null;
   private ring = new RingSound();
   private flashRing!: THREE.Group;
@@ -287,22 +287,16 @@ export class World3D {
       resetLayout: () => this.commitLayout(clonePlan(DEFAULT_PLAN), 0),
     });
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
-    this.callSheet = new CallSheet(this.hud.callEl);
-    // the order card already showed the sketch: the job card stays quiet when those sheets land
-    // picked up: the job fills in on the notepad as they describe it, then take it or turn it down (that ends the call)
+    this.callCard = new CallCard(this.hud.labels.parentElement!);
+    // answered: the call is a job card (who, the sketch, the details as they tell you, due bottom-right), then Accept /
+    // Decline inside it. The job card stays quiet when those sheets land (the call already showed them).
     uiHooks.orderCard = (d, offer, take, decline) => {
       const g = this.g, j = offer.jobs[0], n = offer.jobs.length, t = CONFIG.jobs.types.find(x => x.id === j.type)!;
       const total = offer.jobs.reduce((s, x) => s + x.price, 0), lo = Math.min(...offer.jobs.map(x => x.price)), hi = Math.max(...offer.jobs.map(x => x.price));
-      const lines: CallLine[] = [
-        { text: `${d.customer ?? 'A customer'}${d.big ? ' · the big job' : ''}` },
-        { text: `${t.name}: ${n} × ${t.material}` },
-        { text: `${lo === hi ? `$${lo}` : `$${lo}–${hi}`} each,`, bold: `$${total} all up` },
-        { text: 'Due', bold: `${offer.kind === 'rush' ? 'RUSH ' : ''}${g.dueLabel(j)}`, rush: offer.kind === 'rush' },
-      ];
-      this.hud.open();
-      this.callSheet.show(d.id, lines, WORLD.callLineMs, !!decline.highlight,
-        () => { this.hud.close(); this.jobCard.quiet(); this.runAction(take); },
-        () => { this.hud.close(); this.runAction(decline); });
+      this.callCard.show(d.id, {
+        who: `${d.customer ?? 'A customer'}${d.big ? ' · the big job' : ''}`, job: j, rush: offer.kind === 'rush', due: g.dueLabel(j),
+        lines: [`${t.name}: ${n} × ${t.material}`, `${lo === hi ? `$${lo}` : `$${lo}–${hi}`} each, $${total} all up`],
+      }, WORLD.callLineMs, !!decline.highlight, () => { this.jobCard.quiet(); this.runAction(take); }, () => this.runAction(decline));
     };
     this.jobCard = new JobCard(this.hud.labels.parentElement!);
     if (resumePaused) this.jobCard.prime(g); // a resumed game: those jobs arrived last session
@@ -386,7 +380,7 @@ export class World3D {
    * the world's input layer (the stick and tap-to-walk) ignores every touch until it's gone. Public for tests.
    */
   get uiBlocking(): boolean {
-    return this.gesture?.active != null || !!this.callSheet?.showing || !!this.hud?.modalOpen;
+    return this.gesture?.active != null || !!this.callCard?.showing || !!this.hud?.modalOpen;
   }
 
   /** Drop a stick or tap in progress (a card opened under it). */
@@ -685,17 +679,20 @@ export class World3D {
     // a gesture card closes if you walk off from what it's for, or the day stops
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'
       || (this.gestureAt && OBJECTS.some(o => o.id === this.gestureAt) && !this.inRange(this.gestureAt as ObjectId)))) { this.gesture.close(); this.gestureAt = null; }
-    // the order card goes if they ring off (or the day's over)
-    if (this.callSheet.showing && (this.paused || this.g.phase !== 'day' || !this.g.distractions.some(d => d.id === this.callSheet.callId))) this.callSheet.close();
+    // the call goes if they ring off (or the day's over); walk away from the phone and you've hung up (a decline)
+    if (this.callCard.showing && (this.paused || this.g.phase !== 'day' || !this.g.distractions.some(d => d.id === this.callCard.callId))) this.callCard.close();
+    else if (this.callCard.showing && !this.inRange('phone')) this.callCard.hangUp();
     this.updateLabels();
+    this.keepCardsOffPrompts();
     this.updatePointers();
     this.updateSigns(dt);
     this.updateBubble(dt);
     this.updateMateBubble();
     this.updateRing();
-    this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active && !this.cafe?.active); // (new jobs show once you're in the shed)
+    // (new jobs show once you're in the shed, and never over a prompt: a card that would cover one waits)
+    this.jobCard.update(g, g.phase === 'day' && !this.paused && !this.hud.summaryShowing && !this.reveal.active && !this.cafe?.active && !this.jobCardOverPrompt && !this.hud.isOpen); // (nor over the open notepad)
     if (!this.hud.summaryShowing) {
-      this.hud.update(g, todoItems(g, w), w.done, [this.rentClock(), g.timeScale > 1 ? 'waiting…' : ''].filter(Boolean).join(' · '), g.timeScale > 1);
+      this.hud.update(g, todoItems(g, w), w.done, this.padHead(), g.timeScale > 1);
       // the first fault: follow the pointer to where it is (cleared on getting there); the first gesture card (cleared doing one)
       if (g.fault && this.inRange(faultTarget(g, w) ?? 'machine')) this.hints.mark('fault');
       const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
@@ -886,12 +883,37 @@ export class World3D {
     return { metres: Math.round(this.w.walkedToday ?? 0), layoutMinutes: Math.round((d.layoutMinutes ?? 0) + extra / mpm) };
   }
 
-  /** The notepad's rent clock: "rent in 17 days", "rent due today" (nothing in the daily). */
+  /** A job card where it shows would cover a prompt (a label's buttons): it waits till they're clear. */
+  private jobCardOverPrompt = false;
+  /**
+   * Never a card over an active prompt. The job card (passive news) waits while it would cover a label's buttons; the
+   * call card is the prompt while you're on the phone, so any label it would cover is hidden till you've answered.
+   */
+  private keepCardsOffPrompts() {
+    const over = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    const buttons = this.labelEls.flatMap(l => (l.el.style.display === 'none' ? [] : [...l.el.querySelectorAll('button')]));
+    const card = this.jobCard.rect();
+    this.jobCardOverPrompt = buttons.some(b => over(card, b.getBoundingClientRect()));
+    const call = this.callCard.showing ? this.callCard.el.getBoundingClientRect() : null;
+    for (const l of this.labelEls) l.el.style.visibility = call && over(call, l.el.getBoundingClientRect()) ? 'hidden' : '';
+  }
+
+  /** The notepad's rent clock: "rent due in 17 days", "rent due today" (nothing in the daily). */
   rentClock(): string {
     const l = this.w.lease;
     if (!l) return '';
     const left = leaseLength() - leaseDay(l, this.g);
-    return left > 1 ? `rent in ${left} days` : left === 1 ? 'rent due tomorrow' : left === 0 ? 'rent due today' : '';
+    return left > 1 ? `rent due in ${left} days` : left === 1 ? 'rent due tomorrow' : left === 0 ? 'rent due today' : '';
+  }
+
+  /** The notepad's header: one day count ("Mon, week 1"), the rent clock, and the bank and the rent on one line under it. */
+  padHead(): { title: string; sub: string } {
+    const g = this.g, l = this.w.lease;
+    const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][(g.day - 1) % 5];
+    const week = l ? Math.ceil(leaseDay(l, g) / CONFIG.week.days) : Math.ceil(g.dayIndex / CONFIG.week.days);
+    const title = [`${dayName}, week ${week}`, this.rentClock(), g.timeScale > 1 ? 'waiting…' : ''].filter(Boolean).join(' · ');
+    const bank = `$${Math.round(g.cash).toLocaleString('en-AU')} in the bank`;
+    return { title, sub: l ? `${bank} · $${l.rentDue.toLocaleString('en-AU')} rent due day ${leaseLength()}` : bank };
   }
 
   /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */

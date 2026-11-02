@@ -94,7 +94,7 @@ describe('the first morning, at the cafe', () => {
       // quiet (bubbles held off): they hop, one at a time, each at most every few seconds; and they peck
       await page.evaluate(() => { window.__hush = setInterval(() => window.kirScene.cafe.talk.hush(), 16); });
       const hopsAt = [[], [], []], was = [false, false, false]; let pecked = false;
-      for (let k = 0; k < 160; k++) {
+      for (let k = 0; k < 320 && (hopsAt.flat().length < 2 || k < 120); k++) { // (keep watching till two hops: slow frames under a full run)
         const r = await sample();
         assert.ok(r.up.filter(Boolean).length <= 1, 'never two hopping at once');
         r.up.forEach((u, i) => { if (u && !was[i]) hopsAt[i].push(r.t); was[i] = u; });

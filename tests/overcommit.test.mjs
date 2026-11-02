@@ -74,7 +74,7 @@ describe("board's full", () => {
       // the order call's yes/no is on the card you get picking up
       let card = null;
       uiHooks.orderCard = (d, offer, take, decline) => { card = { take, decline }; };
-      acts.find(a => a.label === 'Pick up').run();
+      acts.find(a => a.label === 'Answer').run();
       const decline = card.decline, ringBack = acts.find(a => a.label === 'Ring Kerry, turn it down');
       assert.equal(!!decline.highlight, hot, `order call, ${today} due`);
       assert.equal(!!ringBack.highlight, hot, `voicemail, ${today} due`);

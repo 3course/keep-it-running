@@ -236,6 +236,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       if (!g.canAct) return [];
       const a: Action[] = [];
       for (const d of g.distractions) {
+        if (d.kind === 'phone' && d.onLine) continue; // answered: the call's on its card, nothing more to tap here
         if (d.kind === 'phone' && d.order) {
           // pick up the handset: the card shows what's on offer (board, price, when it's due), then yes or no
           const take: Action = d.big
@@ -243,7 +244,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
             : { label: 'Take it', done: `Took a ${d.order}-sheet order`, run: () => { if (!g.respond(d.id, 'answer')) return 'They rang off'; } };
           const decline: Action = { label: 'Turn it down', highlight: g.overCommitted, done: d.big ? 'Turned down the big job' : `Turned down ${d.order} sheets`,
             run: () => { if (!g.respond(d.id, 'decline')) return 'They rang off'; } };
-          a.push({ label: 'Pick up', key: `phone-${d.id}`, done: 'Picked up', run: () => {
+          a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => {
             const offer = g.previewOrder(d.id);
             if (!offer) return 'They rang off';
             uiHooks.orderCard(d, offer, take, decline);

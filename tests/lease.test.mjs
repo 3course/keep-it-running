@@ -100,12 +100,13 @@ describe('the lease, in the shed', () => {
   it('day 1: the landlord’s letter; the rent on the notepad', async () => {
     const game = await freshGame(env);
     assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .lettercard')?.textContent ?? ''), new RegExp(`\\$${CONFIG.lease.rentDue.toLocaleString('en-AU')}`));
-    assert.match(await game.eval((g, w, s) => s.hud.pad.textContent), new RegExp(`Rent: \\$${CONFIG.lease.rentDue.toLocaleString('en-AU')} by day 20 · day 1`));
+    // the header line: the bank and the rent (not a to-do)
+    assert.match(await game.eval((g, w, s) => s.hud.pad.querySelector('.padsub').textContent), new RegExp(`^\\$[\\d,]+ in the bank · \\$${CONFIG.lease.rentDue.toLocaleString('en-AU')} rent due day 20$`));
     await game.close();
   });
   it('the rent clock: the notepad header counts down to the due day', async () => {
     const game = await freshGame(env);
-    assert.match(await game.eval((g, w, s) => s.hud.pad.querySelector('h2').textContent), new RegExp(`rent in ${CONFIG.lease.dueDay - 1} days`));
+    assert.equal(await game.eval((g, w, s) => s.hud.pad.querySelector('h2').textContent), `Mon, week 1 · rent due in ${CONFIG.lease.dueDay - 1} days`, 'one day count');
     await game.eval((g, w, s, due) => { w.lease.startDayIndex = g.dayIndex - (due - 1); }, CONFIG.lease.dueDay);
     await game.page.waitForFunction(() => /rent due today/.test(window.kirScene.hud.pad.querySelector('h2').textContent));
     await game.close();

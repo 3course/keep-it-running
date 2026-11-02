@@ -173,28 +173,57 @@ describe('the rest, by hand', () => {
     } finally { await game.close(); }
   });
 
-  it('phone: pick up, and the job fills in on the notepad line by line (who, board, price, due), then take it or not', async () => {
+  it('phone: answer, and the call is a card: who, the sketch, the board and price as they tell you, due; then Accept or Decline', async () => {
     const game = await freshGame(env);
     try {
       await game.eval((g, w) => { w.tour = null; g.spawnOrderCall(3); });
       await walkTo(game, 'phone');
-      await tapLabel(game, 'Pick up');
-      // straight after picking up: the first line, no answers yet
-      const early = await game.page.evaluate(() => ({ on: document.querySelectorAll('#kir-hud .callsheet .ln.on').length, of: document.querySelectorAll('#kir-hud .callsheet .ln').length, row: !!document.querySelector('#kir-hud .callsheet .row.on') }));
-      assert.equal(early.of, 4); assert.ok(early.on < 4, `still filling in (${early.on} of 4)`); assert.equal(early.row, false, 'no answers till it has');
+      await tapLabel(game, 'Answer');
+      // straight after answering: still telling you, no answers yet; the phone's prompt has gone (the card's the prompt)
+      const early = await game.page.evaluate(() => ({ on: document.querySelectorAll('#kir-hud .callcard .ln.on').length, of: document.querySelectorAll('#kir-hud .callcard .ln').length, row: !!document.querySelector('#kir-hud .callcard .row.on') }));
+      assert.equal(early.of, 2); assert.ok(early.on < 2, `still telling you (${early.on} of 2)`); assert.equal(early.row, false, 'no answers till they have');
+      assert.ok(!(await game.eval((g, w, s) => s.labelEls.some(l => l.el.textContent.includes('Answer')))), 'no Answer prompt while on the call');
       // it doesn't ring out while they're telling you
       const left = await game.eval(g => g.distractions.find(x => x.order).remaining);
       await game.eval(g => { const t = Object.getPrototypeOf(g).tick; for (let i = 0; i < 5; i++) t.call(g); });
       assert.equal(await game.eval(g => g.distractions.find(x => x.order)?.remaining), left);
-      await game.page.waitForSelector('#kir-hud .callsheet .row.on', { timeout: 6_000 });
+      await game.page.waitForSelector('#kir-hud .callcard .row.on', { timeout: 8_000 });
       const offer = await game.eval(g => { const d = g.distractions.find(x => x.order), js = d.preview.jobs; return { prices: js.map(j => j.price), type: js[0].type, due: g.dueLabel(js[0]), who: d.customer }; });
-      const card = await game.page.evaluate(() => document.querySelector('#kir-hud .callsheet').textContent);
+      const card = await game.page.evaluate(() => document.querySelector('#kir-hud .callcard').textContent);
       const t = C.jobs.types.find(t => t.id === offer.type);
       const lo = Math.min(...offer.prices), hi = Math.max(...offer.prices), each = lo === hi ? `$${lo} each` : `$${lo}–${hi} each`;
-      for (const bit of [offer.who, `${t.name}: 3 × ${t.material}`, each, `$${offer.prices.reduce((a, b) => a + b)} all up`, offer.due]) assert.ok(card.includes(bit), `the call says ${bit}: ${card}`);
+      for (const bit of [offer.who, `${t.name}: 3 × ${t.material}`, each, `$${offer.prices.reduce((a, b) => a + b)} all up`, `due ${offer.due}`]) assert.ok(card.includes(bit), `the call says ${bit}: ${card}`);
       const ids = await game.eval(g => g.distractions.find(x => x.order).preview.jobs.map(j => j.id));
       assert.equal((await answerCard(game, 'take')).said, 'Took a 3-sheet order');
       assert.deepEqual(await game.eval((g, w, s, ids) => ids.map(id => !!g.jobs.find(j => j.id === id)), ids), [true, true, true], 'exactly the sheets on the card');
+    } finally { await game.close(); }
+  });
+
+  it('a ringing phone: no card over its Answer prompt; the call card covers no prompt; walking away hangs up (a decline)', async () => {
+    const game = await freshGame(env);
+    try {
+      await game.eval((g, w, s) => { w.tour = null; document.querySelectorAll('.lettercard').forEach(e => e.remove()); s.jobCard.hide(); });
+      await walkTo(game, 'phone');
+      await game.eval(g => { g.spawnOrderCall(2); g.jobs.push({ ...g.jobs[0], id: 777, status: 'queued' }); }); // a new job lands as it rings
+      await frames(game, 10);
+      const overlap = () => game.page.evaluate(sel => {
+        const c = document.querySelector(sel); if (!c || (sel.includes('jobcard') && !c.classList.contains('show'))) return false;
+        const r = c.getBoundingClientRect();
+        return [...document.querySelectorAll('#kir-hud .lbl')].filter(l => l.style.display !== 'none' && l.style.visibility !== 'hidden')
+          .some(l => { const q = l.getBoundingClientRect(); return q.left < r.right && q.right > r.left && q.top < r.bottom && q.bottom > r.top; });
+      }, sel);
+      let sel = '#kir-hud .jobcard';
+      assert.equal(await overlap(), false, 'the job card is never over the Answer prompt');
+      await tapLabel(game, 'Answer');
+      sel = '#kir-hud .callcard';
+      await frames(game, 3);
+      assert.equal(await overlap(), false, 'no prompt under the call card');
+      // walk off: hung up, which is a decline
+      const declined = await game.eval(g => g.today.sheetsDeclined);
+      await game.eval((g, w, s) => { s.pos = { x: s.pos.x + 4, z: s.pos.z - 6 }; });
+      await frames(game, 5);
+      assert.equal(await game.eval((g, w, s) => s.callCard.showing), false, 'the call is over');
+      assert.equal(await game.eval(g => g.today.sheetsDeclined), declined + 2, 'hanging up turned it down');
     } finally { await game.close(); }
   });
 

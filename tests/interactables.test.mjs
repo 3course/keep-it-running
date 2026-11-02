@@ -367,14 +367,14 @@ describe("the board's full", () => {
       await game.eval(g => { g.spawnOrderCall(2); });
       await walkTo(game, 'phone');
       // pick up: "Turn it down" on the notepad's call glows only when there's no room for the work
-      const noHot = () => game.page.evaluate(() => document.querySelector('#kir-hud .callsheet .no').classList.contains('hot'));
-      await tapLabel(game, 'Pick up');
+      const noHot = () => game.page.evaluate(() => document.querySelector('#kir-hud .callcard .no').classList.contains('hot'));
+      await tapLabel(game, 'Answer');
       assert.equal(await noHot(), false, 'room for it: nothing highlighted');
       await answerCard(game, 'decline');
       await game.eval(g => { g.busy = null; });
       assert.equal((await setBoard(game, 7, 6))[2], true);
       await game.eval(g => { g.spawnOrderCall(2); });
-      await tapLabel(game, 'Pick up');
+      await tapLabel(game, 'Answer');
       assert.equal(await noHot(), true, 'board full: "Turn it down" glows');
       assert.deepEqual(await hot(game), [], 'and nothing else');
       assert.ok((await game.eval((g, w, s) => s.hud.pad.textContent)).includes("Board's full: 7 due today, time for about 6"), 'and the notepad says so');
@@ -424,9 +424,9 @@ describe('rare events and milestones in the shed', () => {
     try {
       await landRare(game, 'bigJob');
       await walkTo(game, 'phone');
-      await tapLabel(game, 'Pick up');
-      await game.page.waitForSelector('#kir-hud .callsheet .row.on', { timeout: 6_000 });
-      assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .callsheet').textContent), /the big job[\s\S]*: 20 ×/, 'the call says what the job is');
+      await tapLabel(game, 'Answer');
+      await game.page.waitForSelector('#kir-hud .callcard .row.on', { timeout: 8_000 });
+      assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .callcard').textContent), /the big job[\s\S]*: 20 ×/, 'the call says what the job is');
       assert.equal((await answerCard(game, 'take')).said, 'Took the big job: 20 sheets');
       assert.equal(await game.eval(g => g.jobs.filter(j => j.name.startsWith('BIG JOB')).length), 20);
     } finally { await game.close(); }
@@ -449,18 +449,16 @@ describe('rare events and milestones in the shed', () => {
     }
   });
 
-  it('milestone progress is a notepad line: tap it to go and look at what it unlocks', async () => {
+  it('milestone progress is on Kerr (not the notepad); unlocked, it says so and the model changes', async () => {
     const game = await freshGame(env);
     try {
       await frames(game, 3);
-      const line = "Milestone: 0 of 3 days without a fire → upgraded extractor";
-      assert.ok((await game.eval((g, w, s) => s.hud.pad.textContent)).includes(line));
-      await game.page.evaluate(text => [...document.querySelectorAll('#kir-hud li[data-targets]')].find(li => li.textContent === text).click(), line);
-      assert.equal(await game.eval((g, w, s) => s.pending?.id), 'extractor', 'walking to the extractor');
-      // unlocked: the line goes, and the model changes
+      assert.ok(!(await game.eval((g, w, s) => s.hud.pad.textContent)).includes('Milestone'), 'not on the notepad');
+      const kerr = () => game.eval(async (g, w) => { const { kerrScreen } = await import(new URL('src/world/kerr.ts', document.baseURI).href); return Object.fromEntries(kerrScreen(g, w).header).MILESTONES; });
+      assert.match(await kerr(), /0 of 3 days without a fire → upgraded extractor/);
       await game.eval(g => { g.milestones.unlocked.push('sparkArrestor', 'secondBitRack'); });
       await frames(game, 3);
-      assert.ok(!(await game.eval((g, w, s) => s.hud.pad.textContent)).includes('Milestone:'));
+      assert.equal(await kerr(), 'all done.');
       assert.deepEqual(await game.eval((g, w, s) => [s.built.objects.get('extractor').parts.arrestor.visible, s.built.objects.get('bitRack').parts.second.visible]), [true, true]);
     } finally { await game.close(); }
   });

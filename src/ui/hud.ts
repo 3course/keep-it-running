@@ -42,6 +42,7 @@ const CSS = `
   background-image: repeating-linear-gradient(#f4ecd2 0 calc(${F(32)} - 1px), #c9d6e6 calc(${F(32)} - 1px) ${F(32)}); }
 #kir-hud .pad.open { transform: translateX(0); }
 #kir-hud .pad h2 { margin: 0 0 4px; font-size: ${F(26)}; font-weight: normal; }
+#kir-hud .pad .padsub { margin: -2px 0 6px; font-size: ${F(17)}; color: #4a3f2e; }
 #kir-hud .pad h3 { margin: 12px 0 2px; font-size: ${F(24)}; color: #8a2a1a; font-weight: normal; text-decoration: underline; }
 #kir-hud .pad ul { list-style: none; margin: 0; padding: 0; }
 #kir-hud .pad li { font-size: ${F(19)}; line-height: 1.3; padding: 6px 0; min-height: ${F(48)}; box-sizing: border-box; display: flex; flex-direction: column; justify-content: center; cursor: pointer; }
@@ -189,8 +190,7 @@ export class Hud {
   private pad: HTMLDivElement;
   /** The notepad's list (rebuilt as things change), under the call that's on the line (which isn't). */
   private padBody!: HTMLDivElement;
-  /** An order call, filling in as the caller describes it (src/ui/callSheet.ts). */
-  readonly callEl: HTMLDivElement;
+
   private catcher: HTMLDivElement;
   private eod: HTMLDivElement;
   private pausedEl: HTMLDivElement;
@@ -255,9 +255,8 @@ export class Hud {
       else if (this.isOpen) this.close(); else this.open();
     });
     this.pad = el('div', { className: 'pad' });
-    this.callEl = el('div');
     this.padBody = el('div');
-    this.pad.append(this.callEl, this.padBody);
+    this.pad.append(this.padBody);
     this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
     this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p>
@@ -394,8 +393,11 @@ export class Hud {
       + (more > 0 ? `<li class="more" data-more="1">+ ${more} more job${more === 1 ? '' : 's'}</li>` : list.length > 3 ? `<li class="more" data-more="0">Show fewer</li>` : '') + '</ul>';
   }
 
-  /** `header`: beside the day at the top of the notepad (the rent clock). */
-  update(g: Game, items: TodoItem[], log: string[], header = '', waiting = false) {
+  /**
+   * `head`: the notepad's header — the day and the rent clock ("Mon, week 1 · rent due in 19 days"), and one line under
+   * it with the bank and the rent ("$1,111 in the bank · $5,750 rent due day 20").
+   */
+  update(g: Game, items: TodoItem[], log: string[], head: { title: string; sub: string } = { title: `Day ${g.day}`, sub: '' }, waiting = false) {
     this.updateToast(log);
     const ot = g.overtime ? ' · OT' : '';
     const cashCls = g.cash < 0 ? 'cash neg' : 'cash';
@@ -410,7 +412,7 @@ export class Hud {
     this.dot.classList.toggle('pulse', items.some(i => i.key.startsWith('phone-') || i.key.startsWith('bank-')));
 
     const open = [...g.jobs].filter(j => j.status === 'queued' || j.status === 'cutting').sort((a, b) => g.dueAt(a) - g.dueAt(b));
-    const sig = JSON.stringify([items.map(i => i.key + i.text), open.map(j => [j.id, j.status, g.isLate(j)]), g.day, this.sheetsOpen, header]);
+    const sig = JSON.stringify([items.map(i => i.key + i.text), open.map(j => [j.id, j.status, g.isLate(j)]), g.day, this.sheetsOpen, head.title, head.sub]);
     if (sig === this.padSig) return;
     this.padSig = sig;
     const isCallback = (i: TodoItem) => i.key.startsWith('callback-');
@@ -419,7 +421,7 @@ export class Hud {
     // only sections with something in them: the list is just the list
     const section = (title: string, list: TodoItem[], cls = '') => list.length ? `<h3${cls ? ` class="${cls}"` : ''}>${title}</h3><ul>${list.map(li).join('')}</ul>` : '';
     const body = section('Now', now) + section('Can wait', later) + section('Voicemail', calls, 'vm') + this.sheetsHtml(g);
-    this.padBody.innerHTML = `<h2>Day ${g.day} of ${CONFIG.week.days}${header ? ` · <span class="rentclock">${esc(header)}</span>` : ''}</h2>${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
+    this.padBody.innerHTML = `<h2>${esc(head.title)}</h2>${head.sub ? `<p class="padsub">${esc(head.sub)}</p>` : ''}${body || '<p class="empty">Nothing on fire. Yet.</p>'}`;
     for (const node of Array.from(this.padBody.querySelectorAll<HTMLLIElement>('li[data-more]'))) {
       node.addEventListener('click', () => { this.sheetsOpen = node.dataset.more === '1'; this.padSig = ''; this.update(g, items, log); });
     }

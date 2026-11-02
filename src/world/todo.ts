@@ -45,12 +45,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   // Dennis on the line
   if (g.dennisRinging) add(true, 'dennis', `Phone's ringing (${CONFIG.dennis.name})`, 'phone');
 
-  // the Lease: the rent, from day 1
-  const l = w.lease;
-  if (l) {
-    const day = g.dayIndex - l.startDayIndex + 1, of = CONFIG.lease.dueDay;
-    if (day <= of) add(false, 'lease', `Rent: $${l.rentDue.toLocaleString('en-AU')} by day ${of} · day ${day} · $${Math.round(g.cash).toLocaleString('en-AU')} in the bank`);
-  }
+  // (the rent and the bank are the notepad's header line, not a to-do)
 
   // the layout put the compressor on the extractor's circuit: the breaker
   if (g.powerTripped) add(true, 'breaker', "Power's tripped: reset the breaker", 'switchboard');
@@ -149,12 +144,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   const short = g.starvedTypes.filter(t => !g.deliveries.some(d => d.lines.some(l => l.type === t)));
   if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, 'desk'); // on the computer
 
-  // milestones still to come: tap one to go and look at what it unlocks
-  if (CONFIG.milestones) {
-    const m = g.milestones, c = CONFIG.milestone;
-    if (!g.hasMilestone('sparkArrestor')) add(false, 'milestone-fire', `Milestone: ${m.fireFreeStreak} of ${c.fireFreeDays} days without a fire → upgraded extractor`, 'extractor');
-    if (!g.hasMilestone('secondBitRack')) add(false, 'milestone-day', `Milestone: best day $${Math.max(0, m.bestDayProfit)} of $${c.bigDayProfit} → second bit rack`, 'bitRack');
-  }
+  // (milestones are on Kerr's screen: progress, not a to-do)
 
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({

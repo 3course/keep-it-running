@@ -96,6 +96,13 @@ export function kerrScreen(g: Game, w: WorldState): KerrScreen {
     const of = leaseLength(), day = leaseDay(l, g), left = Math.max(0, of - day), short = l.rentDue - g.cash;
     header.push(['RENT', `${money(l.rentDue)} due day ${of}. ${left ? `${plural(left, 'day')} left` : 'due today'}. ${short > 0 ? `${money(short)} short` : `covered (${money(-short)} spare)`}.`]);
   } else header.push(['RENT', 'none in the daily']);
+  // the milestones (off the notepad: progress, not a to-do)
+  if (CONFIG.milestones) {
+    const m = g.milestones, c = CONFIG.milestone, left: string[] = [];
+    if (!g.hasMilestone('sparkArrestor')) left.push(`${m.fireFreeStreak} of ${c.fireFreeDays} days without a fire → upgraded extractor`);
+    if (!g.hasMilestone('secondBitRack')) left.push(`best day ${money(Math.max(0, m.bestDayProfit))} of ${money(c.bigDayProfit)} → second bit rack`);
+    header.push(['MILESTONES', left.length ? left.join('. ') + '.' : 'all done.']);
+  }
   const said = rules(g).sort((a, b) => b.cost - a.cost).map(s => s.line).slice(0, CONFIG.kerr.maxLines);
   for (const f of filler(g, w)) if (said.length < CONFIG.kerr.minLines) said.push(f);
   return { header, advice: said };

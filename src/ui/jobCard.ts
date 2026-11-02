@@ -8,12 +8,12 @@ import type { Job } from '../sim/types.js';
 
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
-#kir-hud .jobcard { position: absolute; left: 50%; top: calc(${F(70)} + env(safe-area-inset-top, 0px)); width: ${F(300)}; transform: translate(-50%, -12px) rotate(-1.2deg);
+#kir-hud .jobcard { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); /* clear of a pinned notepad */ top: calc(${F(70)} + env(safe-area-inset-top, 0px)); width: ${F(300)}; transform: translate(-50%, -12px) rotate(-1.2deg);
   opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; z-index: 6;
   background: #fbfaf4; border: 3px solid #14110f; border-radius: 6px; box-shadow: 0 6px 0 rgba(20,17,15,.35); font: ${F(14)} 'Courier New', monospace; color: #14110f; }
 #kir-hud .jobcard.show { opacity: 1; transform: translate(-50%, 0) rotate(-1.2deg); }
 #kir-hud .jobcard .hd { display: flex; justify-content: space-between; gap: 6px; padding: 5px 8px 3px; border-bottom: 2px dashed #14110f; font-weight: 700; }
-#kir-hud .jobcard .hd .tag { color: #c0281e; }
+#kir-hud .jobcard .hd .stamp, #kir-hud .stamp { color: #c0281e; border: 2px solid #c0281e; border-radius: 3px; padding: 0 4px; font-weight: 700; letter-spacing: 1px; transform: rotate(4deg); display: inline-block; }
 #kir-hud .jobcard svg { display: block; width: 100%; height: auto; }
 #kir-hud .jobcard .ft { padding: 3px 8px 5px; border-top: 2px dashed #14110f; display: flex; justify-content: space-between; gap: 6px; }
 ${SKETCH_CSS.replace('.sketch', '#kir-hud .sketch')}
@@ -72,7 +72,8 @@ export class JobCard {
     const d = designForJob(j);
     const sheets = g.jobs.filter(x => x.status === 'queued' && x.name.replace(/ \(\d+\/\d+\)$/, '') === j.name.replace(/ \(\d+\/\d+\)$/, '') && x.dueDay === j.dueDay).length || 1;
     const more = batch - sheets;
-    this.el.innerHTML = `<div class="hd"><span>${/^RUSH/.test(j.name) ? '<span class="tag">RUSH </span>' : ''}New job: ${esc(d.name)}</span><span>${sheets > 1 ? `×${sheets}` : ''}</span></div>
+    // RUSH is a red stamp at the top right of the header; the due time sits alone at the bottom right
+    this.el.innerHTML = `<div class="hd"><span>New job: ${esc(d.name)}</span><span>${sheets > 1 ? `×${sheets} ` : ''}${/^RUSH/.test(j.name) ? '<span class="stamp">RUSH</span>' : ''}</span></div>
       ${sketchSvg(d, { width: 300, height: 210 })}
       <div class="ft"><span>${esc(j.material)}</span><span>due ${esc(g.dueLabel(j))}</span></div>
       ${more > 0 ? `<div class="ft"><span>+ ${more} more sheet${more > 1 ? 's' : ''} on the board</span></div>` : ''}`;
@@ -84,6 +85,8 @@ export class JobCard {
   }
 
   hide() { this.el.classList.remove('show'); }
+  /** Where the card is (or would be: it's laid out even while hidden), on screen. */
+  rect() { const r = this.el.getBoundingClientRect(); return new DOMRect(r.left, r.top + 12, r.width, r.height); }
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
