@@ -1726,7 +1726,9 @@ export class Game {
     d.helped = (d.helped ?? 0) + 1;
     if (d.helped < d.helping) return false;
     d.helping = 0; d.mood = (d.mood ?? 0) + 1;
-    d.cooldown = this.visitorRng.int(CONFIG.visitors.cooldownMin, CONFIG.visitors.cooldownMax);
+    // back over shortly to see if there's anything else, with the visit long enough to say yes again
+    d.cooldown = CONFIG.visitors.helpAgainMinutes;
+    d.remaining = Math.max(d.remaining, CONFIG.visitors.helpAgainStayMinutes);
     this.addRapport(CONFIG.distractions.friend.chatRapportGain);
     return true;
   }

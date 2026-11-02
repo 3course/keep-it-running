@@ -278,3 +278,19 @@ describe('the visit scheduler, in the day log (playtest 1: a day with no mate)',
     }
   });
 });
+
+describe('asking a mate for a hand, more than once a visit (playtest: "only one chance")', () => {
+  it(`jobs done: he's back within ${V.helpAgainMinutes} min with the visit still on, and you can ask again — and again`, () => {
+    const { g, d } = visit(10);
+    for (let round = 1; round <= 3; round++) {
+      const n = g.askHelp(d.id);
+      assert.ok(n > 0, `round ${round}: he says yes`);
+      for (let i = 0; i < n; i++) g.helperDid(d.id);
+      assert.equal(d.helping, 0, 'done');
+      let back = null;
+      for (let m = 1; m <= V.helpAgainMinutes + 1 && !back; m++) { g.tick(); if (d.ask) back = m; }
+      assert.ok(back !== null, `round ${round}: he comes back over`);
+      assert.ok(g.distractions.includes(d), 'still here to be asked');
+    }
+  });
+});

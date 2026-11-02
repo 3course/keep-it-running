@@ -218,6 +218,10 @@ export const CONFIG = {
     // "Give us a hand?": he does 1–4 of whatever's pending (seeded; more after a yarn, or if he's had a good visit)
     helpMin: 1, helpMax: 4,
     helpMinutesPerTask: 12,    // the visit stretches to fit the jobs he's taken on
+    // jobs done: he's back over this soon ("anything else?"), and the visit runs on at least long enough to answer him —
+    // so a hand can be asked for again, not once a visit (playtest: "only one chance to get friends to help")
+    helpAgainMinutes: 2,
+    helpAgainStayMinutes: 12,
     returnHour: 14,            // "Beer after two?" and he's not stopping: he's back when the fridge opens
     // How often a mate drops in: planned each morning (seeded, its own hash): 1 or 2 visits, never two arrivals within
     // minGapMinutes of the last one leaving, at most one from afterHour on. (The random distraction roll no longer
