@@ -105,6 +105,8 @@ export class Talk {
     this.replies.style.display = 'flex';
   }
   hideReplies() { this.replies.style.display = 'none'; this.replies.innerHTML = ''; }
+  /** Anyone's bubble up right now. */
+  get speaking() { for (const b of this.bubbles.values()) if (b.style.display !== 'none') return true; return false; }
   get asking() { return this.replies.style.display === 'flex'; }
   /** For tests: the replies on offer. */
   get options() { return [...this.replies.querySelectorAll('button')].map(b => b.textContent ?? ''); }

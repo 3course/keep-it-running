@@ -21,10 +21,19 @@ import { logEvent, type WorldState } from '../world/state.js';
 import { Talk } from '../ui/talk.js';
 import { boxAt, toon } from './build.js';
 import { Figure } from './figures.js';
+import { snapToPixels } from './pixelSnap.js';
 import type { Sfx } from './sfx.js';
 
 /** The strip, out past the side yard (metres). */
 const O = new THREE.Vector3(-14, 0, 8);
+/** The sparrows: how many, how often they peck and hop (s), how far off you they go (m). Cosmetic: Math.random is fine. */
+const SPARROWS = { count: 3, peckEvery: [1, 2] as const, peckSeconds: 0.25, hopEvery: [4, 8] as const, hopSeconds: 0.3, hopHeight: 0.1, apart: 1.5, fleeWithin: 1.5, fleeSeconds: 1.4 };
+interface Sparrow {
+  root: THREE.Group; head: THREE.Group; home: THREE.Vector3;
+  state: 'peck' | 'hop' | 'flee' | 'gone';
+  nextHop: number; nextPeck: number; peckLeft: number; hopT: number; fleeT: number;
+  from: THREE.Vector3; to: THREE.Vector3;
+}
 const pick = <T,>(xs: readonly T[], n: number) => xs[Math.abs(Math.floor(n)) % xs.length];
 
 export interface CafeDeps {
@@ -61,8 +70,17 @@ export class Cafe {
   private chip: HTMLButtonElement | null = null;
   private offeredDay = -1;
   private shot = { pos: new THREE.Vector3(), look: new THREE.Vector3() };
+  /**
+   * What the shot has to hold (metres, from O): the footpath to the cornice (the name's up on the upper façade) and
+   * everyone from the regular by the window to the mate at the far table. It's fitted to the camera's field of view
+   * and aspect every frame, so a portrait phone and a landscape desktop both see the sign and all of them.
+   */
+  private static readonly FRAME = { left: -1.5, right: 3.8, bottom: -0.5, top: 6.1, z: -0.6, margin: 0.45 }; // (bottom: the sparrows on the front of the footpath)
+  private static readonly SHOT_DIR = new THREE.Vector3(0.3, 1.2, 10.5).normalize();
+  /** Sparrows on the footpath (cosmetic): pecking, an occasional hop, off when you come near. */
+  private sparrows: Sparrow[] = [];
   private weight = 0;
-  private birds: THREE.Group[] = [];
+  private birdsHopAt = 0; // the last hop (so two never hop together)
   /** The cafe's name, crisp: DOM lettering over the sign board (a 3D texture is a few pixels at the render resolution). */
   private signEl: HTMLDivElement;
   private signAt = new THREE.Vector3();
@@ -136,8 +154,7 @@ export class Cafe {
     this.lineLeft = 0.8;
     this.talk.onTap = () => { this.lineLeft = Math.min(this.lineLeft, 0.05); };
     // a wider shot than a usual morning: five of them in it
-    this.shot.look.copy(O).add(new THREE.Vector3(1.05, 1.15, -0.6));
-    this.shot.pos.copy(this.shot.look).add(new THREE.Vector3(0.3, 1.2, 10.5));
+    this.resetBirds();
     this.d.sfx.unlock();
     if (skippable) {
       const b = this.skipChip = document.createElement('button');
@@ -183,8 +200,7 @@ export class Cafe {
     this.lineLeft = 0.8;
     this.talk.onTap = () => { this.lineLeft = Math.min(this.lineLeft, 0.05); };
     // the shot: wide enough for the upstairs, so the name on the upper façade is in it (above the bubbles)
-    this.shot.look.copy(O).add(new THREE.Vector3(1.05, 1.15, -0.6));
-    this.shot.pos.copy(this.shot.look).add(new THREE.Vector3(0.3, 1.2, 10.5));
+    this.resetBirds();
     this.d.sfx.unlock();
     logEvent(w, `Coffee at ${CONFIG.cafe.name}`);
   }
@@ -310,7 +326,7 @@ export class Cafe {
     this.talk.place('radio', r.x, r.y, !r.behind);
     // the dog's tail, the magpies
     const dog = this.set.getObjectByName('tail'); if (dog) dog.rotation.y = Math.sin(this.t * 9) * 0.6;
-    this.birds.forEach((b, i) => { b.position.y = Math.abs(Math.sin(this.t * 3 + i * 2)) * 0.12; b.rotation.y = Math.sin(this.t * 0.7 + i) * 1.5; });
+    this.updateSparrows(dt);
     if (this.t >= CONFIG.cafe.maxSeconds) { this.leave(); return; }
     if (this.talk.asking) return;
     this.lineLeft -= dt;
@@ -330,7 +346,17 @@ export class Cafe {
     this.talk.ask([{ text: this.introMode ? 'Walk over to the shed' : 'Walk back', cls: 'door' }], () => this.leave());
   }
 
+  /** The shot that holds FRAME at this camera's field of view and aspect (portrait: the width decides; landscape: the height). */
+  private fitShot(camera: THREE.PerspectiveCamera) {
+    const F = Cafe.FRAME, tanV = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), tanH = tanV * camera.aspect;
+    const halfH = (F.top - F.bottom) / 2 + F.margin, halfW = (F.right - F.left) / 2 + F.margin;
+    const d = Math.max(halfH / tanV, halfW / tanH);
+    this.shot.look.copy(O).add(new THREE.Vector3((F.left + F.right) / 2, (F.top + F.bottom) / 2, F.z));
+    this.shot.pos.copy(this.shot.look).addScaledVector(Cafe.SHOT_DIR, d);
+  }
+
   applyCamera(camera: THREE.PerspectiveCamera, dt: number) {
+    if (this.active) this.fitShot(camera);
     this.weight += ((this.active ? 1 : 0) - this.weight) * Math.min(1, dt * 4);
     if (this.weight < 0.002) return;
     const e = this.weight >= 0.98 ? 1 : this.weight * this.weight * (3 - 2 * this.weight);
@@ -393,12 +419,79 @@ export class Cafe {
     for (const [x, z] of [[-0.18, -0.08], [-0.18, 0.08], [0.18, -0.08], [0.18, 0.08]]) dog.add(boxAt(0.06, 0.2, 0.06, toon(0x8a6a40), x, 0, z));
     const tail = boxAt(0.2, 0.05, 0.05, toon(0x8a6a40), -0.3, 0.38, 0); tail.name = 'tail'; dog.add(tail);
     dog.position.copy(at(-1.9, -0.7)); g.add(dog);
-    // magpies on the footpath
-    for (let i = 0; i < 3; i++) {
-      const b = new THREE.Group();
-      b.add(boxAt(0.18, 0.12, 0.1, toon(0x14110f), 0, 0.06, 0), boxAt(0.1, 0.08, 0.1, toon(0xf4f4f0), 0.05, 0.12, 0), boxAt(0.08, 0.08, 0.08, toon(0x14110f), 0.12, 0.18, 0));
-      const holder = new THREE.Group(); holder.add(b); holder.position.copy(at(-3 + i * 1.3, 0.8 + (i % 2) * 0.4));
-      this.birds.push(b); g.add(holder);
+    // sparrows on the footpath: grey-brown, a lighter belly, a beak and a tail; they peck, now and then hop, and
+    // they're off when you come near (updateSparrows)
+    for (let i = 0; i < SPARROWS.count; i++) {
+      const root = new THREE.Group(), body = new THREE.Group(), head = new THREE.Group();
+      body.add(boxAt(0.3, 0.16, 0.18, toon(0x8a745c), 0, 0.06, 0));            // back and wings
+      body.add(boxAt(0.22, 0.08, 0.16, toon(0xd2c4a8), 0.02, 0.04, 0));          // the lighter belly, under
+      body.add(boxAt(0.14, 0.04, 0.1, toon(0x5a4a3a), -0.2, 0.15, 0));           // tail, cocked up behind
+      for (const z of [-0.05, 0.05]) body.add(boxAt(0.02, 0.06, 0.02, toon(0xb08a5a), 0.02, 0, z)); // legs
+      head.add(boxAt(0.12, 0.12, 0.12, toon(0x6a5644), 0, 0, 0), boxAt(0.07, 0.04, 0.04, toon(0xd9a23a), 0.09, 0.03, 0)); // head, beak
+      head.add(boxAt(0.02, 0.025, 0.13, toon(0x14110f), 0.04, 0.06, 0));         // the eyes
+      head.position.set(0.15, 0.17, 0);
+      body.add(head);
+      root.add(body);
+      g.add(root);
+      snapToPixels(root); // on whole render pixels, like the people
+      this.sparrows.push({ root, head, home: at(-1.3 + i * 0.8, 0.55 + (i % 2) * 0.25), state: 'peck', nextHop: 0, nextPeck: 0, peckLeft: 0, hopT: 0, fleeT: 0, from: new THREE.Vector3(), to: new THREE.Vector3() });
+    }
+  }
+
+  /** A new scene: the sparrows back on the footpath, each on its own clock (staggered, so they never hop together). */
+  private resetBirds() {
+    this.birdsHopAt = 0;
+    this.sparrows.forEach((b, i) => {
+      b.state = 'peck'; b.root.visible = true; b.root.position.copy(b.home); b.root.rotation.set(0, (i % 2 ? 1 : -1) * 0.8 + i, 0);
+      b.nextHop = 3 + i * 2.3 + Math.random() * 2; b.nextPeck = Math.random() * 1.5; b.peckLeft = 0;
+    });
+  }
+
+  /**
+   * Mostly pecking in place (a held head-dip every 1–2 s, no bob); a small hop to a new spot every 4–8 s each, never two
+   * at once, and none while anyone's speaking. Within reach of you: off they go, up and out of shot, not back this scene.
+   */
+  private updateSparrows(dt: number) {
+    const speaking = this.talk.speaking;
+    const youFig = this.figs.get('you'), you = youFig?.walking ? youFig.root.position : null; // they go when you walk up, not when they hop near you
+    for (const b of this.sparrows) {
+      if (b.state === 'gone') continue;
+      if (b.state === 'flee') {
+        b.fleeT += dt;
+        const k = Math.min(1, b.fleeT / SPARROWS.fleeSeconds);
+        b.root.position.lerpVectors(b.from, b.to, k);
+        if (k >= 1) { b.state = 'gone'; b.root.visible = false; }
+        continue;
+      }
+      if (you && Math.hypot(b.root.position.x - you.x, b.root.position.z - you.z) < SPARROWS.fleeWithin) {
+        b.state = 'flee'; b.fleeT = 0; b.head.rotation.z = 0; b.from.copy(b.root.position);
+        b.to.copy(b.root.position).add(new THREE.Vector3(b.root.position.x < you.x ? -6 : 6, 6, -3));
+        continue;
+      }
+      if (b.state === 'hop') {
+        b.hopT += dt;
+        const k = Math.min(1, b.hopT / SPARROWS.hopSeconds);
+        b.root.position.lerpVectors(b.from, b.to, k);
+        b.root.position.y = Math.sin(k * Math.PI) * SPARROWS.hopHeight;
+        if (k >= 1) { b.state = 'peck'; b.root.position.y = 0; b.nextHop = this.t + SPARROWS.hopEvery[0] + Math.random() * (SPARROWS.hopEvery[1] - SPARROWS.hopEvery[0]); }
+        continue;
+      }
+      // pecking: the head's either up or down (held, not tweened)
+      if (b.peckLeft > 0) { b.peckLeft -= dt; b.head.rotation.z = -0.9; }
+      else {
+        b.head.rotation.z = 0;
+        b.nextPeck -= dt;
+        if (b.nextPeck <= 0) { b.peckLeft = SPARROWS.peckSeconds; b.nextPeck = SPARROWS.peckEvery[0] + Math.random() * (SPARROWS.peckEvery[1] - SPARROWS.peckEvery[0]); }
+      }
+      // a hop: due, nobody talking, and no other bird just hopped
+      if (!speaking && this.t >= b.nextHop) {
+        if (this.t - this.birdsHopAt < SPARROWS.apart) { b.nextHop = this.birdsHopAt + SPARROWS.apart + 0.2; continue; }
+        const a = Math.random() * Math.PI * 2, r = 0.3 + Math.random() * 0.35;
+        b.from.copy(b.root.position);
+        b.to.copy(b.home).add(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r * 0.5));
+        b.root.rotation.y = Math.atan2(-(b.to.z - b.from.z), b.to.x - b.from.x);
+        b.state = 'hop'; b.hopT = 0; b.peckLeft = 0; this.birdsHopAt = this.t;
+      }
     }
   }
 
