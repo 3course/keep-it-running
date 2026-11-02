@@ -1,6 +1,7 @@
 // Builds the shed out of boxes: floor, walls with doorways, every object at its real height, plus
 // the things that come and go (vehicles, the mate, dust). Flat toon colours, warm palette.
 import * as THREE from 'three';
+import { snapToPixels } from './pixelSnap.js';
 import {
   buildGrid, COLS, DECOR, DOORWAYS, isOutside, OBJECTS, ROLLER_TILES, ROWS, T, VEHICLE_BAY, objectById, type Decor, type Doorway, type ObjectId, type PlacedObject, type Rect,
 } from '../world/layout.js';
@@ -685,6 +686,7 @@ export function buildCharacter(body: number) {
   const g = new THREE.Group();
   const b = mesh(new THREE.CapsuleGeometry(0.2, 0.3, 4, 10), toon(body)); b.position.y = 0.45; g.add(b);
   const head = mesh(new THREE.SphereGeometry(0.17, 12, 10), toon(0xf0c9a0)); head.position.y = 0.95; g.add(head);
+  snapToPixels(g); // on whole render pixels, every frame
   return g;
 }
 

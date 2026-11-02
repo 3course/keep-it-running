@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import type { Carry } from '../world/state.js';
 import { WORLD } from '../world/worldConfig.js';
 import { boxAt, toon } from './build.js';
+import { snapToPixels } from './pixelSnap.js';
 
 const CARRY_COLOUR: Record<Carry, number> = {
   sheet: 0xd6bc8a, cut: 0xe9d6ac, scrap: 0x9a5a4a, extinguisher: 0xc0281e, bag: 0xd4cba6, offcuts: 0x9a8460, bundle: 0xc9a46a, debris: 0x7f858b, // debris: busted roller-door slats
@@ -63,6 +64,7 @@ export class PlayerView {
     this.can.visible = false;
     this.bodyPivot.add(this.can);
     this.root.add(this.bodyPivot);
+    snapToPixels(this.root); // on whole render pixels, every frame
     scene.add(this.root);
 
     this.shadow = new THREE.Mesh(new THREE.CircleGeometry(0.3, 16), new THREE.MeshBasicMaterial({ color: 0x1a120a, transparent: true, opacity: 0.32, depthWrite: false }));
@@ -126,7 +128,10 @@ export class PlayerView {
 
     const k = Math.min(1, speed / WORLD.maxSpeed);
     this.phase += dt * (6 + 8 * k) * (moving ? 1 : 0);
-    const bob = moving ? Math.abs(Math.sin(this.phase)) * 0.06 * k : 0;
+    // the walk in four held poses (neutral, left forward, neutral, right forward), not a smooth slide: a sub-pixel
+    // drift reads as shimmer at the render resolution; held poses read as steps
+    const pose = moving ? Math.floor(this.phase / (Math.PI / 2)) % 4 : 0;
+    const bob = moving && (pose === 0 || pose === 2) ? 0.05 : 0;
     const sq = Math.sin(this.squash * Math.PI) * 0.28;
 
     this.root.position.set(x, this.hopY, z);
@@ -145,9 +150,9 @@ export class PlayerView {
     this.bodyPivot.rotation.x = -0.12 * k - stumbleK * 0.45 + sipK * 0.12; // head back for a sip, pitch forward in a stumble
     this.bodyPivot.scale.set(1 + sq * 0.6 + shrug * 0.08, 1 - sq - shrug * 0.06, 1 + sq * 0.6);
     this.feet.forEach((f, i) => {
-      const s = Math.sin(this.phase + i * Math.PI);
-      f.position.z = moving ? s * 0.11 * k : 0;
-      f.position.y = 0.045 + (moving ? Math.max(0, -Math.cos(this.phase + i * Math.PI)) * 0.06 * k : 0);
+      const fwd = pose === 1 ? (i ? -1 : 1) : pose === 3 ? (i ? 1 : -1) : 0; // one foot out front, the other behind
+      f.position.z = -fwd * 0.12;
+      f.position.y = 0.045 + (moving && fwd === 0 ? 0.04 : 0);               // passing: the moving foot's off the floor
     });
     this.shadow.position.set(x, 0.015, z);
     const sh = 1 - Math.min(0.5, this.hopY * 1.5);

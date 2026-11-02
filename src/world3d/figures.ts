@@ -4,6 +4,7 @@
 import * as THREE from 'three';
 import type { Expr } from '../people/dialogue/types.js';
 import { toon } from './build.js';
+import { snapToPixels } from './pixelSnap.js';
 
 const INK = new THREE.MeshBasicMaterial({ color: 0x1a1414 });
 const MOUTH_IN = new THREE.MeshBasicMaterial({ color: 0x5a1e1e });
@@ -13,6 +14,11 @@ export type Hair = 'cap' | 'bun' | 'beanie' | 'short' | 'pony';
 export interface FigureLook { shirt: number; skin?: number; hair: Hair; hairColour?: number; canColour?: number }
 
 type Idle = 'sip' | 'lean' | 'look' | 'pick' | null;
+
+/** The walk: each stepped pose held this long (s); the stride angle (rad, ~18°); the lift on the passing poses (m). */
+const STEP_SECONDS = 0.16;
+const STRIDE = 0.32;
+const STEP_LIFT = 0.03;
 
 export class Figure {
   readonly root = new THREE.Group();   // at the feet; faces -z
@@ -26,7 +32,12 @@ export class Figure {
   private tears: THREE.Mesh[] = [];
   private armR = new THREE.Group();    // holds the can
   private armL = new THREE.Group();
-  private legs = new THREE.Group();
+  private legs = new THREE.Group();    // at the hips, under the body (not in it: a lean or a laugh tilts the torso, never the legs)
+  /** Each leg: a pivot at the hip, and the thigh, shin and foot hung from it (posed for sitting or standing). */
+  private legParts: { pivot: THREE.Group; thigh: THREE.Mesh; shin: THREE.Mesh; foot: THREE.Mesh; side: number }[] = [];
+  /** Walking: which of the four stepped poses (neutral, left forward, neutral, right forward), and time in it. */
+  private stepPose = 0;
+  private stepT = 0;
   readonly can: THREE.Group;
   expr: Expr = 'relaxed';
   seated = true;
@@ -99,28 +110,54 @@ export class Figure {
     lid.position.y = 0.066; this.can.add(can, lid);
     this.can.position.set(0, -0.3, -0.04);
     this.armR.add(this.can);
-    // legs: seated (thighs forward) or standing
+    // legs: a pivot per hip; seated (thighs forward, shins down) or standing (straight down, feet flat on the ground)
     const legMat = toon(0x2e3440, true);
-    for (const sx of [-0.09, 0.09]) {
+    for (const [i, sx] of [-0.09, 0.09].entries()) {
+      const pivot = new THREE.Group(); pivot.position.x = sx;
       const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.22, 3, 8), legMat);
-      thigh.rotation.x = Math.PI / 2; thigh.position.set(sx, 0, -0.16); this.legs.add(thigh);
       const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.22, 3, 8), legMat);
-      shin.position.set(sx, -0.19, -0.3); this.legs.add(shin);
       const foot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), toon(0x3a2a1e)); foot.scale.set(1, 0.6, 1.4);
-      foot.position.set(sx, -0.34, -0.34); this.legs.add(foot);
+      pivot.add(thigh, shin, foot);
+      this.legs.add(pivot);
+      this.legParts.push({ pivot, thigh, shin, foot, side: i ? 1 : -1 });
     }
-    this.body.add(this.legs);
-    this.root.add(this.body);
+    this.root.add(this.legs, this.body);
+    snapToPixels(this.root); // on whole render pixels, every frame
     this.setSeated(true);
     this.setExpr('relaxed');
   }
 
-  /** Sitting on a crate (hips at crate height) or standing. */
+  /** Sitting on a crate (hips at crate height) or standing (legs straight under the hips, both feet on the ground). */
   setSeated(seated: boolean) {
     this.seated = seated;
     this.body.position.y = seated ? 0.42 : 0.62;
-    this.legs.rotation.x = seated ? 0 : -Math.PI / 2;
-    this.legs.position.set(0, seated ? -0.02 : -0.05, seated ? 0 : 0.1);
+    this.legs.position.set(0, seated ? 0.40 : 0.62, 0); // the hips
+    for (const l of this.legParts) {
+      l.pivot.rotation.set(0, 0, 0);
+      if (seated) {
+        l.thigh.rotation.x = Math.PI / 2; l.thigh.position.set(0, 0, -0.16);
+        l.shin.position.set(0, -0.19, -0.3);
+        l.foot.position.set(0, -0.34, -0.34);
+      } else {
+        // thigh, then shin, straight down; the foot's sole on the floor (hips at 0.62: 0.62 - 0.578 - 0.042 = 0)
+        l.thigh.rotation.x = 0; l.thigh.position.set(0, -0.17, 0);
+        l.shin.position.set(0, -0.43, 0);
+        l.foot.position.set(0, -0.578, -0.04);
+      }
+    }
+    this.stepPose = 0; this.stepT = 0;
+  }
+
+  /**
+   * The legs, each frame. Standing still: exactly straight (no sway). Walking: four stepped poses, held, not tweened —
+   * at the low render resolution a few degrees of tilt reads as a kink; ±18° reads as a clean stride.
+   */
+  private poseLegs(dt: number) {
+    if (this.seated) return;
+    if (!this.walking) { if (this.stepPose !== 0) { this.stepPose = 0; this.stepT = 0; } }
+    else { this.stepT += dt; if (this.stepT >= STEP_SECONDS) { this.stepT = 0; this.stepPose = (this.stepPose + 1) % 4; } }
+    const swing = this.stepPose === 1 ? 1 : this.stepPose === 3 ? -1 : 0;
+    for (const l of this.legParts) l.pivot.rotation.x = swing * l.side * STRIDE;
   }
 
   setExpr(e: Expr) {
@@ -201,8 +238,11 @@ export class Figure {
         this.smile.visible = !o && this.expr !== 'thoughtful'; this.flat.visible = !o && this.expr === 'thoughtful';
       }
     } else if (this.open.visible && (this.expr === 'relaxed' || this.expr === 'thoughtful' || this.expr === 'misty')) this.setExpr(this.expr);
-    // walking (the friend you called, coming in): a bob
-    this.body.position.y = (this.seated ? 0.42 : 0.62) + (this.walking ? Math.abs(Math.sin(this.t * 9)) * 0.04 : 0);
+    // the legs; walking, the body rises a step on the passing poses (a whole step, not a smooth bob)
+    this.poseLegs(dt);
+    const lift = this.walking && !this.seated && (this.stepPose === 0 || this.stepPose === 2) ? STEP_LIFT : 0;
+    this.body.position.y = (this.seated ? 0.42 : 0.62) + lift;
+    this.legs.position.y = (this.seated ? 0.40 : 0.62) + lift;
   }
 
   /** Head height in world space, for speech bubbles. */

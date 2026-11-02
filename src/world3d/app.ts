@@ -52,6 +52,7 @@ import { Cafe } from './cafe.js';
 import { dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { KerrView } from '../ui/kerr.js';
+import { snapAll } from './pixelSnap.js';
 import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
@@ -700,8 +701,11 @@ export class World3D {
       const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
       this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? hint : null);
     }
+    // people on whole render pixels for this frame (and back after: nothing else sees the rounding)
+    const unsnap = snapAll(this.scene, this.camera, this.renderer);
     if (this.outline) this.outline.render(this.renderer, this.scene, this.camera);
     else this.renderer.render(this.scene, this.camera);
+    unsnap();
   }
 
   // ---------- renderer health ----------
