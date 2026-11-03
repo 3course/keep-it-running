@@ -40,6 +40,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
+        globIgnores: ['og-image.png'], // the share tile is for crawlers, not worth caching on every phone
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         // offline, any page under the scope gets this app's index.html — except the panel build and the old
         // /preview/ address, which must reach the network (the panel app, and the redirect to the root)

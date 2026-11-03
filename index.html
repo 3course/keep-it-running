@@ -8,8 +8,23 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <!-- Share tile (Open Graph + Twitter card). Static and absolute: crawlers don't run JS or resolve the base. public/og-image.png is made by `npm run og`. -->
+    <meta name="description" content="Run a CNC router in a Melbourne shed. Keep it cutting, keep the margin, don't burn the place down." />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Keep It Running" />
+    <meta property="og:title" content="Keep It Running" />
+    <meta property="og:description" content="Run a CNC router in a Melbourne shed. Keep it cutting, keep the margin, don't burn the place down." />
+    <meta property="og:url" content="https://keepitrunning.fyi/" />
+    <meta property="og:image" content="https://keepitrunning.fyi/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Keep It Running title screen: a pixel-art CNC shed" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Keep It Running" />
+    <meta name="twitter:description" content="Run a CNC router in a Melbourne shed. Keep it cutting, keep the margin, don't burn the place down." />
+    <meta name="twitter:image" content="https://keepitrunning.fyi/og-image.png" />
     <title>Keep It Running</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' fill='%2314110f'/%3E%3Crect x='2' y='5' width='12' height='7' fill='%23cdb28a'/%3E%3Crect x='7' y='3' width='2' height='11' fill='%23d48a3c'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
     <style>
       html, body { margin: 0; padding: 0; background: #14110f; height: 100%; overflow: hidden; overscroll-behavior: none; }
       body { display: flex; align-items: center; justify-content: center; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
