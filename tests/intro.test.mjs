@@ -60,6 +60,34 @@ describe('the first morning, at the cafe', () => {
     } finally { await context.close(); }
   });
 
+  it('no auto-advance: each line waits for "Next" (bottom-right) or a tap anywhere; the last comes with "Walk over to the shed"', async () => {
+    const { page, context } = await open('?seed=5');
+    try {
+      const state = () => page.evaluate(() => ({
+        lines: [...document.querySelectorAll('#kir-hud .talk')].filter(b => b.style.display !== 'none').map(b => b.textContent),
+        next: (() => { const b = document.querySelector('.cafenext'); if (!b) return null; const r = b.getBoundingClientRect(); return { right: innerWidth - r.right, bottom: innerHeight - r.bottom, text: b.textContent }; })(),
+        asking: window.kirScene.cafe.talk.asking, minute: window.kir.minute }));
+      await page.waitForFunction(() => document.querySelector('#kir-hud .talk') && document.querySelector('.cafenext'), null, { timeout: 10_000 });
+      const first = await state();
+      assert.equal(first.lines.length, 1); assert.match(first.next.text, /Next/);
+      assert.ok(first.next.right < 80 && first.next.bottom < 120, `bottom-right of the screen (${first.next.right}, ${first.next.bottom})`);
+      await page.waitForTimeout(6000); // far longer than the old auto-advance
+      assert.deepEqual((await state()).lines, first.lines, 'still the first line: nothing advances on its own');
+      // the Next button, then a tap anywhere
+      await page.evaluate(() => document.querySelector('.cafenext').dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+      await page.waitForFunction(first => [...document.querySelectorAll('#kir-hud .talk')].filter(b => b.style.display !== 'none').map(b => b.textContent).join() !== first, first.lines.join(), { timeout: 3000 });
+      const second = await state();
+      await page.mouse.click(200, 300);
+      await page.waitForFunction(prev => [...document.querySelectorAll('#kir-hud .talk')].filter(b => b.style.display !== 'none').map(b => b.textContent).join() !== prev, second.lines.join(), { timeout: 3000 });
+      // on to the last line: Next goes, "Walk over to the shed" comes
+      for (let k = 0; k < 12 && !(await state()).asking; k++) { await page.mouse.click(200, 300); await page.waitForTimeout(250); }
+      const last = await state();
+      assert.equal(last.asking, true); assert.equal(last.next, null, 'no Next on the last line');
+      assert.deepEqual(await page.evaluate(() => window.kirScene.cafe.talk.options), ['Walk over to the shed']);
+      assert.equal(last.minute, 7 * 60, "the shed's clock hasn't started");
+    } finally { await context.close(); }
+  });
+
   it('the sign (Little Bird, on the upper façade): fully on screen and never under a speech bubble; the job card waits till the shed', async () => {
     const { page, context } = await open('?seed=3');
     try {
@@ -77,6 +105,7 @@ describe('the first morning, at the cafe', () => {
           samples++; if (r.bubbles) withBubble++;
           assert.ok(r.inView, 'the sign is on screen'); assert.equal(r.overlap, false, 'no bubble over the sign'); assert.equal(r.card, false, 'no job card over the cafe');
         }
+        if (k % 12 === 11) await page.evaluate(() => window.kirScene.cafe.talk.onTap?.()); // on to the next line now and then
         await page.waitForTimeout(200);
       }
       assert.ok(samples > 10 && withBubble > 10, `checked with bubbles up (${withBubble} of ${samples})`);

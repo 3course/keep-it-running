@@ -87,6 +87,10 @@ export class Cafe {
   /** The first morning: three beats, then walk over to the shed (no order, nothing overheard). */
   private introMode = false;
   private skipChip: HTMLButtonElement | null = null;
+  /** Intro lines wait for a tap: a moment before the first, then `introAdvance` (Next, or a tap anywhere) brings each one. */
+  private introWait = 0;
+  private introAdvance = false;
+  private nextBtn: HTMLButtonElement | null = null;
 
   constructor(private d: CafeDeps) {
     this.talk = new Talk(d.parent, 'day');
@@ -151,14 +155,14 @@ export class Cafe {
       { who: 'you', name: 'You', text: L.youWalk },
     ];
     this.heard = this.queue.filter(h => h.note);
-    this.lineLeft = 0.8;
-    this.talk.onTap = () => { this.lineLeft = Math.min(this.lineLeft, 0.05); };
+    this.introWait = 0.8; this.introAdvance = false;
+    this.talk.onTap = () => { if (this.introWait <= 0) this.introAdvance = true; }; // tap anywhere advances
     // a wider shot than a usual morning: five of them in it
     this.resetBirds();
     this.d.sfx.unlock();
     if (skippable) {
       const b = this.skipChip = document.createElement('button');
-      b.className = 'cafechip skip'; b.textContent = 'Skip ›';
+      b.className = 'cafechip skip'; b.textContent = 'Skip intro ›';
       Object.assign(b.style, { position: 'absolute', right: 'calc(10px + env(safe-area-inset-right, 0px))', top: 'calc(20px + env(safe-area-inset-top, 0px))', zIndex: '8',
         font: "14px 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.leave(); });
@@ -297,7 +301,7 @@ export class Cafe {
     if (j) logEvent(w, `${PEOPLE.partTimer.name}: "${pick(CAFE_LINES.jess.walk, g.dayIndex)}"`);
     const wasIntro = this.introMode;
     this.introMode = false;
-    this.skipChip?.remove(); this.skipChip = null;
+    this.skipChip?.remove(); this.skipChip = null; this.showNext(false);
     if (wasIntro) { w.introDone = true; try { localStorage.setItem('kir-intro-seen', '1'); } catch { /* fine */ } }
     this.active = false;
     this.talk.clear();
@@ -327,13 +331,13 @@ export class Cafe {
     // the dog's tail, the magpies
     const dog = this.set.getObjectByName('tail'); if (dog) dog.rotation.y = Math.sin(this.t * 9) * 0.6;
     this.updateSparrows(dt);
+    if (this.introMode) { this.updateIntro(dt); return; }
     if (this.t >= CONFIG.cafe.maxSeconds) { this.leave(); return; }
     if (this.talk.asking) return;
     this.lineLeft -= dt;
     if (this.lineLeft > 0) return;
     const l = this.queue.shift();
     if (l) {
-      if (this.introMode) for (const id of this.figs.keys()) if (id !== l.who) this.talk.hush(id); // one voice at a time: five of them, one screen
       this.talk.say(l.who, l.name, l.text, l.who === 'you' ? 'you' : l.who === 'radio' ? 'phone' : '');
       const f = this.figs.get(l.who); if (f) f.talking = 1.2;
       this.lineLeft = Math.min(4.5, Math.max(1.6, 0.9 + l.text.length * 0.045));
@@ -344,6 +348,36 @@ export class Cafe {
       return;
     }
     this.talk.ask([{ text: this.introMode ? 'Walk over to the shed' : 'Walk back', cls: 'door' }], () => this.leave());
+  }
+
+  /**
+   * The first morning's lines: no auto-advance. The first comes up after a moment; each next one when you tap "Next"
+   * (bottom-right) or anywhere; the last comes with "Walk over to the shed" in place of Next. No time limit.
+   */
+  private updateIntro(dt: number) {
+    if (this.talk.asking) return;
+    if (this.introWait > 0) { this.introWait -= dt; if (this.introWait > 0) return; this.introAdvance = true; }
+    if (!this.introAdvance) return;
+    this.introAdvance = false;
+    const l = this.queue.shift();
+    if (!l) return;
+    for (const id of this.figs.keys()) if (id !== l.who) this.talk.hush(id); // one voice at a time: five of them, one screen
+    this.talk.say(l.who, l.name, l.text, l.who === 'you' ? 'you' : '');
+    const f = this.figs.get(l.who); if (f) f.talking = 1.2;
+    if (this.queue.length) this.showNext(true);
+    else { this.showNext(false); this.talk.ask([{ text: 'Walk over to the shed', cls: 'door' }], () => this.leave()); }
+  }
+
+  /** The "Next ›" button, bottom-right of the dialogue area. */
+  private showNext(on: boolean) {
+    if (!on) { this.nextBtn?.remove(); this.nextBtn = null; return; }
+    if (this.nextBtn) return;
+    const b = this.nextBtn = document.createElement('button');
+    b.className = 'cafenext'; b.textContent = 'Next ›';
+    Object.assign(b.style, { position: 'absolute', right: 'calc(14px + env(safe-area-inset-right, 0px))', bottom: 'calc(22px + env(safe-area-inset-bottom, 0px))', zIndex: '8',
+      font: "bold 18px 'Courier New', monospace", padding: '12px 20px', background: '#8fd37a', color: '#14110f', border: '3px solid #14110f', borderRadius: '14px', boxShadow: '0 4px 0 #14110f', pointerEvents: 'auto' });
+    b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.introAdvance = true; });
+    this.d.parent.appendChild(b);
   }
 
   /** The shot that holds FRAME at this camera's field of view and aspect (portrait: the width decides; landscape: the height). */
@@ -495,7 +529,7 @@ export class Cafe {
     }
   }
 
-  dispose() { this.talk.clear(); this.chip?.remove(); this.skipChip?.remove(); this.signEl.remove(); this.d.scene.remove(this.set); }
+  dispose() { this.talk.clear(); this.chip?.remove(); this.skipChip?.remove(); this.nextBtn?.remove(); this.signEl.remove(); this.d.scene.remove(this.set); }
 }
 
 function signTex(text: string, colour = '#f4efe0') {
