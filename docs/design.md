@@ -80,6 +80,6 @@ Features
 - The extinguisher is carried like a can: put it down anywhere, it stays put. A pointer shows where it is when a fire starts, and the day log says where it was.
 - Kerr (the office computer): P&L today and yesterday, the rent clock, 3–5 rule-based lines of advice from the day log, costliest first. Ply ordering.
 - Order calls fill in on the notepad as the caller talks. Take it or turn it down once it's all there.
-- Rent clock: $5,750 due day 20 (config). Countdown on the notepad and Kerr. Short on day 20: game over with the week's log.
+- Rent clock: $8,000 due day 20 (config; was $5,750 — competent makes it ~87%, sloppy ~13%). Countdown on the notepad and Kerr. Short on day 20: game over with the week's log.
 - The first morning at the cafe: three beats (rent, fires, work), then the walk over and the tour.
 - Time scale: 1x while anything's on or you're moving, 4x when the machine's idle, nothing's pending and you've stood still 2 s, 0 behind a full screen. The day log reports fast-forward time per day; more than 15% of the day means the job queue is the problem.

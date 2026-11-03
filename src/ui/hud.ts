@@ -395,7 +395,7 @@ export class Hud {
 
   /**
    * `head`: the notepad's header — the day and the rent clock ("Mon, week 1 · rent due in 19 days"), and one line under
-   * it with the bank and the rent ("$1,111 in the bank · $5,750 rent due day 20").
+   * it with the bank and the rent ("$1,111 in the bank · $8,000 rent due day 20").
    */
   update(g: Game, items: TodoItem[], log: string[], head: { title: string; sub: string } = { title: `Day ${g.day}`, sub: '' }, waiting = false) {
     this.updateToast(log);
