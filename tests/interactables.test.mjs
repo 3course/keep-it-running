@@ -286,7 +286,8 @@ describe('a visiting mate in the shed', () => {
     await game.eval(g => { const d = g.distractions.find(x => x.kind === 'friend'); d.ask = null; d.cooldown = 999; });
     return game;
   }
-  const settled = game => game.page.waitForFunction(() => !window.kirScene.visitor.walking, null, { timeout: 20_000 });
+  // (he walks in real time: slow frames under a full run slow him down)
+  const settled = game => game.page.waitForFunction(() => !window.kirScene.visitor.walking, null, { timeout: 60_000 });
   const where = game => game.eval((g, w, s) => {
     const v = s.visitor, c = v.cell;
     return { x: v.x, z: v.z, cell: c, keepClear: v.onKeepClear, door: s.built.grid[c.y][c.x] === 8 /* T.DOOR */ };

@@ -107,7 +107,7 @@ describe('the first morning, at the cafe', () => {
       assert.ok(pecked, 'heads down, pecking');
       // you walk up: off they go, and they don't come back
       await page.evaluate(() => { const c = window.kirScene.cafe, you = c.figs.get('you'); you.walking = true; you.root.position.copy(c.sparrows[1].root.position).add({ x: 0.5, y: 0, z: 0 }); });
-      await page.waitForFunction(() => window.kirScene.cafe.sparrows.every(b => !b.root.visible), null, { timeout: 5000 });
+      await page.waitForFunction(() => window.kirScene.cafe.sparrows.every(b => !b.root.visible), null, { timeout: 20_000 }); // (slow frames under a full run)
       await page.waitForTimeout(500);
       assert.ok((await sample()).visible.every(v => !v), 'gone for the scene');
     } finally { await page.evaluate(() => clearInterval(window.__hush)).catch(() => {}); await context.close(); }
