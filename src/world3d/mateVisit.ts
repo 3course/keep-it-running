@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import type { Game } from '../sim/Game.js';
 import type { Distraction } from '../sim/types.js';
 import { Talk } from '../ui/talk.js';
+import { WORLD } from '../world/worldConfig.js';
 import { slur } from '../people/slur.js';
 import { TASK_WORDS, VISIT_LINES, type ChatTurn, type HelpTask } from '../people/lines/visitors.js';
 import type { FriendId } from '../people/dialogue/types.js';
@@ -44,9 +45,8 @@ export class MateVisit {
   /** The mate who'll help once he's had the beer he asked for. */
   private helpAfterBeer: number | null = null;
   private timers: number[] = [];
-  private bubbleLeft = new Map<string, number>();
 
-  constructor(private d: MateVisitDeps) { this.talk = new Talk(d.parent, 'visit'); }
+  constructor(private d: MateVisitDeps) { this.talk = new Talk(d.parent, 'visit'); this.talk.autoHold = true; }
 
   private get g() { return this.d.g; }
   private mate(): Distraction | undefined { return this.g.distractions.find(x => x.kind === 'friend'); }
@@ -62,10 +62,10 @@ export class MateVisit {
       .replace(/\{customer\}/g, des ? des.customer.replace(/[,(].*$/, '').trim() : 'the customer');
   }
 
-  private say(who: 'mate' | 'you', text: string, secs = 3.4) {
+  /** (How long it stays is Talk's: max(2.5 s, 0.9 s + 0.06 s a character), tap to dismiss, kept while you're near him.) */
+  private say(who: 'mate' | 'you', text: string, _secs = 0) {
     const m = this.mate();
     this.talk.say(who, who === 'you' ? 'You' : m ? this.name(m) : '', text, who === 'you' ? 'you' : '');
-    this.bubbleLeft.set(who, secs + text.length * 0.03);
   }
   private later(ms: number, f: () => void) { this.timers.push(window.setTimeout(f, ms)); }
 
@@ -212,7 +212,7 @@ export class MateVisit {
   update(dt: number, paused: boolean) {
     const m = this.mate();
     if (paused) dt = 0;
-    for (const [who, left] of this.bubbleLeft) { const l = left - dt; if (l <= 0) { this.talk.hush(who); this.bubbleLeft.delete(who); } else this.bubbleLeft.set(who, l); }
+    this.talk.update(dt, () => !!m && Math.hypot(this.d.walker.x - this.d.w.px, this.d.walker.z - this.d.w.py) < WORLD.bubble.nearMetres);
     const at = this.d.mateAt(), you = this.d.youAt();
     this.talk.place('mate', at.x, at.y, !at.behind && !!m);
     this.talk.place('you', you.x, you.y, !you.behind);

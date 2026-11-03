@@ -39,6 +39,9 @@ export const WORLD = {
   // signing for a delivery (src/ui/gesture.ts): one continuous stroke at least strokeFrac of the docket's width signs it
   // (the dotted signature is only decoration); a "Tap to sign" button turns up after fallbackSeconds without one
   sign: { strokeFrac: 0.4, fallbackSeconds: 4, footTapAfterSeconds: 5, wobblePerCan: 0.5 },
+  // Speech bubbles in the shed stay up max(minSeconds, baseSeconds + perChar × characters) of real time (scaled by the text
+  // speed setting), can be tapped away, and stay while you're within nearMetres of the speaker (till you walk off or tap)
+  bubble: { minSeconds: 2.5, baseSeconds: 0.9, perChar: 0.06, nearMetres: 2 },
   callLineMs: 650,                     // an order call fills in on the notepad a line this often (real ms), then the answers
   inspectorSpeed: 1.2,                 // m/s: the council inspector, clipboard in hand
   inspectorStayClose: 3.0,             // m: the walk-round only counts while you're this close to them

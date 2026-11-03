@@ -76,12 +76,12 @@ export class PeopleDay {
   private seen = { sheetsOk: -1, replacing: '' as string, fault: false, fire: false, fireStage: '' as string, day: -1, safeDone: -1 };
   private askingLines: string[] = [];
   private lineT = 0;
-  private bubbleT = new Map<string, number>();
   private t = 0;
   private nextTempt = 0;
 
   constructor(private d: PeopleDayDeps) {
     this.talk = new Talk(d.parent, 'day');
+    this.talk.autoHold = true; // (Talk holds each bubble: max(2.5 s, 0.9 s + 0.06 s a character), tap to dismiss, kept while you're near)
   }
 
   get p(): PeopleState { return people(this.d.w); }
@@ -121,10 +121,11 @@ export class PeopleDay {
       if (g.today.firesDuct === 0 && g.today.firesExtractor === 0 && g.today.sheetsScrapped === 0) p.trust += J.trust.safeDay;
     }
     // bubbles follow people, and go after a while
-    for (const [who, left] of this.bubbleT) {
-      const l = left - dt;
-      if (l <= 0) { this.talk.hush(who); this.bubbleT.delete(who); } else this.bubbleT.set(who, l);
-    }
+    this.talk.update(dt, who => {
+      const f = who === 'jess' ? this.jess?.fig : who === 'cust' ? this.visitor?.fig : who === 'mate' ? this.cakeMate?.fig : who === 'walkin' ? this.walkIn?.fig : undefined;
+      const pl = this.d.player();
+      return !!f && Math.hypot(f.root.position.x - pl.x, f.root.position.z - pl.z) < WORLD.bubble.nearMetres;
+    });
     this.place('jess', this.jess?.fig);
     this.place('cust', this.visitor?.fig);
     this.place('mate', this.cakeMate?.fig);
@@ -394,7 +395,7 @@ export class PeopleDay {
       this.walkInAsking = true;
       this.talk.ask([{ text: WALK_IN.yes }, { text: WALK_IN.no }], i => { this.walkInAsking = false; this.answerWalkIn(i === 0); });
     } else if (!near && this.walkInAsking) { this.talk.hideReplies(); this.walkInAsking = false; }
-    if (!this.bubbleT.has('walkin')) this.askWalkIn(); // the question stays up while they wait
+    if (near && !this.talk.showing('walkin')) this.askWalkIn(); // the question's up when you're over there (tap it away and it comes back when you next walk up)
   }
 
   private askWalkIn() {
@@ -462,7 +463,6 @@ export class PeopleDay {
   private say(who: string, text: string, secs = 3.2, expr: 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated' = 'relaxed', name?: string, img?: string | null) {
     const label = name ?? (who === 'jess' ? J.name : who === 'you' ? 'You' : who === 'mate' ? 'Mate' : '');
     this.talk.say(who, label, text, who === 'you' ? 'you' : '', img);
-    this.bubbleT.set(who, secs + text.length * 0.03);
     const f = who === 'jess' ? this.jess?.fig : who === 'cust' ? this.visitor?.fig : who === 'mate' ? this.cakeMate?.fig : who === 'walkin' ? this.walkIn?.fig : undefined;
     if (f) { f.setExpr(expr); f.talking = 1.2; }
   }

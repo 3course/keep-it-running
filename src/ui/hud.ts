@@ -91,7 +91,7 @@ const CSS = `
 #kir-hud .paused { cursor: pointer; }
 #kir-hud .paused .card { border-color: #a2937f; }
 #kir-hud .paused .card button { display: block; width: 100%; margin-top: 10px; padding: 10px; font: 16px 'Courier New', monospace; background: #efe6d8; color: #14110f; border: 2px solid #14110f; border-radius: 10px; }
-#kir-hud .labels { position: absolute; inset: 0; pointer-events: none; }
+#kir-hud .labels { position: absolute; inset: 0; pointer-events: none; z-index: 6; /* over the tappable speech bubbles (5): a prompt wins over a bubble */ }
 #kir-hud .lbl { position: absolute; transform: translate(-50%, -100%); width: max-content; display: flex; flex-direction: column-reverse; align-items: center; gap: 6px; }
 #kir-hud .lbl button { pointer-events: auto; font: 600 ${F(20)} 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
   border-radius: 10px; padding: 8px 12px; min-height: ${F(48)}; box-shadow: 0 3px 0 #14110f; max-width: 300px; line-height: 1.15; text-wrap: balance; touch-action: none; }

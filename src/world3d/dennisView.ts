@@ -10,6 +10,7 @@ import { ledger, oddsWords, type Bet } from '../sim/dennis.js';
 import { DENNIS_LINES } from '../people/lines/dennis.js';
 import { PEOPLE } from '../people/config.js';
 import { Talk } from '../ui/talk.js';
+import { WORLD } from '../world/worldConfig.js';
 import { logEvent, type WorldState } from '../world/state.js';
 import { objectById } from '../world/layout.js';
 import { boxAt, toon } from './build.js';
@@ -45,7 +46,6 @@ export class DennisView {
   private props = new THREE.Group();
   private sig = '';
   private seen = new Set<number>();          // bets whose outcome's been told
-  private bubbleT = 0;
   private card: HTMLDivElement | null = null;
   private coffee: { fig: Figure; until: number } | null = null;
   private quietSeen = 0;
@@ -53,6 +53,7 @@ export class DennisView {
   constructor(private d: DennisViewDeps) {
     if (!document.getElementById('kir-dennis-css')) { const s = document.createElement('style'); s.id = 'kir-dennis-css'; s.textContent = CSS; document.head.appendChild(s); }
     this.talk = new Talk(d.parent, 'day');
+    this.talk.autoHold = true;
     d.scene.add(this.props);
     for (const b of d.g.dennis.bets) if (b.status === 'won' || b.status === 'lost') this.seen.add(b.id);
     this.quietSeen = d.g.dennis.humble;
@@ -112,8 +113,7 @@ export class DennisView {
       if (g.phase === 'day') this.say(line, 6);
       logEvent(this.d.w, `${CONFIG.dennis.name}: ${line}`);
     }
-    this.bubbleT -= dt;
-    if (this.bubbleT <= 0 && !this.talk.asking) this.talk.hush('dennis');
+    this.talk.update(dt, () => { const r = objectById('phone').rect, w = this.d.w; return Math.hypot((r.x + 0.5) * C - w.px, (r.y + 0.5) * C - w.py) < WORLD.bubble.nearMetres; });
     const ph = objectById('phone').rect;
     const at = this.d.project(new THREE.Vector3((ph.x + 0.5) * C, 1.9, (ph.y + 0.5) * C));
     this.talk.place('dennis', at.x, at.y, !at.behind);
@@ -191,8 +191,8 @@ export class DennisView {
   }
 
   private say(text: string, secs: number) {
-    this.talk.say('dennis', `📱 ${CONFIG.dennis.name}`, text, 'phone');
-    this.bubbleT = secs;
+    this.talk.say('dennis', `📱 ${CONFIG.dennis.name}`, text, 'phone'); // (how long it stays is Talk's)
+    void secs;
   }
 
   dispose() { this.talk.clear(); this.card?.remove(); this.d.scene.remove(this.props); }

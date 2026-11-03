@@ -1,6 +1,7 @@
 // Speech in the world: a bubble over whoever's talking (it follows their head on screen), and your two or three
 // replies as bubbles of your own, low on the screen with their tails pointing at you. Not a dialog box: the scene
 // stays in view, and the bubbles are part of it.
+import { WORLD } from '../world/worldConfig.js';
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
 #kir-hud .talk { position: absolute; transform: translate(-50%, -100%); max-width: ${F(250)}; width: max-content; z-index: 6; pointer-events: none;
@@ -8,6 +9,7 @@ const CSS = `
   box-shadow: 0 4px 0 rgba(20,17,15,.35); transition: opacity .2s; }
 #kir-hud .talk::after { content: ''; position: absolute; left: var(--tail, 50%); bottom: -12px; transform: translateX(-50%); border: 9px solid transparent; border-top-color: #14110f; }
 #kir-hud .talk .nm { display: block; font-size: ${F(12)}; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #8a4f32; margin-bottom: 2px; }
+#kir-hud .talk.tappable { pointer-events: auto; cursor: pointer; touch-action: none; z-index: 5; }
 #kir-hud .talk.you { background: #fff1c9; }
 #kir-hud .talk.phone { background: #dff1ff; border-style: dashed; }
 #kir-hud .talk.dim { opacity: .55; }
@@ -25,11 +27,26 @@ const CSS = `
 
 export interface Reply { text: string; cls?: string }
 
+/** The text speed setting scales how long bubbles stay (slow reads longer, fast shorter); src/ui/settings.ts sets it. */
+export const TEXT = { holdMult: 1 };
+/** How long a bubble with this text stays up, in real seconds: max(2.5, 0.9 + 0.06 a character), × the text speed. */
+export function holdSeconds(text: string): number {
+  const B = WORLD.bubble;
+  return Math.max(B.minSeconds, B.baseSeconds + B.perChar * text.length) * TEXT.holdMult;
+}
+
 /** The bubble's tail (CSS px, below its bottom edge), the air between its tip and the head, and a head's half-size on screen. */
 const TAIL = 12, CLEAR = 4, HEAD = 16;
 
 export class Talk {
   private bubbles = new Map<string, HTMLDivElement>();
+  /**
+   * Day bubbles in the shed: each goes after holdSeconds (real time), tap it to put it away early, and while you're within
+   * reach of the speaker (`near`, see `update`) or his replies are up it stays. Off for dialogue that's paced by taps (the
+   * cafe, the knock-off), where the caller hushes lines itself.
+   */
+  autoHold = false;
+  private hold = new Map<string, number>();
   /** Where each speaker's head is on screen (last placed), so a bubble can keep off the others. */
   private heads = new Map<string, { x: number; y: number; on: boolean }>();
   private replies: HTMLDivElement;
@@ -51,8 +68,13 @@ export class Talk {
   /** Put `text` over `who` (an id; one bubble each). `name`: shown small above it. */
   say(who: string, name: string, text: string, kind: '' | 'you' | 'phone' = '', img?: string | null) {
     let b = this.bubbles.get(who);
-    if (!b) { b = document.createElement('div'); this.parent.appendChild(b); this.bubbles.set(who, b); }
-    b.className = `talk ${kind} ${this.cls}`;
+    if (!b) {
+      b = document.createElement('div'); this.parent.appendChild(b); this.bubbles.set(who, b);
+      // a tap puts it away (and doesn't walk you anywhere)
+      b.addEventListener('pointerdown', e => { if (!this.autoHold) return; e.preventDefault(); e.stopPropagation(); this.hush(who); });
+    }
+    b.className = `talk ${kind} ${this.cls}${this.autoHold ? ' tappable' : ''}`;
+    if (this.autoHold) this.hold.set(who, holdSeconds(text));
     b.dataset.who = who;
     b.innerHTML = `<span class="nm">${esc(name)}</span>${img ? `<img class="pic" alt="" src="${img}">` : ''}${esc(text)}`;
     b.style.display = 'block';
@@ -90,7 +112,22 @@ export class Talk {
   }
 
   hush(who?: string) {
-    for (const [k, b] of this.bubbles) if (!who || k === who) b.style.display = 'none';
+    for (const [k, b] of this.bubbles) if (!who || k === who) { b.style.display = 'none'; this.hold.delete(k); }
+  }
+
+  /**
+   * Every frame (real seconds; 0 while paused): count the held bubbles down and put them away. `near(who)`: the player's
+   * within reach of that speaker, so it stays up till they walk off (or tap it). Your own lines ('you') don't wait on that.
+   * While replies are up, the lines you're answering stay too.
+   */
+  update(dt: number, near?: (who: string) => boolean) {
+    for (const [who, left] of this.hold) {
+      const b = this.bubbles.get(who);
+      if (!b || b.style.display === 'none') { this.hold.delete(who); continue; }
+      if (left - dt > 0) { this.hold.set(who, left - dt); continue; }
+      if (this.asking || (who !== 'you' && near?.(who))) { this.hold.set(who, 0); continue; }
+      this.hush(who);
+    }
   }
 
   ask(options: Reply[], pick: (i: number) => void) {
@@ -105,6 +142,8 @@ export class Talk {
     this.replies.style.display = 'flex';
   }
   hideReplies() { this.replies.style.display = 'none'; this.replies.innerHTML = ''; }
+  /** Is this speaker's bubble up? */
+  showing(who: string): boolean { const b = this.bubbles.get(who); return !!b && b.style.display !== 'none'; }
   /** Anyone's bubble up right now. */
   get speaking() { for (const b of this.bubbles.values()) if (b.style.display !== 'none') return true; return false; }
   get asking() { return this.replies.style.display === 'flex'; }

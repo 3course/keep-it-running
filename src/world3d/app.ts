@@ -52,6 +52,7 @@ import { Cafe } from './cafe.js';
 import { dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { KerrView } from '../ui/kerr.js';
+import { holdSeconds } from '../ui/talk.js';
 import { snapAll } from './pixelSnap.js';
 import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
@@ -286,6 +287,10 @@ export class World3D {
       layout: () => this.enterLayout(),
       resetLayout: () => this.commitLayout(clonePlan(DEFAULT_PLAN), 0),
     });
+    // a tap puts a bubble away (the mate's answer buttons stay till you choose)
+    const tapAway = (el: HTMLElement, f: () => void) => { el.style.pointerEvents = 'auto'; el.style.cursor = 'pointer'; el.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); f(); }); };
+    tapAway(this.hud.bubble, () => { this.bubbleT = 0; });
+    tapAway(this.hud.mateBubble, () => { this.mateBubbleAway = this.hud.mateBubble.textContent; });
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
     this.callCard = new CallCard(this.hud.labels.parentElement!);
     // answered: the call is a job card (who, the sketch, the details as they tell you, due bottom-right), then Accept /
@@ -883,6 +888,8 @@ export class World3D {
     return { metres: Math.round(this.w.walkedToday ?? 0), layoutMinutes: Math.round((d.layoutMinutes ?? 0) + extra / mpm) };
   }
 
+  /** The mate's line that's been tapped away (his answer buttons stay). */
+  private mateBubbleAway: string | null = null;
   /** A job card where it shows would cover a prompt (a label's buttons): it waits till they're clear. */
   private jobCardOverPrompt = false;
   /**
@@ -1851,7 +1858,7 @@ export class World3D {
     this.trail.update(dt, this.pos.x, this.pos.z);
   }
 
-  private say(text: string) { this.bubbleText = text; this.bubbleT = 1.6; }
+  private say(text: string) { this.bubbleText = text; this.bubbleT = holdSeconds(text); }
 
   /** What you can do with a can lying about: pick it up, if your hands are free. */
   private canActions(id: number): Action[] {
@@ -1998,7 +2005,7 @@ export class World3D {
 
   /** "None left" over your head after reaching for ply that isn't there. */
   private updateBubble(dt: number) {
-    this.bubbleT = Math.max(0, this.bubbleT - dt);
+    this.bubbleT = Math.max(0, this.bubbleT - (this.paused ? 0 : dt));
     const b = this.hud.bubble;
     if (this.bubbleT <= 0) { b.style.display = 'none'; return; }
     const p = this.project(new THREE.Vector3(this.pos.x, 1.35, this.pos.z));
@@ -2012,7 +2019,8 @@ export class World3D {
     const g = this.g, b = this.hud.mateBubble;
     const mate = g.phase === 'day' ? g.distractions.find(d => d.kind === 'friend') : undefined;
     const text = mate?.ask?.text;
-    if (!text || this.paused) { b.style.display = 'none'; return; }
+    if (!text) this.mateBubbleAway = null;
+    if (!text || this.paused || text === this.mateBubbleAway) { b.style.display = 'none'; return; }
     const p = this.project(this.built.mate.position.clone().setY(1.4));
     if (b.textContent !== text) b.textContent = text;
     b.style.display = p.behind ? 'none' : 'block';
