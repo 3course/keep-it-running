@@ -17,6 +17,8 @@ interface MateVisitLines {
   close: string[];
   /** Taking on jobs ("Give us a hand?"), and before two ("Beer after two?" and he stays). */
   helpYes: string[];
+  /** After two: he'll help, but a beer from the fridge first. */
+  helpBeerFirst: string[];
   afterTwoStays: string[];
   /** Each job done: sober, then a beer or more in. */
   done: Record<HelpTask, [string[], string[]]>;
@@ -54,6 +56,7 @@ export const VISIT_LINES: Record<FriendId, MateVisitLines> = {
     ],
     close: ["Anyway. I'm keeping you. Unless you need a hand? Or there's a beer about?", "Right. Put me to work, or put a beer in me. Either's civilised."],
     helpYes: ["Point me at it. I've got hands. Two of them. Both mine.", 'Excellent. Honest work. The Romans would approve.'],
+    helpBeerFirst: ["After two, a man works better lubricated. One from the fridge and I'm yours.", 'Beer first. The Romans paid in salt. I accept lager.'],
     afterTwoStays: ["Two o'clock? I'll make myself useful till then. Idle hands and all that.", "I'll wait. Put me to work. The beer will taste better earned."],
     done: DONE_ANY,
     nothingToDo: ["Nothing else needs doing? Then I'll stand here supportively.", 'All shipshape. Very Roman of you.'],
@@ -78,6 +81,7 @@ export const VISIT_LINES: Record<FriendId, MateVisitLines> = {
     ],
     close: ["Okay I'll let you work! Unless I can help? Or, you know. A cheeky beer?", "Right! Put me to work or put a beer in my hand! Dealer's choice!"],
     helpYes: ['YES. Give me a job. I want a job. I\'ll be the best at it.', "Love that! I'm a great helper. Ask Bron. Actually don't."],
+    helpBeerFirst: ["Totally! Grab us a beer first? It's after two! Rules!", 'Yes! Beer first though. I work better with a beer. Ask Bron. Actually don\'t.'],
     afterTwoStays: ["Two? I'll help till then! I'm SO helpful!", "I'll stick around! Beer at two is basically a party."],
     done: DONE_ANY,
     nothingToDo: ['Nothing to do?! Okay I\'ll just vibe.', "All done? I'll make the place look nice. Moving a broom. Nice."],
@@ -102,6 +106,7 @@ export const VISIT_LINES: Record<FriendId, MateVisitLines> = {
     ],
     close: ['Right. Need a hand? Or is it beer o\'clock somewhere?', "I'll get out of your hair. Unless you want a hand. Or a beer. Or both. Both's good."],
     helpYes: ['Put me to work, champ. Slowly. Thoroughly.', "Yep. I'm good with my hands. Ask anyone. Don't ask anyone."],
+    helpBeerFirst: ["Sure thing. Grab us a cold one first, eh? It's past two.", "Beer first, champ. Then I'm all yours. Mostly."],
     afterTwoStays: ["Two o'clock. I can wait. I'll earn it.", "I'll hang about. Give us a job meantime."],
     done: DONE_ANY,
     nothingToDo: ["Nothing else? I'll stand here. Looking useful. It's a skill.", 'All done, by the look of it. Tidy shed. Proud of you.'],

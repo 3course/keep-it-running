@@ -41,6 +41,8 @@ export class MateVisit {
   help: { id: number; task: HelpTask | null; leg: 0 | 1; dwell: number; idle: number; carried: number } | null = null;
   /** "Grab you a beer?": he's waiting on one. */
   beerFor: number | null = null;
+  /** The mate who'll help once he's had the beer he asked for. */
+  private helpAfterBeer: number | null = null;
   private timers: number[] = [];
   private bubbleLeft = new Map<string, number>();
 
@@ -141,6 +143,8 @@ export class MateVisit {
     if (!m || m.id !== id || !this.g.giveBeer(id)) return false;
     this.beerFor = null; this.d.w.mateBeerFor = null;
     this.say('mate', this.his(m, pick(this.lines(m).thanks, m.beers ?? 0)));
+    // that was the beer he wanted before giving you a hand: on to it
+    if (this.helpAfterBeer === id) { this.helpAfterBeer = null; this.later(1200, () => this.startHelp(id, true)); }
     this.d.save();
     return true;
   }
@@ -161,7 +165,11 @@ export class MateVisit {
     const m = this.mate();
     if (!m || m.id !== id) return;
     const n = this.g.askHelp(id);
-    if (!n) return;
+    if (!n) {
+      // after two: a beer first (the "Give <name> the beer" prompt's on him once you've got one; then he starts)
+      if (m.beerFirst) { this.say('mate', this.his(m, pick(this.lines(m).helpBeerFirst, m.id))); this.beerFor = id; this.d.w.mateBeerFor = this.name(m); this.helpAfterBeer = id; }
+      return;
+    }
     if (!quiet) this.say('mate', this.his(m, pick(this.lines(m).helpYes, m.id)));
     this.help = { id, task: null, leg: 0, dwell: 0, idle: 0, carried: 0 };
     logEvent(this.d.w, `${this.name(m)}'s giving you a hand (${n} job${n > 1 ? 's' : ''})`);

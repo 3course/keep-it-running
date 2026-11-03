@@ -222,6 +222,12 @@ export const CONFIG = {
     // so a hand can be asked for again, not once a visit (playtest: "only one chance to get friends to help")
     helpAgainMinutes: 2,
     helpAgainStayMinutes: 12,
+    // what a hand costs: the first ask in a visit is free; each one after costs rapport (rapport drives the rush-job odds)
+    // and this much more yarn on his way out (he's at your elbow; attention split). From helpBeerFromHour he wants a
+    // beer from your fridge before he starts (while the beer caps allow; past them, he just helps)
+    helpAgainRapport: 4,
+    helpAgainChatMinutes: 6,
+    helpBeerFromHour: 14,
     returnHour: 14,            // "Beer after two?" and he's not stopping: he's back when the fridge opens
     // How often a mate drops in: planned each morning (seeded, its own hash): 1 or 2 visits, never two arrivals within
     // minGapMinutes of the last one leaving, at most one from afterHour on. (The random distraction roll no longer

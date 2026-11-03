@@ -294,3 +294,35 @@ describe('asking a mate for a hand, more than once a visit (playtest: "only one 
     }
   });
 });
+
+describe('what a hand costs', () => {
+  it(`the first ask in a visit is free; each after costs ${V.helpAgainRapport} rapport and ${V.helpAgainChatMinutes} min more yarn on his way out`, () => {
+    const { g, d } = visit(10);
+    g.rapport = 50;
+    const n1 = g.askHelp(d.id); for (let i = 0; i < n1; i++) g.helperDid(d.id);
+    assert.equal(g.rapport, 50 + CONFIG.distractions.friend.chatRapportGain, 'free (he even leaves you happier)');
+    const r = g.rapport;
+    const n2 = g.askHelp(d.id); for (let i = 0; i < n2; i++) g.helperDid(d.id);
+    assert.equal(g.rapport, r - V.helpAgainRapport + CONFIG.distractions.friend.chatRapportGain, 'the second costs rapport');
+    assert.equal(d.outChat, V.helpAgainChatMinutes);
+    g.askHelp(d.id);
+    assert.equal(d.outChat, 2 * V.helpAgainChatMinutes, 'and the third');
+    // the visit runs out: he yarns that long before he goes
+    d.helping = 0; d.remaining = 1; g.tick();
+    assert.ok(g.distractions.includes(d), 'not gone yet');
+    assert.equal(d.engaged, true, 'yarning at you');
+    for (let m = 0; m < 2 * V.helpAgainChatMinutes; m++) g.tick();
+    assert.ok(!g.distractions.includes(d), 'then he goes');
+  });
+  it(`from ${V.helpBeerFromHour}:00 he wants a beer before he starts; given one, he helps; past the caps, he just helps`, () => {
+    const { g, d } = visit(V.helpBeerFromHour + 0.5);
+    assert.equal(g.askHelp(d.id), 0, 'a beer first');
+    assert.equal(d.beerFirst, true);
+    assert.ok(g.buyBeer(), 'from the fridge'); assert.ok(g.giveBeer(d.id), 'handed over');
+    assert.equal(d.engaged, false, 'not off yarning: ready to work');
+    assert.ok(g.askHelp(d.id) > 0, 'now he helps');
+    const capped = visit(V.helpBeerFromHour + 0.5);
+    capped.g.visitorBeers = { [capped.d.mate]: V.beersPerVisitor };
+    assert.ok(capped.g.askHelp(capped.d.id) > 0, 'past the caps he helps without');
+  });
+});

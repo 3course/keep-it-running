@@ -432,7 +432,11 @@ function mateHelps(g: Game, competentScript: boolean) {
   const tally = (mateTally[mateScript.get(g) ?? '?'] ??= { jobs: 0, visits: 0, beers: 0 });
   const taskMinutes = () => Math.round(CONFIG.visitors.helpMinutesPerTask * (1 + 0.25 * (d.beers ?? 0)));
   if (!d.chatted && d.ask) { g.yarn(d.id); return; }
-  if (d.chatted && !d.engaged && !st.asked) { st.asked = true; if (g.askHelp(d.id)) { st.next = g.minute + taskMinutes(); tally.visits++; } }
+  if (d.chatted && !d.engaged && !st.asked) {
+    st.asked = true;
+    if (g.askHelp(d.id)) { st.next = g.minute + taskMinutes(); tally.visits++; }
+    else if (d.beerFirst) st.asked = false; // after two he wants a beer first: give him one (below), then ask again
+  }
   if (!st.beer && g.fridgeOpen && g.visitorMayHaveBeer(d) && !g.heldCan && g.canAct && g.buyBeer()) { st.beer = g.giveBeer(d.id); if (st.beer) tally.beers++; }
   if (d.ask && !d.helping) { if (competentScript && g.machine === 'cutting') g.respond(d.id, 'disengage'); else g.yarn(d.id); }
   if (d.helping && g.minute >= st.next) {

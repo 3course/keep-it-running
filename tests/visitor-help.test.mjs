@@ -123,4 +123,26 @@ describe('a visiting mate, in the shed', () => {
       assert.ok(await game.eval((g, w, s) => s.built.mate.getObjectByName('mateCan')?.visible), 'the can in his hand');
     } finally { await game.close(); }
   });
+
+  it('after two, "Give us a hand?": a beer from the fridge first; hand it over and he gets to work', async () => {
+    const game = await freshGame(env);
+    try {
+      await walkTo(game, 'racks');
+      await setTime(game, CONFIG.visitors.helpBeerFromHour, 30);
+      await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); g.bedPile = 2; g.offcutBin = 1; });
+      const mate = await freshMate(game);
+      await waitForLabel(game, '"Give us a hand?"', 20_000);
+      await tapLabel(game, '"Give us a hand?"');
+      assert.deepEqual(await game.eval((g, w) => { const d = g.distractions.find(x => x.kind === 'friend'); return [d.beerFirst, d.helping ?? 0, w.mateBeerFor]; }), [true, 0, mate.name], 'a beer first');
+      await walkTo(game, 'fridge');
+      await tapLabel(game, `Beer ($${CONFIG.beer.cost})`);
+      const give = `Give ${mate.name} the beer`;
+      for (let i = 0; i < 12 && !(await labels(game)).includes(give); i++) {
+        await game.eval((g, w, s) => { const v = s.visitor, side = [[0.8, 0], [-0.8, 0], [0, 0.8], [0, -0.8]].find(([dx, dz]) => s.walkable(Math.floor((v.x + dx) / 0.5), Math.floor((v.z + dz) / 0.5))) ?? [0, 0]; s.walkToPoint(v.x + side[0], v.z + side[1]); });
+        await new Promise(r => setTimeout(r, 1200));
+      }
+      await tapLabel(game, give);
+      await game.page.waitForFunction(() => (window.kir.distractions.find(x => x.kind === 'friend')?.helping ?? 0) > 0, null, { timeout: 8_000 });
+    } finally { await game.close(); }
+  });
 });

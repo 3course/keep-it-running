@@ -1123,6 +1123,14 @@ export class Game {
       if (dist.kind === 'phone' && dist.onLine) continue;     // picked up: they're telling you about the job
       dist.remaining -= 1;
       if (dist.remaining > 0) continue;
+      // the asks for a hand past the first: a longer yarn on his way out, before he goes
+      if (dist.kind === 'friend' && (dist.outChat ?? 0) > 0) {
+        const m = dist.outChat!;
+        dist.outChat = 0; dist.remaining = m; dist.helping = 0;
+        this.startYarn(dist, m);
+        this.say(`${this.mateName(dist)}, on his way out: "...so anyway. One more thing."`);
+        continue;
+      }
       this.removeDistraction(dist.id);
       switch (dist.kind) {
         case 'friend':
@@ -1713,6 +1721,15 @@ export class Game {
   askHelp(id: number): number {
     const d = this.friend(id), v = CONFIG.visitors;
     if (!d || this.phase !== 'day') return 0;
+    // after two, a beer from your fridge first (while the caps allow): 0 now, and he says so; give him one and ask again
+    if (this.minute >= v.helpBeerFromHour * 60 && !d.helpBeer && this.visitorMayHaveBeer(d)) { d.beerFirst = true; d.ask = null; return 0; }
+    d.helpBeer = false;
+    // the first ask in a visit is free; after that it costs rapport, and a longer yarn on his way out
+    d.helpAsks = (d.helpAsks ?? 0) + 1;
+    if (d.helpAsks > 1) {
+      this.addRapport(-v.helpAgainRapport);
+      d.outChat = (d.outChat ?? 0) + v.helpAgainChatMinutes;
+    }
     const n = Math.max(v.helpMin, Math.min(v.helpMax, this.visitorRng.int(v.helpMin, v.helpMin + 1) + (d.chatted ? 1 : 0) + ((d.mood ?? 0) >= 2 ? 1 : 0)));
     d.helping = n; d.helped = 0; d.ask = null; d.engaged = false; d.chat = 0;
     d.remaining = Math.max(d.remaining, n * v.helpMinutesPerTask + 10);
@@ -1765,7 +1782,9 @@ export class Game {
     d.beers = (d.beers ?? 0) + 1;
     if (d.mate) this.visitorBeers[d.mate] = (this.visitorBeers[d.mate] ?? 0) + 1;
     d.mood = (d.mood ?? 0) + 1; d.ask = null;
-    if (!d.helping) this.startYarn(d, CONFIG.distractions.friend.beerChatMinutes);
+    // the beer he asked for before giving you a hand: he's ready to start (ask him again: askHelp)
+    if (d.beerFirst) { d.beerFirst = false; d.helpBeer = true; }
+    else if (!d.helping) this.startYarn(d, CONFIG.distractions.friend.beerChatMinutes);
     this.say(`A beer for ${this.mateName(d)}. "Legend."`, 'good');
     return true;
   }
