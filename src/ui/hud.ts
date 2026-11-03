@@ -158,9 +158,15 @@ const CSS = `
 #kir-hud .canchip { position: absolute; right: calc(10px + ${SAR}); bottom: calc(${F(26)} + ${SAB}); pointer-events: auto; font: 600 ${F(18)} 'Courier New', monospace; color: #efe6d8; min-height: ${F(48)};
   background: rgba(20,17,15,.75); border: 2px solid #c0281e; border-radius: 24px; padding: 8px 14px; touch-action: none; }
 #kir-hud .canchip::before { content: '🍺 '; }
-#kir-hud .mute, #kir-hud .fs { position: absolute; right: calc(10px + ${SAR}); top: calc(${F(76)} + ${SAT}); width: ${F(48)}; height: ${F(48)}; pointer-events: auto; cursor: pointer; border: 0; border-radius: 8px;
+#kir-hud .pausebtn, #kir-hud .mute, #kir-hud .fs { position: absolute; right: calc(10px + ${SAR}); top: calc(${F(76)} + ${SAT}); width: ${F(48)}; height: ${F(48)}; pointer-events: auto; cursor: pointer; border: 0; border-radius: 8px;
   background: rgba(20,17,15,.6); color: #efe6d8; font-size: ${F(22)}; line-height: 1; padding: 0; }
-#kir-hud .fs { top: calc(${F(132)} + ${SAT}); }
+#kir-hud .pausebtn { font-weight: 700; letter-spacing: -2px; }
+#kir-hud .mute { top: calc(${F(132)} + ${SAT}); }
+#kir-hud .fs { top: calc(${F(188)} + ${SAT}); }
+#kir-hud .paused .card button.big { display: block; width: 100%; margin: 10px 0 0; }
+#kir-hud .paused .card button.resume { background: #4e8a46; }
+#kir-hud .paused .card button.quiet { background: #3a3128; font-size: ${F(16)}; min-height: ${F(40)}; }
+#kir-hud .paused .card .more { margin-top: 14px; border-top: 1px solid #4a4036; padding-top: 4px; }
 /* landscape: the notepad is a column pinned on the left (the tab folds it away); the stick lives bottom-left */
 #kir-hud.land .pad { top: calc(10px + ${SAT}); bottom: calc(10px + ${SAB}); width: var(--padw); max-width: none; border-radius: 0 10px 10px 0; }
 #kir-hud.land .pad.open { transform: none; }
@@ -179,6 +185,10 @@ export interface HudCallbacks {
   /** Layout mode (the pause menu): move things round; put everything back where it was built. */
   layout?: () => void;
   resetLayout?: () => void;
+  /** The pause card: settings, back to this morning (null: not in this mode), out to the title. */
+  settings: () => void;
+  restartDay?: () => void;
+  quit: () => void;
 }
 
 export class Hud {
@@ -194,6 +204,8 @@ export class Hud {
   private catcher: HTMLDivElement;
   private eod: HTMLDivElement;
   private pausedEl: HTMLDivElement;
+  private pauseBtn!: HTMLButtonElement;
+  private restartBtn!: HTMLButtonElement;
   private stick: HTMLDivElement;
   private knob: HTMLDivElement;
   private summary: HTMLDivElement;
@@ -259,10 +271,21 @@ export class Hud {
     this.pad.append(this.padBody);
     this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
-    this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped. Tap to carry on.</p>
-      <button class="layout">Move things round</button><button class="resetlayout">Put everything back as built</button>
-      <button class="daily">Today's daily</button></div>`;
-    this.pausedEl.addEventListener('click', () => this.cb.togglePause());
+    this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped.</p>
+      <button class="big resume">Resume</button><button class="big settings">Settings</button>
+      <button class="big restart">Restart day</button><button class="big quit">Quit to title</button>
+      <div class="more"><button class="layout quiet">Move things round</button><button class="resetlayout quiet">Put everything back as built</button>
+      <button class="daily quiet">Today's daily</button></div></div>`;
+    this.restartBtn = this.pausedEl.querySelector<HTMLButtonElement>('.restart')!;
+    for (const [sel, f] of [['.resume', () => this.cb.togglePause()], ['.settings', () => this.cb.settings()], ['.quit', () => this.cb.quit()]] as const)
+      this.pausedEl.querySelector(sel)!.addEventListener('click', e => { e.stopPropagation(); f(); });
+    // Restart day asks first (it throws away today's play); the second tap does it
+    let sure = 0;
+    this.restartBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (!sure) { this.restartBtn.textContent = 'Sure? Back to this morning'; sure = window.setTimeout(() => { sure = 0; this.restartBtn.textContent = 'Restart day'; }, 4000); return; }
+      window.clearTimeout(sure); sure = 0; this.cb.restartDay?.();
+    });
     this.pausedEl.querySelector('.layout')!.addEventListener('click', e => { e.stopPropagation(); this.cb.togglePause(); this.cb.layout?.(); });
     this.pausedEl.querySelector('.daily')!.addEventListener('click', e => { e.stopPropagation(); location.search = new URLSearchParams(location.search).has('daily') ? '' : '?daily=1'; });
     const reset = this.pausedEl.querySelector<HTMLButtonElement>('.resetlayout')!;
@@ -276,6 +299,8 @@ export class Hud {
     this.pointers = el('div', { className: 'pointers' });
     this.hint = el('div', { className: 'hint' });
     this.mute = el('button', { className: 'mute' });
+    this.pauseBtn = el('button', { className: 'pausebtn', title: 'Pause', textContent: '❚❚' });
+    this.pauseBtn.addEventListener('click', e => { e.stopPropagation(); this.cb.togglePause(); });
     this.ply = el('div', { className: 'modal ply' });
     this.bubble = el('div', { className: 'bubble' });
     this.mateBubble = el('div', { className: 'bubble say' });
@@ -298,7 +323,7 @@ export class Hud {
     }
     try { this.pinned = localStorage.getItem('kir-pad-pinned') !== '0'; } catch { /* default: pinned */ }
     // the speech bubbles go under the labels: a mate's answer buttons always sit over what he's saying
-    this.stage.append(this.bubble, this.mateBubble, this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
+    this.stage.append(this.bubble, this.mateBubble, this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.pauseBtn, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
     if (this.fsBtn) this.stage.appendChild(this.fsBtn);
     document.body.appendChild(this.root);
     this.layout(window.innerWidth, window.innerHeight);
@@ -475,6 +500,8 @@ export class Hud {
   hidePlyOrder() { this.ply.style.display = 'none'; }
 
   setPaused(paused: boolean) { this.pausedEl.style.display = paused ? 'flex' : 'none'; }
+  /** Restart day is there only when there's a morning to go back to. */
+  setRestartable(on: boolean) { this.restartBtn.style.display = on ? '' : 'none'; }
 
   setMuted(m: boolean) { this.mute.textContent = m ? '🔇' : '🔊'; this.mute.title = m ? 'Sound off' : 'Sound on'; }
 
@@ -537,7 +564,7 @@ export class Hud {
   hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
   get summaryShowing() { return this.summary.style.display === 'block'; }
   setHudVisible(v: boolean) {
-    for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.mute, this.toast, this.fsBtn]) if (e) e.style.visibility = v ? 'visible' : 'hidden';
+    for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.pauseBtn, this.mute, this.toast, this.fsBtn]) if (e) e.style.visibility = v ? 'visible' : 'hidden';
     if (this.land) this.pad.style.visibility = v ? 'visible' : 'hidden';
   }
 

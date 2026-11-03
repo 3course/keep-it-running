@@ -86,6 +86,8 @@ const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos
 
 interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
 
+const DAY_KEY = 'kir-daystart';
+
 export class World3D {
   readonly renderer: THREE.WebGLRenderer;
   scene = new THREE.Scene();       // rebuilt from state if the GPU context is lost and comes back
@@ -290,6 +292,9 @@ export class World3D {
       togglePause: () => this.setPaused(!this.paused),
       knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
       overtime: () => { this.g.startOvertime(); this.hud.hideEndOfDay(); this.save(); },
+      settings: () => this.openSettings(),
+      restartDay: () => this.restartDay(),
+      quit: () => this.quitToTitle(),
       layout: () => this.enterLayout(),
       resetLayout: () => this.commitLayout(clonePlan(DEFAULT_PLAN), 0),
     });
@@ -352,7 +357,7 @@ export class World3D {
     document.addEventListener('visibilitychange', () => { if (document.hidden) { this.setPaused(true); this.save(); } });
     window.addEventListener('pagehide', () => this.save());
     (window as unknown as { kirScene: World3D }).kirScene = this;
-    if (title) this.showTitle(title.summary);
+    if (title) this.showTitle(title.summary); else this.snapFirstMorning();
     requestAnimationFrame(t => this.frame(t));
   }
 
@@ -360,6 +365,8 @@ export class World3D {
 
   /** The landing screen, over a slow shot of the shed from the street. The clock's stopped and nothing is saved until you choose. */
   private title: TitleScreen | null = null;
+  /** Reloading onto a save we've just put back (Restart day) or wiped: the page's own last save (pagehide) mustn't undo it. */
+  private leaving = false;
   private titleT = 0;
 
   private showTitle(summary: string | null) {
@@ -378,6 +385,7 @@ export class World3D {
   private leaveTitle() {
     this.title?.remove(); this.title = null;
     this.hud.setHudVisible(true);
+    this.snapFirstMorning();
     this.setPaused(false);
   }
 
@@ -385,6 +393,7 @@ export class World3D {
     if (!hadSave) { this.leaveTitle(); return; }   // (the new game's already built: this one has no save to lose)
     try { sessionStorage.setItem('kir-boot', 'new'); } catch { /* the title shows again: pick New game */ }
     clearSave();
+    this.leaving = true;
     location.reload();
   }
 
@@ -393,7 +402,7 @@ export class World3D {
     showSettings(this.hud.labels.parentElement!, {
       close: () => {},
       graphicsChanged: () => { this.save(); try { sessionStorage.setItem('kir-boot', 'resume'); } catch { /* title shows */ } location.reload(); },
-      resetSave: () => { clearSave(); location.reload(); },
+      resetSave: () => { clearSave(); try { localStorage.removeItem(DAY_KEY); } catch { /* fine */ } this.leaving = true; location.reload(); },
     });
   }
 
@@ -659,6 +668,7 @@ export class World3D {
     }
     if (w.dayIndex !== g.dayIndex && g.phase === 'day') {
       startNewDay(w, g);
+      this.snapDay(); this.hud.setRestartable(this.mode !== 'daily');
       this.pos = { x: w.px, z: w.py }; this.vel = { x: 0, z: 0 }; this.stopWalking();
       this.save();
     }
@@ -2261,7 +2271,38 @@ export class World3D {
     this.save();
   }
   get isPaused() { return this.paused; }
-  private save() { if (this.mode !== 'daily' && !this.title) writeSave(this.g, this.w); } // the daily keeps nothing but its result; the title saves nothing (a game you haven't started isn't one to Continue)
+
+  // ---------- restart day, quit ----------
+
+  /** This morning, kept: the save as it was when the day opened (only the lease keeps days; the daily is one day, replayed from its seed). */
+  private snapDay() {
+    if (this.mode === 'daily') return;
+    writeSave(this.g, this.w);
+    try { const raw = localStorage.getItem(WORLD.saveKey); if (raw) localStorage.setItem(DAY_KEY, JSON.stringify({ day: this.g.dayIndex, seed: this.g.seed, raw })); } catch { /* no restart */ }
+  }
+  /** A game starting at the day's open (not one loaded mid-day) has a morning to go back to. */
+  private snapFirstMorning() {
+    if (this.mode !== 'daily' && !this.daySnap() && this.g.minute <= CONFIG.clock.startHour * 60) this.snapDay();
+    this.hud.setRestartable(this.mode !== 'daily' && !!this.daySnap());
+  }
+  private daySnap(): string | null {
+    try { const s = JSON.parse(localStorage.getItem(DAY_KEY) ?? 'null'); return s && s.day === this.g.dayIndex && s.seed === this.g.seed ? s.raw : null; } catch { return null; }
+  }
+
+  /** Back to this morning: the day-start save comes back and the page reloads onto it (no title). */
+  private restartDay() {
+    const raw = this.daySnap(); if (!raw) return;
+    try { localStorage.setItem(WORLD.saveKey, raw); sessionStorage.setItem('kir-boot', 'resume'); } catch { return; }
+    this.leaving = true;
+    location.reload();
+  }
+
+  /** Out to the title: saved as it stands, the clock stopped. */
+  private quitToTitle() {
+    this.save();
+    if (this.mode === 'daily') location.search = ''; else location.reload();
+  }
+  private save() { if (this.mode !== 'daily' && !this.title && !this.leaving) writeSave(this.g, this.w); } // the daily keeps nothing but its result; the title saves nothing (a game you haven't started isn't one to Continue)
 
   // ---------- test hooks (window.kirScene) ----------
 
