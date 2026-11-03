@@ -373,6 +373,7 @@ export class World3D {
     this.paused = true; this.acc = 0;
     this.hud.setPaused(false);        // (no pause card: the title is the pause)
     this.hud.setHudVisible(false);
+    this.coverCards(true);
     this.title = new TitleScreen(this.hud.labels.parentElement!, {
       summary, version: BUILD_TAG,
       onContinue: () => this.leaveTitle(),
@@ -381,9 +382,15 @@ export class World3D {
     });
   }
 
+  /** The day-one letter (and any other card up at load) waits behind the title, and is there again when you carry on. */
+  private coverCards(on: boolean) {
+    this.hud.labels.parentElement!.querySelectorAll<HTMLElement>('.lettercard, .jobcard, .callcard').forEach(e => { e.style.visibility = on ? 'hidden' : ''; });
+  }
+
   /** On to the game: the save as you left it (clock running), or a new game's first morning. */
   private leaveTitle() {
     this.title?.remove(); this.title = null;
+    this.coverCards(false);
     this.hud.setHudVisible(true);
     this.snapFirstMorning();
     this.setPaused(false);

@@ -12,7 +12,8 @@ const CSS = `
 .kirset .row > span { flex: 0 0 auto; }
 .kirset input[type=range] { flex: 1; min-width: 0; height: ${F(34)}; accent-color: #d48a3c; }
 .kirset .val { flex: 0 0 ${F(48)}; text-align: right; color: #a2937f; }
-.kirset .seg { display: flex; gap: ${F(4)}; flex-wrap: wrap; justify-content: flex-end; }
+.kirset .seg { display: flex; gap: ${F(4)}; flex-wrap: nowrap; justify-content: flex-end; }
+.kirset .seg button { padding-left: ${F(8)}; padding-right: ${F(8)}; min-width: 0; font-size: ${F(15)}; }
 .kirset button { font: inherit; font-size: ${F(16)}; color: #efe6d8; background: #3a332b; border: 2px solid #5a4e40; min-height: ${F(44)}; padding: 0 ${F(12)}; cursor: pointer; }
 .kirset button.on { background: #d48a3c; border-color: #d48a3c; color: #14110f; font-weight: bold; }
 .kirset .note { margin: ${F(-4)} 0 ${F(8)}; font-size: ${F(14)}; color: #f2c76b; text-align: right; }

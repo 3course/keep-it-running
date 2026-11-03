@@ -165,7 +165,7 @@ const CSS = `
 #kir-hud .fs { top: calc(${F(188)} + ${SAT}); }
 #kir-hud .paused .card button.big { display: block; width: 100%; margin: 10px 0 0; }
 #kir-hud .paused .card button.resume { background: #4e8a46; }
-#kir-hud .paused .card button.quiet { background: #3a3128; font-size: ${F(16)}; min-height: ${F(40)}; }
+#kir-hud .paused .card button.quiet { background: #3a3128; color: #efe6d8; font-size: ${F(16)}; min-height: ${F(40)}; }
 #kir-hud .paused .card .more { margin-top: 14px; border-top: 1px solid #4a4036; padding-top: 4px; }
 /* landscape: the notepad is a column pinned on the left (the tab folds it away); the stick lives bottom-left */
 #kir-hud.land .pad { top: calc(10px + ${SAT}); bottom: calc(10px + ${SAB}); width: var(--padw); max-width: none; border-radius: 0 10px 10px 0; }
@@ -564,7 +564,7 @@ export class Hud {
   hideSummary() { this.summary.style.display = 'none'; this.summary.innerHTML = ''; }
   get summaryShowing() { return this.summary.style.display === 'block'; }
   setHudVisible(v: boolean) {
-    for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.pauseBtn, this.mute, this.toast, this.fsBtn]) if (e) e.style.visibility = v ? 'visible' : 'hidden';
+    for (const e of [this.clock, this.tab, this.labels, this.pointers, this.hint, this.pauseBtn, this.mute, this.toast, this.fsBtn, this.tag]) if (e) e.style.visibility = v ? 'visible' : 'hidden';
     if (this.land) this.pad.style.visibility = v ? 'visible' : 'hidden';
   }
 
