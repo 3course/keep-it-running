@@ -42,6 +42,9 @@ export const WORLD = {
   // Speech bubbles in the shed stay up max(minSeconds, baseSeconds + perChar × characters) of real time (scaled by the text
   // speed setting), can be tapped away, and stay while you're within nearMetres of the speaker (till you walk off or tap)
   bubble: { minSeconds: 2.5, baseSeconds: 0.9, perChar: 0.06, nearMetres: 2 },
+  textSpeedMult: { slow: 1.5, normal: 1, fast: 0.7 }, // the text speed setting scales how long bubbles stay
+  // the title screen's slow shot of the shed exterior: from the street, a gentle sweep along the front (reduce motion: still)
+  titleShot: { from: { x: 24, y: 3.4, z: 15.6 }, look: { x: 13.5, y: 1.5, z: 15.0 }, sweepMetres: 5, sweepSeconds: 70 },
   callLineMs: 650,                     // an order call fills in on the notepad a line this often (real ms), then the answers
   inspectorSpeed: 1.2,                 // m/s: the council inspector, clipboard in hand
   inspectorStayClose: 3.0,             // m: the walk-round only counts while you're this close to them

@@ -1,10 +1,12 @@
 // Little sounds, synthesised (no files): a can cracking, a tram somewhere down the road, a dog a few yards over, a
 // cheer, and some music once someone puts it on. Off when the game's muted.
+import { SETTINGS, onSettings } from '../settings.js';
 const MUTE_KEY = 'kir-muted';
 
 export class Sfx {
   private ctx: AudioContext | null = null;
   private out: GainNode | null = null;
+  private musicLevel = 0.05;
   private music: { gain: GainNode; timer: number } | null = null;
 
   get muted() { try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; } }
@@ -15,7 +17,8 @@ export class Sfx {
     const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AC) return;
     this.ctx = new AC();
-    this.out = this.ctx.createGain(); this.out.gain.value = 0.5; this.out.connect(this.ctx.destination);
+    this.out = this.ctx.createGain(); this.out.gain.value = 0.5 * SETTINGS.sound; this.out.connect(this.ctx.destination);
+    onSettings(s => { if (this.out) this.out.gain.value = 0.5 * s.sound; if (this.music) this.music.gain.gain.value = this.musicLevel * s.music; });
   }
 
   private ready() { return this.ctx && this.out && !this.muted ? { ctx: this.ctx, out: this.out } : null; }
@@ -101,7 +104,7 @@ export class Sfx {
   /** Someone's put music on: a loose, warm little loop (louder on group nights). */
   startMusic(loud = false) {
     const r = this.ready(); if (!r || this.music) return;
-    const gain = r.ctx.createGain(); gain.gain.value = loud ? 0.09 : 0.05; gain.connect(r.out);
+    const gain = r.ctx.createGain(); this.musicLevel = loud ? 0.09 : 0.05; gain.gain.value = this.musicLevel * SETTINGS.music; gain.connect(r.out);
     const chords = [[220, 277, 330], [196, 247, 294], [175, 220, 262], [196, 247, 294]];
     let i = 0;
     const play = () => {

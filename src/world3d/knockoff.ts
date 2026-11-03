@@ -4,6 +4,7 @@
 // (src/people/night.ts); this shows it: speech bubbles, faces, idles, the light going (fluoros off, the fridge doing
 // the work by turn ~8), a tram, a dog, a can cracking. Ring someone and they walk in through the door with more beers
 // and the shot widens to three. "Wind it up" and the camera goes back to the shed, and the day's done.
+import { SETTINGS } from '../settings.js';
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
@@ -326,7 +327,7 @@ export class KnockOff {
     if (this.weight <= 0) return;
     const e = this.weight * this.weight * (3 - 2 * this.weight);
     // a slow breathe so the shot isn't dead still
-    const look = this.shot.look.clone().add(new THREE.Vector3(0, Math.sin(this.t * 0.4) * 0.015, 0));
+    const look = this.shot.look.clone().add(new THREE.Vector3(0, SETTINGS.reduceMotion ? 0 : Math.sin(this.t * 0.4) * 0.015, 0));
     camera.position.lerp(this.shot.pos, e);
     camera.lookAt(baseLook.clone().lerp(look, e));
   }

@@ -5,6 +5,8 @@ import { World3D } from './world3d/app.js';
 import { describeGpu, probeGpu, type GpuInfo } from './world3d/gpu.js';
 import { readSave } from './world/save.js';
 import { newWorld } from './world/state.js';
+import { graphicsSearch } from './settings.js';
+import { dayHeading } from './world/lease.js';
 import { dailyStart, seedParam, shiftSeed } from './world/daily.js';
 
 initAnalytics();
@@ -29,12 +31,20 @@ if (forced && game.dayIndex === 1 && !game.rare && !game.forceRareEvent(forced))
 track(saved ? 'resume_game' : 'new_game', { day_index: game.dayIndex, cash: Math.round(game.cash) });
 
 // what the GPU can do decides the render tier (?safe=1 forces the plain one)
-const gpu = probeGpu();
+const gpu = probeGpu(graphicsSearch(location.search));
 // handy for poking at balance from the console: window.kir.cash = 9999
 Object.assign(window as unknown as { kir: Game; kirGpu: GpuInfo }, { kir: game, kirGpu: gpu });
 
+// The title comes first on a load. Not for the daily, ?title=0 / ?intro=0 (the tests), or straight after a choice made on it
+// (New game, a graphics change, Restart day reload the page and set 'kir-boot').
+let boot: string | null = null;
+try { boot = sessionStorage.getItem('kir-boot'); sessionStorage.removeItem('kir-boot'); } catch { /* none */ }
+const q = new URLSearchParams(location.search);
+const showTitle = !daily && !boot && q.get('title') !== '0' && q.get('intro') !== '0';
+const title = showTitle ? { summary: saved && world.lease ? dayHeading(game, world.lease) : null } : null;
+
 try {
-  new World3D(document.getElementById('game')!, game, world, !!saved, gpu, daily ? 'daily' : 'lease');
+  new World3D(document.getElementById('game')!, game, world, !!saved, gpu, daily ? 'daily' : 'lease', title);
 } catch (e) {
   // no WebGL, or the renderer died being made: say so, with the details, instead of a blank canvas
   showRendererFailure(describeGpu(gpu, e instanceof Error ? `${e.name}: ${e.message}` : String(e)));

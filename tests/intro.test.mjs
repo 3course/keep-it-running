@@ -14,7 +14,7 @@ async function open(query, seen = false) {
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(`${env.url}${query}`);
+  await page.goto(`${env.url}${query}&title=0`);
   await page.waitForFunction(() => window.kirScene?.started);
   await page.waitForTimeout(300);
   return { page, context, errors };

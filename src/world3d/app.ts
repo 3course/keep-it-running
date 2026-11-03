@@ -17,7 +17,7 @@ import { CallCard } from '../ui/callCard.js';
 import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
-import { writeSave } from '../world/save.js';
+import { writeSave, clearSave } from '../world/save.js';
 import { absMinute, extPlace, HOOKS, hookThere, logEvent, onHook, startNewDay, type Hook, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
@@ -51,9 +51,13 @@ import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
 import { DennisView } from './dennisView.js';
 import { Cafe } from './cafe.js';
-import { dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, recordDay, rememberLease, runFacts } from '../world/lease.js';
+import { dayHeading, dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, rentClockText, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { KerrView } from '../ui/kerr.js';
+import { TitleScreen } from '../ui/title.js';
+import { showSettings } from '../ui/settingsCard.js';
+import { SETTINGS } from '../settings.js';
+import { BUILD_TAG } from '../ui/clipboard.js';
 import { holdSeconds } from '../ui/talk.js';
 import { snapAll } from './pixelSnap.js';
 import { kerrScreen } from '../world/kerr.js';
@@ -231,7 +235,7 @@ export class World3D {
   private hemi!: THREE.HemisphereLight;
 
   /** `gpu`: what the device can do (gpu.ts); it picks the render tier. Throws if WebGL can't start at all. */
-  constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo, readonly mode: 'lease' | 'daily' = 'lease') {
+  constructor(private container: HTMLElement, private g: Game, public w: WorldState, resumePaused: boolean, readonly gpu: GpuInfo, readonly mode: 'lease' | 'daily' = 'lease', title: { summary: string | null } | null = null) {
     this.tier = TIERS[gpu.tier];
     this.renderer = new THREE.WebGLRenderer({ antialias: this.tier.antialias, powerPreference: this.tier.powerPreference });
     this.renderer.setPixelRatio(1);
@@ -348,7 +352,59 @@ export class World3D {
     document.addEventListener('visibilitychange', () => { if (document.hidden) { this.setPaused(true); this.save(); } });
     window.addEventListener('pagehide', () => this.save());
     (window as unknown as { kirScene: World3D }).kirScene = this;
+    if (title) this.showTitle(title.summary);
     requestAnimationFrame(t => this.frame(t));
+  }
+
+  // ---------- the title screen ----------
+
+  /** The landing screen, over a slow shot of the shed from the street. The clock's stopped and nothing is saved until you choose. */
+  private title: TitleScreen | null = null;
+  private titleT = 0;
+
+  private showTitle(summary: string | null) {
+    this.paused = true; this.acc = 0;
+    this.hud.setPaused(false);        // (no pause card: the title is the pause)
+    this.hud.setHudVisible(false);
+    this.title = new TitleScreen(this.hud.labels.parentElement!, {
+      summary, version: BUILD_TAG,
+      onContinue: () => this.leaveTitle(),
+      onNew: () => this.newGameFromTitle(summary !== null),
+      onSettings: () => this.openSettings(),
+    });
+  }
+
+  /** On to the game: the save as you left it (clock running), or a new game's first morning. */
+  private leaveTitle() {
+    this.title?.remove(); this.title = null;
+    this.hud.setHudVisible(true);
+    this.setPaused(false);
+  }
+
+  private newGameFromTitle(hadSave: boolean) {
+    if (!hadSave) { this.leaveTitle(); return; }   // (the new game's already built: this one has no save to lose)
+    try { sessionStorage.setItem('kir-boot', 'new'); } catch { /* the title shows again: pick New game */ }
+    clearSave();
+    location.reload();
+  }
+
+  /** The settings card, from the title or the pause card. Graphics apply on a reload (to the title: Continue picks up the save). */
+  openSettings() {
+    showSettings(this.hud.labels.parentElement!, {
+      close: () => {},
+      graphicsChanged: () => { this.save(); try { sessionStorage.setItem('kir-boot', 'resume'); } catch { /* title shows */ } location.reload(); },
+      resetSave: () => { clearSave(); location.reload(); },
+    });
+  }
+
+  /** The title's shot: from the street, a slow sweep along the front of the shed (reduce motion: held still). */
+  private applyTitleCamera(dt: number) {
+    if (!this.title) return;
+    const S = WORLD.titleShot;
+    if (!SETTINGS.reduceMotion) this.titleT += dt;
+    const sw = Math.sin(this.titleT * 2 * Math.PI / S.sweepSeconds) * S.sweepMetres;
+    this.camera.position.set(S.from.x, S.from.y, S.from.z + sw);
+    this.camera.lookAt(S.look.x, S.look.y, S.look.z + sw * 0.6);
   }
 
   /**
@@ -653,6 +709,7 @@ export class World3D {
     this.tracing.applyCamera(this.camera, dt);
     this.layoutEditor.applyCamera(this.camera, dt);
     this.cafe.applyCamera(this.camera, dt);
+    this.applyTitleCamera(dt);
     if (this.reveal.active && !this.reveal.update(this.paused ? 0 : dt, this.camera, this.camLook)) this.skipEl.style.display = 'none';
     this.camera.updateMatrixWorld();
     this.knockoff.update(dt, this.paused);
@@ -662,7 +719,7 @@ export class World3D {
     this.layoutEditor.update();
     this.dennisView.update(this.paused || this.knockoff.inScene ? 0 : dt);
     this.offerLayout();
-    if (this.introPending && this.cafe) {
+    if (this.introPending && this.cafe && !this.title) {
       this.introPending = false;
       let seen = false; try { seen = localStorage.getItem('kir-intro-seen') === '1'; } catch { /* fine */ }
       this.cafe.intro(seen);
@@ -909,19 +966,12 @@ export class World3D {
   }
 
   /** The notepad's rent clock: "rent due in 17 days", "rent due today" (nothing in the daily). */
-  rentClock(): string {
-    const l = this.w.lease;
-    if (!l) return '';
-    const left = leaseLength() - leaseDay(l, this.g);
-    return left > 1 ? `rent due in ${left} days` : left === 1 ? 'rent due tomorrow' : left === 0 ? 'rent due today' : '';
-  }
+  rentClock(): string { return rentClockText(this.g, this.w.lease); }
 
   /** The notepad's header: one day count ("Mon, week 1"), the rent clock, and the bank and the rent on one line under it. */
   padHead(): { title: string; sub: string } {
     const g = this.g, l = this.w.lease;
-    const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][(g.day - 1) % 5];
-    const week = l ? Math.ceil(leaseDay(l, g) / CONFIG.week.days) : Math.ceil(g.dayIndex / CONFIG.week.days);
-    const title = [`${dayName}, week ${week}`, this.rentClock(), g.timeScale > 1 ? 'waiting…' : ''].filter(Boolean).join(' · ');
+    const title = [dayHeading(g, l), g.timeScale > 1 ? 'waiting…' : ''].filter(Boolean).join(' · ');
     const bank = `$${Math.round(g.cash).toLocaleString('en-AU')} in the bank`;
     return { title, sub: l ? `${bank} · $${l.rentDue.toLocaleString('en-AU')} rent due day ${leaseLength()}` : bank };
   }
@@ -1772,7 +1822,7 @@ export class World3D {
     this.logFireStart();
     this.hud.setCanChip(g.phase !== 'day' ? null : w.carrying === 'extinguisher' ? 'Put the extinguisher down'
       : held ? (held.fill > 0 ? 'Put the beer down' : 'Put the empty down') : null);
-    this.player.setVisible(w.toiletUntil === null && !this.knockoff.inScene);
+    this.player.setVisible(w.toiletUntil === null && !this.knockoff.inScene && !this.title);
     this.player.update(dt, this.pos.x, this.pos.z, this.vel.x, this.vel.z);
   }
 
@@ -2188,7 +2238,7 @@ export class World3D {
     const right = { x: Math.cos(this.camYaw), z: -Math.sin(this.camYaw) };
     const pan = (dx * right.x + dz * right.z) / dist;
     const volume = THREE.MathUtils.clamp(1 - dist / 32, 0.12, 1);
-    this.ring.update(ringing && this.time >= this.snapHoldUntil, this.time, pan, volume); // (a beat after a snap back to 1x)
+    this.ring.update(ringing && this.time >= this.snapHoldUntil, this.time, pan, volume * SETTINGS.sound); // (a beat after a snap back to 1x)
     // the compressor, hissing away: its pitch drops as water builds up in the tank
     const h = WORLD.hiss, cp = this.built.objects.get('compressor')!.centre;
     const cx = cp.x - this.pos.x, cz = cp.z - this.pos.z, cd = Math.hypot(cx, cz) || 1;
@@ -2211,7 +2261,7 @@ export class World3D {
     this.save();
   }
   get isPaused() { return this.paused; }
-  private save() { if (this.mode !== 'daily') writeSave(this.g, this.w); } // the daily keeps nothing but its result
+  private save() { if (this.mode !== 'daily' && !this.title) writeSave(this.g, this.w); } // the daily keeps nothing but its result; the title saves nothing (a game you haven't started isn't one to Continue)
 
   // ---------- test hooks (window.kirScene) ----------
 

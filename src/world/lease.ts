@@ -54,6 +54,20 @@ export function newLease(g: Game, n = nextLeaseNumber()): LeaseState {
 export const leaseLength = () => CONFIG.lease.dueDay;
 /** Day 1..20 of the lease (the game's dayIndex counts every working day). */
 export const leaseDay = (l: LeaseState, g: Game) => g.dayIndex - l.startDayIndex + 1;
+/** "rent due in 19 days" / "rent due tomorrow" / "rent due today" ('' once it's past, or with no lease). */
+export function rentClockText(g: Game, l: LeaseState | undefined): string {
+  if (!l) return '';
+  const left = leaseLength() - leaseDay(l, g);
+  return left > 1 ? `rent due in ${left} days` : left === 1 ? 'rent due tomorrow' : left === 0 ? 'rent due today' : '';
+}
+
+/** "Mon, week 2 · rent due in 12 days": one day count, for the notepad's header and the title's Continue. */
+export function dayHeading(g: Game, l: LeaseState | undefined): string {
+  const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'][(g.day - 1) % 5];
+  const week = l ? Math.ceil(leaseDay(l, g) / CONFIG.week.days) : Math.ceil(g.dayIndex / CONFIG.week.days);
+  return [`${dayName}, week ${week}`, rentClockText(g, l)].filter(Boolean).join(' · ');
+}
+
 export const leaseOver = (l: LeaseState, g: Game) => leaseDay(l, g) > leaseLength();
 /** What'll be in the bank at the end of today, once the week's overheads are out on a Friday. */
 export const projectedCash = (g: Game) => g.cash - (g.day >= CONFIG.week.days ? CONFIG.economy.weeklyOverheads : 0);

@@ -6,6 +6,7 @@
 // the rare late one, the barista just looks at you). Walking back, the notepad picks up what you heard and the day
 // starts. Speech bubbles only. It's 6:45 when you get there; the factory's clock waits till 7 and not a minute more,
 // and it's 90 real seconds at most.
+import { SETTINGS } from '../settings.js';
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
@@ -519,7 +520,7 @@ export class Cafe {
         if (b.nextPeck <= 0) { b.peckLeft = SPARROWS.peckSeconds; b.nextPeck = SPARROWS.peckEvery[0] + Math.random() * (SPARROWS.peckEvery[1] - SPARROWS.peckEvery[0]); }
       }
       // a hop: due, nobody talking, and no other bird just hopped
-      if (!speaking && this.t >= b.nextHop) {
+      if (!speaking && !SETTINGS.reduceMotion && this.t >= b.nextHop) {
         if (this.t - this.birdsHopAt < SPARROWS.apart) { b.nextHop = this.birdsHopAt + SPARROWS.apart + 0.2; continue; }
         const a = Math.random() * Math.PI * 2, r = 0.3 + Math.random() * 0.35;
         b.from.copy(b.root.position);
