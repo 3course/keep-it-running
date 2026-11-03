@@ -181,7 +181,14 @@ describe('the rest, by hand', () => {
       await tapLabel(game, 'Answer');
       // straight after answering: still telling you, no answers yet; the phone's prompt has gone (the card's the prompt)
       const early = await game.page.evaluate(() => ({ on: document.querySelectorAll('#kir-hud .callcard .ln.on').length, of: document.querySelectorAll('#kir-hud .callcard .ln').length, row: !!document.querySelector('#kir-hud .callcard .row.on') }));
-      assert.equal(early.of, 2); assert.ok(early.on < 2, `still telling you (${early.on} of 2)`); assert.equal(early.row, false, 'no answers till they have');
+      assert.equal(early.of, 2);
+      // (under a loaded run the lines may already be in by the first look: what matters is the order) — the answers come
+      // only once they've told you all of it, never before
+      for (let k = 0; k < 60; k++) {
+        const r = await game.page.evaluate(() => ({ on: document.querySelectorAll('#kir-hud .callcard .ln.on').length, row: !!document.querySelector('#kir-hud .callcard .row.on') }));
+        if (r.row) { assert.equal(r.on, 2, 'no answers till they have told you'); break; }
+        await new Promise(res => setTimeout(res, 50));
+      }
       assert.ok(!(await game.eval((g, w, s) => s.labelEls.some(l => l.el.textContent.includes('Answer')))), 'no Answer prompt while on the call');
       // it doesn't ring out while they're telling you
       const left = await game.eval(g => g.distractions.find(x => x.order).remaining);
