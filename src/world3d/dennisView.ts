@@ -15,6 +15,7 @@ import { logEvent, type WorldState } from '../world/state.js';
 import { objectById } from '../world/layout.js';
 import { boxAt, toon } from './build.js';
 import { Figure } from './figures.js';
+import { NAMED } from './looks.js';
 
 const C = 0.5;
 const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLocaleString('en-AU')}`;
@@ -132,7 +133,7 @@ export class DennisView {
   private coffeeVisit() {
     const g = this.d.g, w = this.d.w;
     (w.dennisCoffeeDay ??= []).push(g.dayIndex);
-    const fig = new Figure({ shirt: 0xb8902e, hair: 'short', hairColour: 0x9a9aa0 });
+    const fig = new Figure(NAMED.dennis);
     fig.setSeated(false); fig.setExpr('laughing');
     fig.root.position.set(13.9, 0, 15.6); fig.root.rotation.y = Math.PI / 2;
     this.props.add(fig.root);

@@ -25,15 +25,9 @@ import { MATE_LAYOUT } from '../people/lines/layout.js';
 import { PEOPLE } from '../people/config.js';
 const PEOPLE_SHIRT = { jess: PEOPLE.partTimer.shirt };
 import { fullPlan, shift } from '../world/layoutPlan.js';
+import { friendLook, NAMED } from './looks.js';
 
-/** How each mate looks up close (their shirt is the one they always wear: src/data/mates.ts). */
-const LOOKS: Record<FriendId, Omit<FigureLook, 'shirt'>> = {
-  eggby: { hair: 'short', hairColour: 0x6a4a2a, canColour: 0xd9a23a },
-  courtney: { hair: 'bun', hairColour: 0x2a1a14, canColour: 0x8fd37a },
-  tim: { hair: 'beanie', hairColour: 0x4a5a6a, canColour: 0xc0281e },
-  dennis: { hair: 'short', hairColour: 0x9a9aa0, canColour: 0xf4efe0 },
-};
-const YOU: FigureLook = { shirt: 0xe8892e, hair: 'cap', hairColour: 0x2f4f6f, canColour: 0x2f8f6f };
+// (how each mate looks up close, and you: src/world3d/looks.ts)
 
 // the set, in metres: crates in front of the fridge (dock, east wall), the roller door just north of it
 const SPOT_BUILT = {
@@ -170,7 +164,7 @@ export class KnockOff {
     // now and then it's the accountant at the door instead of one of the mates
     const accountant = CONFIG.dennis.enabled && g.dayIndex > 2 && g.dayIndex % CONFIG.dennis.knockOffEvery === 3;
     const id = this.friend = pickFriend(p.lastFriend, g.dayIndex, accountant);
-    const f = this.figure(id, { shirt: friendById(id).shirt, ...LOOKS[id] });
+    const f = this.figure(id, friendLook(id));
     f.setSeated(false);
     f.root.position.copy(SPOT.door);
     f.root.rotation.y = Math.PI / 2; // facing into the shed
@@ -199,7 +193,7 @@ export class KnockOff {
     for (const c of this.set.children) if (c.name.startsWith('crate')) c.visible = c.name !== 'crate2';
     const host = this.figures.get(id)!;
     host.setSeated(true); host.root.position.copy(SPOT.host); host.setExpr('relaxed');
-    const you = this.figure('you', YOU);
+    const you = this.figure('you', NAMED.you);
     you.root.position.copy(SPOT.you);
     this.night = new Night({ dayIndex: g.dayIndex, host: id, facts: this.d.facts(), people: people(w), forceLsg: this.forceLsg });
     // Friday (the Lease): payday, and a group night — another mate's on their way without being rung
@@ -270,7 +264,7 @@ export class KnockOff {
   }
 
   private arrive(who: FriendId) {
-    const f = this.figure(who, { shirt: friendById(who).shirt, ...LOOKS[who] });
+    const f = this.figure(who, friendLook(who));
     f.setSeated(false);
     f.root.position.copy(SPOT.door);
     f.walking = true;
@@ -424,11 +418,11 @@ export class KnockOff {
     this.set.visible = true;
     for (const c of this.set.children) if (c.name.startsWith('crate')) c.visible = true;
     // you on your crate, two mates on the others, everyone else standing round them
-    const you = this.figure('you', YOU); you.root.position.copy(SPOT.you);
+    const you = this.figure('you', NAMED.you); you.root.position.copy(SPOT.you);
     const seats = [SPOT.host, SPOT.guest];
     const stand = [new THREE.Vector3(14.15, 0, 16.1), new THREE.Vector3(13.7, 0, 15.5), new THREE.Vector3(14.2, 0, 15.2), new THREE.Vector3(13.2, 0, 15.6)]; // behind the crates, by the door
     rk.people.forEach((id, i) => {
-      const look = id === 'jess' ? { shirt: PEOPLE_SHIRT.jess, hair: 'pony' as const, hairColour: 0x6a3a22, canColour: 0xf4efe0 } : { shirt: friendById(id).shirt, ...LOOKS[id] };
+      const look = id === 'jess' ? NAMED.jess : friendLook(id);
       const f = this.figure(id, look);
       if (i < seats.length) { f.setSeated(true); f.root.position.copy(seats[i]); } else { f.setSeated(false); f.root.position.copy(stand[(i - seats.length) % stand.length]); }
     });

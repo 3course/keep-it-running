@@ -120,7 +120,7 @@ describe('a visiting mate, in the shed', () => {
       assert.deepEqual([st.can, st.beers], [false, 1], 'his now');
       assert.equal(st.cash, cash - CONFIG.beer.cost, 'one can out of your fridge');
       assert.ok(!(await labels(game)).includes(give), 'nothing left to give');
-      assert.ok(await game.eval((g, w, s) => s.built.mate.getObjectByName('mateCan')?.visible), 'the can in his hand');
+      assert.ok(await game.eval((g, w, s) => s.shedMate?.can.visible), 'the can in his hand');
     } finally { await game.close(); }
   });
 

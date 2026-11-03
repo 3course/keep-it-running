@@ -10,8 +10,33 @@ const INK = new THREE.MeshBasicMaterial({ color: 0x1a1414 });
 const MOUTH_IN = new THREE.MeshBasicMaterial({ color: 0x5a1e1e });
 const TEAR = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
 
-export type Hair = 'cap' | 'bun' | 'beanie' | 'short' | 'pony';
-export interface FigureLook { shirt: number; skin?: number; hair: Hair; hairColour?: number; canColour?: number }
+export type Hair = 'bald' | 'buzz' | 'short' | 'cap' | 'beanie' | 'bun' | 'pony' | 'long' | 'mullet';
+export type Build = 'slim' | 'medium' | 'broad';
+export type Top = 'tee' | 'hivis' | 'flannie' | 'hoodie' | 'work' | 'footy' | 'apron';
+export type Beard = 'none' | 'stubble' | 'moustache' | 'beard';
+/**
+ * Everything that makes a person look like themselves. Only `shirt` and `hair` are required; the rest default to a
+ * medium-build bloke in a tee, trousers and boots (what every figure used to be). Named people have hand-set looks and
+ * everyone else a seeded random one: src/world3d/looks.ts.
+ */
+export interface FigureLook {
+  shirt: number; skin?: number; hair: Hair; hairColour?: number; canColour?: number;
+  build?: Build;                 // torso and leg width
+  height?: number;               // 0.9–1.08 of standard
+  beard?: Beard;
+  top?: Top; top2?: number;      // what's worn over the shirt, and its second colour (stripes, hoops, the vest, the apron)
+  legs?: 'trousers' | 'shorts'; legColour?: number;
+  shoes?: 'boots' | 'runners'; shoeColour?: number;
+  glasses?: boolean; earmuffs?: boolean; pencil?: boolean; phone?: boolean;
+  age?: 'young' | 'adult' | 'old';   // old: stooped, bushy brows; young: lanky
+}
+
+/** Chest width and depth, and how far apart the legs stand, per build. */
+const BUILD: Record<Build, { chest: number; depth: number; legs: number }> = {
+  slim: { chest: 0.86, depth: 0.9, legs: 0.9 },
+  medium: { chest: 1, depth: 1, legs: 1 },
+  broad: { chest: 1.22, depth: 1.1, legs: 1.22 },
+};
 
 type Idle = 'sip' | 'lean' | 'look' | 'pick' | null;
 
@@ -36,6 +61,8 @@ export class Figure {
   /** Each leg: a pivot at the hip, and the thigh, shin and foot hung from it (posed for sitting or standing). */
   private legParts: { pivot: THREE.Group; thigh: THREE.Mesh; shin: THREE.Mesh; foot: THREE.Mesh; side: number }[] = [];
   /** Walking: which of the four stepped poses (neutral, left forward, neutral, right forward), and time in it. */
+  /** Baseline forward tilt of the torso (an older bloke's stoop). */
+  private hunch = 0;
   private stepPose = 0;
   private stepT = 0;
   readonly can: THREE.Group;
@@ -54,37 +81,34 @@ export class Figure {
   /** Carrying something in both arms (boards). */
   armsUp = false;
 
-  constructor(look: FigureLook) {
-    const skin = look.skin ?? 0xf0c9a0;
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.26, 4, 12), toon(look.shirt, true));
+  /** `snap: false` when something else (a parent that's moved and turned) is snapped to whole pixels instead. */
+  constructor(look: FigureLook, opts: { snap?: boolean } = {}) {
+    const L = { build: 'medium' as Build, height: 1, beard: 'none' as Beard, top: 'tee' as Top, legs: 'trousers' as const, legColour: 0x2e3440,
+      shoes: 'boots' as const, age: 'adult' as const, ...look };
+    const skin = L.skin ?? 0xf0c9a0, B = BUILD[L.build];
+    this.root.scale.setScalar(L.height);
+    this.hunch = L.age === 'old' ? -0.13 : L.age === 'adult' ? -0.02 : 0;
+    // the chest: a torso, and what's worn on it (scaled for the build)
+    const chest = new THREE.Group(); chest.scale.set(B.chest, 1, B.depth);
+    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.26, 4, 12), toon(L.shirt, true));
     torso.position.y = 0.2; torso.castShadow = true;
-    this.body.add(torso);
+    chest.add(torso);
+    dress(chest, L);
+    this.body.add(chest);
     // head
     const skull = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12), toon(skin, true));
     skull.castShadow = true;
     this.head.add(skull);
     this.head.position.y = 0.62;
     this.body.add(this.head);
-    const hairMat = toon(look.hairColour ?? 0x3a2a20, true);
-    if (look.hair === 'cap') {
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.176, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.3), hairMat);
-      cap.position.y = 0.02; this.head.add(cap);
-      const brim = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.025, 0.13), hairMat); brim.position.set(0, 0.06, -0.17); this.head.add(brim);
-    } else if (look.hair === 'beanie') {
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.18, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.1), hairMat);
-      b.position.y = 0.03; b.scale.y = 1.15; this.head.add(b);
-      const pom = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), toon(0xf4efe0)); pom.position.y = 0.22; this.head.add(pom);
-    } else {
-      const top = new THREE.Mesh(new THREE.SphereGeometry(0.178, 14, 8, 0, Math.PI * 2, 0, Math.PI / 2.6), hairMat);
-      top.position.set(0, 0.015, 0.012); this.head.add(top);
-      if (look.hair === 'bun') { const bun = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), hairMat); bun.position.set(0, 0.17, 0.08); this.head.add(bun); }
-      if (look.hair === 'pony') { const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.14, 3, 6), hairMat); p.position.set(0, 0.0, 0.17); p.rotation.x = 0.5; this.head.add(p); }
-    }
+    const hairMat = toon(L.hairColour ?? (L.age === 'old' ? 0xbfbfc4 : 0x3a2a20), true);
+    addHair(this.head, L.hair, hairMat);
     // face, on the -z side
+    const browGeo = L.age === 'old' ? new THREE.BoxGeometry(0.07, 0.026, 0.024) : new THREE.BoxGeometry(0.06, 0.014, 0.02);
     for (const sx of [-0.06, 0.06]) {
       const e = new THREE.Mesh(new THREE.SphereGeometry(0.027, 8, 6), INK);
       e.position.set(sx, 0.025, -0.155); e.scale.set(1, 1.25, 0.6); this.head.add(e); this.eyes.push(e);
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.014, 0.02), INK);
+      const b = new THREE.Mesh(browGeo, L.age === 'old' ? toon(L.hairColour ?? 0xbfbfc4) : INK);
       b.position.set(sx, 0.08, -0.152); this.head.add(b); this.brows.push(b);
       const tear = new THREE.Mesh(new THREE.SphereGeometry(0.014, 6, 4), TEAR);
       tear.position.set(sx + 0.012, -0.012, -0.158); tear.visible = false; this.head.add(tear); this.tears.push(tear);
@@ -95,14 +119,31 @@ export class Figure {
     this.open.position.set(0, -0.06, -0.15); this.open.scale.set(1.2, 0.8, 0.4); this.head.add(this.open);
     this.flat = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.012, 0.02), INK);
     this.flat.position.set(0, -0.06, -0.156); this.head.add(this.flat);
+    addBeard(this.head, L.beard, hairMat, skin);
+    if (L.glasses) {
+      for (const sx of [-0.06, 0.06]) { const r = new THREE.Mesh(new THREE.TorusGeometry(0.04, 0.007, 4, 12), INK); r.position.set(sx, 0.025, -0.165); this.head.add(r); }
+      const bridge = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.008, 0.008), INK); bridge.position.set(0, 0.03, -0.168); this.head.add(bridge);
+    }
+    if (L.pencil) {
+      const pen = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.11, 6), toon(0xe8c23a)); pen.position.set(0.168, 0.06, -0.03); pen.rotation.z = -0.35; this.head.add(pen);
+      const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.002, 0.009, 0.025, 6), toon(0xd98a8a)); tip.position.set(0.19, 0.1, -0.03); tip.rotation.z = -0.35; this.head.add(tip);
+    }
+    if (L.earmuffs) { // round the neck: the band, and the pads resting on the chest
+      const band = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.022, 6, 14), toon(0x2a2a2e)); band.position.y = 0.47; band.rotation.x = Math.PI / 2; this.body.add(band);
+      for (const sx of [-0.13, 0.13]) { const pad = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.05, 8), toon(0xe86a1c)); pad.position.set(sx, 0.44, -0.1); pad.rotation.z = Math.PI / 2; this.body.add(pad); }
+    }
     // arms: a sleeve and a hand, pivoting at the shoulder
     for (const [arm, sx] of [[this.armR, 0.2], [this.armL, -0.2]] as const) {
-      arm.position.set(sx, 0.36, 0);
-      const sleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.2, 3, 8), toon(look.shirt, true));
+      arm.position.set(sx * B.chest, 0.36, 0);
+      const sleeve = new THREE.Mesh(new THREE.CapsuleGeometry(0.055, 0.2, 3, 8), toon(L.top === 'footy' && L.top2 !== undefined ? L.shirt : L.shirt, true));
       sleeve.position.y = -0.13; arm.add(sleeve);
       const hand = new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 6), toon(skin, true));
       hand.position.y = -0.27; arm.add(hand);
       this.body.add(arm);
+    }
+    if (L.phone) { // in the left hand, screen up
+      const ph = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.09, 0.014), toon(0x1e1e22)); ph.position.set(0, -0.3, -0.05); ph.rotation.x = -0.5; this.armL.add(ph);
+      const scr = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.07, 0.004), new THREE.MeshBasicMaterial({ color: 0x9fd8ff })); scr.position.set(0, 0, -0.009); ph.add(scr);
     }
     this.can = new THREE.Group();
     const can = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.12, 10), toon(look.canColour ?? 0x2f8f6f, true));
@@ -111,18 +152,22 @@ export class Figure {
     this.can.position.set(0, -0.3, -0.04);
     this.armR.add(this.can);
     // legs: a pivot per hip; seated (thighs forward, shins down) or standing (straight down, feet flat on the ground)
-    const legMat = toon(0x2e3440, true);
+    const legMat = toon(L.legColour, true), skinMat = toon(skin, true), shorts = L.legs === 'shorts';
     for (const [i, sx] of [-0.09, 0.09].entries()) {
-      const pivot = new THREE.Group(); pivot.position.x = sx;
+      const pivot = new THREE.Group(); pivot.position.x = sx * B.legs;
       const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.07, 0.22, 3, 8), legMat);
-      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.22, 3, 8), legMat);
-      const foot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), toon(0x3a2a1e)); foot.scale.set(1, 0.6, 1.4);
+      const shin = new THREE.Mesh(new THREE.CapsuleGeometry(0.065, 0.22, 3, 8), shorts ? skinMat : legMat);
+      const foot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), toon(L.shoes === 'runners' ? (L.shoeColour ?? 0xe9e6dc) : (L.shoeColour ?? 0x3a2a1e)));
+      if (L.shoes === 'runners') {
+        foot.scale.set(0.95, 0.5, 1.5);
+        const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.03, 0.12), toon(0xd9643a)); stripe.position.set(sx < 0 ? -0.065 : 0.065, 0.01, 0); foot.add(stripe);
+      } else foot.scale.set(1.05, 0.72, 1.5);
       pivot.add(thigh, shin, foot);
       this.legs.add(pivot);
       this.legParts.push({ pivot, thigh, shin, foot, side: i ? 1 : -1 });
     }
     this.root.add(this.legs, this.body);
-    snapToPixels(this.root); // on whole render pixels, every frame
+    if (opts.snap !== false) snapToPixels(this.root); // on whole render pixels, every frame
     this.setSeated(true);
     this.setExpr('relaxed');
   }
@@ -142,7 +187,7 @@ export class Figure {
         // thigh, then shin, straight down; the foot's sole on the floor (hips at 0.62: 0.62 - 0.578 - 0.042 = 0)
         l.thigh.rotation.x = 0; l.thigh.position.set(0, -0.17, 0);
         l.shin.position.set(0, -0.43, 0);
-        l.foot.position.set(0, -0.578, -0.04);
+        l.foot.position.set(0, l.foot.scale.y * 0.07 - 0.62, -0.04); // the sole on the floor, whatever shoe
       }
     }
     this.stepPose = 0; this.stepT = 0;
@@ -206,7 +251,7 @@ export class Figure {
       this.play(pool[Math.floor(Math.random() * pool.length)]!);
       this.nextIdle = 3 + Math.random() * 4;
     }
-    let armR = -0.25, armL = -0.15, lean = 0, headYaw = 0, headPitch = 0, armRz = 0.15, armLz = -0.15;
+    let armR = -0.25, armL = -0.15, lean = this.hunch, headYaw = 0, headPitch = 0, armRz = 0.15, armLz = -0.15;
     if (this.idle) {
       this.idleT += dt;
       const k = (len: number) => Math.sin(Math.min(1, this.idleT / len) * Math.PI); // 0 → 1 → 0
@@ -247,4 +292,85 @@ export class Figure {
 
   /** Head height in world space, for speech bubbles. */
   headWorld(out: THREE.Vector3) { return this.head.getWorldPosition(out).add(new THREE.Vector3(0, 0.26, 0)); }
+}
+
+
+/** Hair for a style; `m` is its material. */
+function addHair(head: THREE.Group, style: Hair, m: THREE.Material) {
+  const cap = (r: number, phi: number, y = 0.015, z = 0.012) => { const t = new THREE.Mesh(new THREE.SphereGeometry(r, 14, 8, 0, Math.PI * 2, 0, phi), m); t.position.set(0, y, z); head.add(t); return t; };
+  const box = (w: number, h: number, d: number, x: number, y: number, z: number) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); b.position.set(x, y, z); head.add(b); return b; };
+  switch (style) {
+    case 'bald': break;
+    case 'buzz': cap(0.172, Math.PI / 2.9, 0.012, 0.006); break;
+    case 'cap': {
+      cap(0.176, Math.PI / 2.3, 0.02, 0);
+      box(0.2, 0.025, 0.13, 0, 0.06, -0.17); // the brim
+      break;
+    }
+    case 'beanie': {
+      const b = cap(0.18, Math.PI / 2.1, 0.03, 0); b.scale.y = 1.15;
+      const pom = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), toon(0xf4efe0)); pom.position.y = 0.22; head.add(pom);
+      break;
+    }
+    case 'bun': cap(0.178, Math.PI / 2.6); { const bun = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 8), m); bun.position.set(0, 0.17, 0.08); head.add(bun); } break;
+    case 'pony': { cap(0.178, Math.PI / 2.6); const p = new THREE.Mesh(new THREE.CapsuleGeometry(0.04, 0.14, 3, 6), m); p.position.set(0, 0.0, 0.17); p.rotation.x = 0.5; head.add(p); break; }
+    case 'long':
+      cap(0.18, Math.PI / 2.5);
+      box(0.34, 0.34, 0.1, 0, -0.08, 0.12);       // down the back
+      for (const sx of [-0.15, 0.15]) box(0.05, 0.26, 0.1, sx, -0.04, 0.04); // and either side of the face
+      break;
+    case 'mullet':
+      cap(0.178, Math.PI / 2.6);
+      box(0.2, 0.24, 0.08, 0, -0.12, 0.14);        // business up front, party out the back
+      for (const sx of [-0.16, 0.16]) box(0.03, 0.1, 0.05, sx, -0.02, 0.03);
+      break;
+    default: cap(0.178, Math.PI / 2.6); // short
+  }
+}
+
+/** Facial hair, on the -z face, in front of the chin and behind the mouth. */
+function addBeard(head: THREE.Group, kind: Beard, hair: THREE.Material, skin: number) {
+  if (kind === 'none') return;
+  const box = (mat: THREE.Material, w: number, h: number, d: number, x: number, y: number, z: number) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); b.position.set(x, y, z); head.add(b); };
+  if (kind === 'beard') { box(hair, 0.2, 0.075, 0.1, 0, -0.125, -0.12); for (const sx of [-0.1, 0.1]) box(hair, 0.03, 0.1, 0.1, sx, -0.08, -0.07); }
+  else if (kind === 'moustache') box(hair, 0.11, 0.024, 0.04, 0, -0.03, -0.158);
+  else box(toon(new THREE.Color(skin).multiplyScalar(0.72).getHex()), 0.19, 0.08, 0.1, 0, -0.11, -0.1); // stubble: a shadow along the jaw
+}
+
+/** What's worn on the torso (in the chest group, so it widens with the build). */
+function dress(chest: THREE.Group, L: FigureLook) {
+  const top = L.top ?? 'tee', c2 = L.top2;
+  const box = (col: number, w: number, h: number, d: number, x: number, y: number, z: number) => { const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), toon(col)); b.position.set(x, y, z); chest.add(b); return b; };
+  const ring = (col: number, y: number, h: number, r = 0.204) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 14), toon(col)); m.position.y = y; chest.add(m); };
+  switch (top) {
+    case 'tee': break;
+    case 'work': // a collar and a chest pocket
+      for (const sx of [-1, 1]) { const c = box(L.shirt, 0.09, 0.035, 0.05, sx * 0.05, 0.5, -0.12); c.rotation.z = sx * -0.5; }
+      box(c2 ?? 0x2a2a2e, 0.075, 0.075, 0.016, 0.09, 0.27, -0.197);
+      break;
+    case 'flannie': { // checks: dark bands round and strips down
+      const dk = c2 ?? 0x2a1a14;
+      for (const y of [0.1, 0.2, 0.3]) ring(dk, y, 0.03);
+      for (const sx of [-0.07, 0.07]) box(dk, 0.03, 0.26, 0.012, sx, 0.2, -0.19);
+      break;
+    }
+    case 'hoodie': // the hood bunched at the neck, a front pocket and drawstrings
+      { const hood = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), toon(L.shirt)); hood.position.set(0, 0.5, 0.12); hood.scale.set(1.3, 0.8, 0.9); chest.add(hood); }
+      box(L.shirt, 0.17, 0.08, 0.02, 0, 0.08, -0.199);
+      for (const sx of [-0.035, 0.035]) box(0xf1f1ea, 0.012, 0.09, 0.012, sx, 0.4, -0.2);
+      break;
+    case 'hivis': { // a vest over the shirt: bright, two reflective bands
+      const vest = new THREE.Mesh(new THREE.CapsuleGeometry(0.213, 0.2, 4, 12), toon(c2 ?? 0xc6e32c)); vest.position.y = 0.2; chest.add(vest);
+      ring(0xe9edf0, 0.14, 0.03, 0.218); ring(0xe9edf0, 0.27, 0.03, 0.218);
+      break;
+    }
+    case 'footy': // hoops (generic colours: no real club's)
+      for (const y of [0.1, 0.18, 0.26, 0.34]) ring(c2 ?? 0xf1f1ea, y, 0.04);
+      break;
+    case 'apron': // bib, neck strap, a pocket
+      box(c2 ?? 0x7a5a3a, 0.3, 0.34, 0.02, 0, 0.12, -0.205);
+      box(c2 ?? 0x7a5a3a, 0.04, 0.12, 0.02, 0, 0.44, -0.17);
+      box(0x5a4028, 0.1, 0.07, 0.018, 0, 0.06, -0.22);
+      break;
+  }
 }

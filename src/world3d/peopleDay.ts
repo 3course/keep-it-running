@@ -23,6 +23,7 @@ import { offcutsBagAt } from '../world/state.js';
 import { WORLD } from '../world/worldConfig.js';
 import { Talk } from '../ui/talk.js';
 import { Figure } from './figures.js';
+import { friendLook, NAMED, randomLook } from './looks.js';
 import { dennisJessDay } from '../sim/dennis.js';
 import { measure, type Plan } from '../world/layoutPlan.js';
 import { JESS_LAYOUT, type LayoutGripe } from '../people/lines/layout.js';
@@ -156,7 +157,7 @@ export class PeopleDay {
   // ---------- the part-timer ----------
 
   private arrive() {
-    const f = new Figure({ shirt: J.shirt, hair: 'pony', hairColour: 0x6a3a22, canColour: 0xf4efe0 });
+    const f = new Figure(NAMED.jess);
     f.setSeated(false); f.can.visible = false;
     const at = centre(DOOR_IN);
     this.jess = { fig: f, x: at.x, z: at.z, path: [], speed: 1.5 };
@@ -300,7 +301,7 @@ export class PeopleDay {
       p.gifts.push({ kind: 'cake', from: J.name, dayIndex: g.dayIndex, slot: 0 });
       // tonight's mate drops in early for it, and everyone cheers
       const id = pickFriend(p.lastFriend, g.dayIndex), f = friendById(id);
-      const fig = new Figure({ shirt: f.shirt, hair: id === 'courtney' ? 'bun' : id === 'tim' ? 'beanie' : 'short' });
+      const fig = new Figure(friendLook(id));
       fig.setSeated(false); fig.can.visible = false;
       const at = centre({ x: 24, y: 40 });
       this.cakeMate = { fig, x: at.x, z: at.z, path: [], speed: 1.4, leaveAt: g.minute + 40 };
@@ -367,7 +368,7 @@ export class PeopleDay {
       if (w) {
         this.walkInsSeen.add(w.id);
         const d = PeopleDay.walkInDesign(g.seed, w.id), name = d.customer.replace(/[,(].*$/, '').trim();
-        const fig = new Figure({ shirt: [0x7a6ab0, 0xb0886a, 0x6ab09a, 0xa0a05a][w.id % 4], hair: (['cap', 'pony', 'short', 'bun'] as const)[(w.id + name.length) % 4] });
+        const fig = new Figure(randomLook(`${name}|${w.id}`));
         fig.setSeated(false); fig.can.visible = false; fig.setExpr('thoughtful');
         const at = centre({ x: 27, y: 33 });
         fig.root.position.set(at.x, 0, at.z); fig.root.rotation.y = Math.PI / 2;
@@ -440,7 +441,7 @@ export class PeopleDay {
         const slot = p.gifts.filter(x => x.kind === due.kind).length;
         p.gifts.push({ kind: due.kind, from: due.from, design: due.design, dayIndex: g.dayIndex, slot });
         if (due.kind === 'beer') p.fridgeGifted += PEOPLE.gifts.slab;
-        const fig = new Figure({ shirt: [0x6a8fb0, 0xb06a8f, 0x8fb06a, 0xb08f6a][slot % 4], hair: (['short', 'bun', 'cap', 'pony'] as const)[(slot + due.from.length) % 4] });
+        const fig = new Figure(randomLook(`${due.from}|${slot}`));
         fig.setSeated(false); fig.can.visible = false; fig.setExpr('relaxed');
         const at = centre({ x: 27, y: 32 });
         fig.root.position.set(at.x, 0, at.z); fig.root.rotation.y = Math.PI / 2;

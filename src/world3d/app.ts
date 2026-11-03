@@ -22,7 +22,7 @@ import { absMinute, extPlace, HOOKS, hookThere, logEvent, onHook, startNewDay, t
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
-import { buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
+import { boxAt, buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
 import { moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { Particles } from './particles.js';
@@ -43,7 +43,9 @@ import type { Job } from '../sim/types.js';
 import { KnockOff } from './knockoff.js';
 import { Tracing } from './tracing.js';
 import { PeopleDay } from './peopleDay.js';
-import { MateVisit, mateCan } from './mateVisit.js';
+import { MateVisit } from './mateVisit.js';
+import { Figure } from './figures.js';
+import { friendLook, NAMED } from './looks.js';
 import { Gratitude } from './gratitude.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
@@ -715,6 +717,7 @@ export class World3D {
   /** Everything in the 3D scene, built from the shed's data and the current state. Run again after a lost context. */
   private buildScene() {
     this.built = buildWorld(this.scene, this.tier.pointLights);
+    this.dressNpcs();
     this.outline?.dispose(); this.outline = null;
     if (this.tier.detail.outline && !this.outlineDropped) {
       const size = this.renderer.getDrawingBufferSize(new THREE.Vector2());
@@ -1003,6 +1006,22 @@ export class World3D {
   }
 
   /** Rebuild the shed from the layout (as after a lost context). */
+  /** The people in the shed are Figures (legs, faces, looks): the council inspector now, and whichever mate's in, when he comes. */
+  private dressNpcs() {
+    const ins = this.built.inspector;
+    ins.clear();
+    this.inspectorFig = new Figure(NAMED.inspector, { snap: false }); // (the group's snapped: it's the one that's moved and turned)
+    this.inspectorFig.setSeated(false); this.inspectorFig.can.visible = false;
+    ins.add(this.inspectorFig.root);
+    const board = boxAt(0.22, 0.3, 0.03, 0x8a6a40, 0.22, 0.55, -0.12); board.rotation.x = -0.4; ins.add(board); // the clipboard
+    this.built.mate.clear(); this.shedMate = null; this.shedMateId = null;
+  }
+  private inspectorFig!: Figure;
+  private insLast = { x: 0, z: 0 };
+  /** The mate who's in, as a Figure in the shed (rebuilt if it's a different mate). */
+  private shedMate: Figure | null = null;
+  private shedMateId: string | null = null;
+
   private rebuildWorld() {
     this.scene = new THREE.Scene();
     this.buildScene();
@@ -1694,6 +1713,12 @@ export class World3D {
     ins.visible = this.inspector.visible;
     ins.position.set(this.inspector.x, 0, this.inspector.z);
     ins.rotation.y = this.inspector.facing;
+    if (ins.visible) {
+      const f = this.inspectorFig;
+      f.walking = Math.hypot(this.inspector.x - this.insLast.x, this.inspector.z - this.insLast.z) > 1e-4;
+      this.insLast = { x: this.inspector.x, z: this.inspector.z };
+      f.update(this.paused ? 0 : dt);
+    }
     const mate = g.distractions.find(d => d.kind === 'friend');
     this.built.mate.visible = !!mate;
     if (mate) {
@@ -1702,13 +1727,18 @@ export class World3D {
       // facing where they're going; when they've stopped to talk to you, facing you
       const talking = (!!mate.ask || mate.engaged) && !v.walking;
       this.built.mate.rotation.y = talking ? Math.atan2(-(this.pos.x - v.x), -(this.pos.z - v.z)) + Math.sin(this.time * 2) * 0.15 : v.facing;
-      // each mate always wears the same shirt
-      let can = this.built.mate.getObjectByName('mateCan');
-      if (!can) { can = mateCan(); this.built.mate.add(can); }
-      can.visible = (mate.beers ?? 0) > 0;
-      const shirt = mateById(mate.mate)?.shirt;
-      const body = this.built.mate.children[0] as THREE.Mesh;
-      if (shirt !== undefined && (body.material as THREE.MeshToonMaterial).color.getHex() !== shirt) body.material = toon(shirt);
+      // each mate always looks the same: his own shirt, build, hair (src/world3d/looks.ts)
+      if (this.shedMateId !== (mate.mate ?? '')) {
+        this.built.mate.clear();
+        this.shedMate = new Figure(friendLook(mate.mate ?? 'eggby'), { snap: false });
+        this.shedMate.setSeated(false);
+        this.built.mate.add(this.shedMate.root);
+        this.shedMateId = mate.mate ?? '';
+      }
+      const f = this.shedMate!;
+      f.walking = v.walking; f.can.visible = (mate.beers ?? 0) > 0;
+      if (mate.engaged) f.talking = 1.2;
+      f.update(this.paused ? 0 : dt);
     }
 
     // fire and smoke

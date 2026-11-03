@@ -21,6 +21,7 @@ import { logEvent, type WorldState } from '../world/state.js';
 import { Talk } from '../ui/talk.js';
 import { boxAt, toon } from './build.js';
 import { Figure } from './figures.js';
+import { friendLook, NAMED, randomLook } from './looks.js';
 import { snapToPixels } from './pixelSnap.js';
 import type { Sfx } from './sfx.js';
 
@@ -138,13 +139,13 @@ export class Cafe {
     this.set.visible = true;
     for (const f of this.figs.values()) this.set.remove(f.root);
     this.figs.clear();
-    this.fig('mai', { shirt: 0xf4efe0, hair: 'bun', hairColour: 0x1a1414 }, new THREE.Vector3(-0.4, 0, -1.0), false);
-    this.fig('sparky', { shirt: 0x3a6fb0, hair: 'cap', hairColour: 0xe9d23a }, new THREE.Vector3(2.6, 0, 0.4), true);
+    this.fig('mai', NAMED.mai, new THREE.Vector3(-0.4, 0, -1.0), false);
+    this.fig('sparky', NAMED.sparky, new THREE.Vector3(2.6, 0, 0.4), true);
     const mate = friendById('eggby');
-    this.fig('mate', { shirt: mate.shirt, hair: 'short' }, new THREE.Vector3(3.05, 0, 0.6), true);
-    const reg = this.fig('regular', { shirt: 0x8fb06a, hair: 'pony' }, new THREE.Vector3(-0.95, 0, -0.2), false);
+    this.fig('mate', friendLook('eggby'), new THREE.Vector3(3.05, 0, 0.6), true);
+    const reg = this.fig('regular', NAMED.regular, new THREE.Vector3(-0.95, 0, -0.2), false);
     reg.setExpr('animated');
-    const you = this.fig('you', { shirt: 0xe8892e, hair: 'cap', hairColour: 0x2f4f6f }, new THREE.Vector3(0.9, 0, -0.2), false);
+    const you = this.fig('you', NAMED.you, new THREE.Vector3(0.9, 0, -0.2), false);
     you.root.rotation.y = -0.35;
     const f = { ...this.facts(), rent: `$${CONFIG.lease.rentDue.toLocaleString('en-AU')}`, due: String(CONFIG.lease.dueDay) };
     this.queue = [
@@ -184,9 +185,9 @@ export class Cafe {
     for (const f of this.figs.values()) this.set.remove(f.root);
     this.figs.clear();
     // who's here: the barista and the sparky always; the rest if today's like that
-    this.fig('mai', { shirt: 0xf4efe0, hair: 'bun', hairColour: 0x1a1414 }, new THREE.Vector3(-0.4, 0, -1.0), false); // at the counter window
-    this.fig('sparky', { shirt: 0x3a6fb0, hair: 'cap', hairColour: 0xe9d23a }, new THREE.Vector3(2.6, 0, 0.4), true);
-    const you = this.fig('you', { shirt: 0xe8892e, hair: 'cap', hairColour: 0x2f4f6f }, new THREE.Vector3(0.9, 0, -0.2), false);
+    this.fig('mai', NAMED.mai, new THREE.Vector3(-0.4, 0, -1.0), false); // at the counter window
+    this.fig('sparky', NAMED.sparky, new THREE.Vector3(2.6, 0, 0.4), true);
+    const you = this.fig('you', NAMED.you, new THREE.Vector3(0.9, 0, -0.2), false);
     you.root.rotation.y = -0.35; // a bit toward the window
     const visits = (w.cafeVisits = (w.cafeVisits ?? 0) + 1);
     const ln = p.lastNight, lastNight = ln && ln.dayIndex === g.dayIndex - 1 ? ln : null;
@@ -217,20 +218,20 @@ export class Cafe {
     // the morning after a group night: a mate here looking rough, then the bit about the big idea
     if (lastNight?.group) {
       const id = lastNight.who.find(x => x !== 'dennis') ?? lastNight.who[0];
-      const m = this.fig('mate', { shirt: friendById(id).shirt, hair: id === 'courtney' ? 'bun' : id === 'tim' ? 'beanie' : 'short' }, new THREE.Vector3(3.6, 0, 0.6), true);
+      const m = this.fig('mate', friendLook(id), new THREE.Vector3(3.6, 0, 0.6), true);
       m.setExpr('misty');
       out.push({ who: 'mate', name: friendById(id).name, text: this.fill(pick(L.rough[id as FriendId], day), f) });
       if (p.lastIdea?.dayIndex === day - 1) out.push({ who: 'mate', name: friendById(id).name, text: this.fill(pick(L.menu, day), f) });
     }
     // the part-timer on her days: she walks back with you
     if (this.d.jessIn() && out.length < 2) {
-      this.fig('jess', { shirt: PEOPLE.partTimer.shirt, hair: 'pony', hairColour: 0x6a3a22 }, new THREE.Vector3(-0.4, 0, 0.6), false);
+      this.fig('jess', NAMED.jess, new THREE.Vector3(-0.4, 0, 0.6), false);
       out.push({ who: 'jess', name: PEOPLE.partTimer.name, text: this.fill(pick(L.jess.arrive, day), f), note: `Walked in with ${PEOPLE.partTimer.name}`,
         apply: () => { p.trust += 1; } });
     }
     // Dennis at the window with a laptop: he'll ring at ten
     if (g.dennis.call && out.length < 2) {
-      this.fig('dennis', { shirt: 0xb8902e, hair: 'short', hairColour: 0x9a9aa0 }, new THREE.Vector3(-1.6, 0, -0.6), true);
+      this.fig('dennis', NAMED.dennis, new THREE.Vector3(-1.6, 0, -0.6), true);
       out.push({ who: 'dennis', name: CONFIG.dennis.name, text: this.fill(pick(L.dennis, day), f), note: `${CONFIG.dennis.name}'s ringing at 10`,
         apply: () => { if (g.dennis.call) g.dennis.call.minute = CONFIG.cafe.leadHour * 60; } });
     }
@@ -248,7 +249,7 @@ export class Cafe {
     const kind = kinds[day % kinds.length];
     if (kind === 'landlord') out.push({ who: 'mai', name: CONFIG.cafe.barista, text: this.fill(pick(L.landlord, day), f), note: 'Mai saw the landlord with a real estate bloke' });
     else if (kind === 'customer' && customer) {
-      const c = this.fig('customer', { shirt: 0x8fb06a, hair: 'pony' }, new THREE.Vector3(-0.6, 0, -0.4), false);
+      const c = this.fig('customer', randomLook(customer.from), new THREE.Vector3(-0.6, 0, -0.4), false);
       c.setExpr('animated');
       const piece = designById(customer.design)?.name.toLowerCase() ?? 'sign';
       out.push({ who: 'customer', name: customer.from, text: this.fill(pick(L.customer, day), { ...f, name: customer.from, piece }) });
