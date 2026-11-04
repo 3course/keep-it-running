@@ -42,7 +42,7 @@ describe('pause', () => {
     const game = await freshGame(env);
     await game.page.evaluate(() => { Object.defineProperty(document, 'hidden', { value: true, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); });
     assert.equal(await game.eval((g, w, s) => s.isPaused), true);
-    assert.ok(await game.page.evaluate(() => !!localStorage.getItem('kir-save-v2')));
+    assert.ok(await game.page.evaluate(() => !!localStorage.getItem('kir:save-v2')));
     await game.close();
   });
 

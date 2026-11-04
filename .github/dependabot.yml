@@ -1,0 +1,38 @@
+# Weekly dependency updates: npm packages and the SHA-pinned GitHub Actions in .github/workflows, for both branches.
+# Dependabot only reads this file from the default branch (main), so world gets its updates through the
+# `target-branch: world` entries below. Keep this file the same on main and world.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /
+    target-branch: world
+    schedule:
+      interval: weekly
+    groups:
+      npm-minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: world
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

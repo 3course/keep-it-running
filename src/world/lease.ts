@@ -12,6 +12,7 @@ import type { Ending, WobbleKind } from '../people/lines/lease.js';
 import type { PeopleState } from '../people/state.js';
 import { designById } from '../designs/index.js';
 import { drawFortunes, fortuneMorning, type FortuneKind } from './leaseWeeks.js';
+import { getItem, getJson, isObject, KEYS, setItem } from '../storage.js';
 
 export interface LeaseDay { dayIndex: number; profit: number; revenue: number; story: string | null }
 export interface LeaseState {
@@ -35,8 +36,6 @@ export interface LeaseState {
 export interface PastLease { n: number; seed: number; ending: Ending; cash: number; rentDue: number; owed?: number; piece: string | null; jessFullTime: boolean; gifts: number; when: string }
 
 const WOBBLES: WobbleKind[] = ['priceRise', 'quietCustomer', 'extractorDue', 'jessAnswer'];
-const PAST_KEY = 'kir-leases';
-const NEXT_KEY = 'kir-lease-next';
 
 /** A new lease from this game's first day. */
 export function newLease(g: Game, n = nextLeaseNumber()): LeaseState {
@@ -144,19 +143,37 @@ export function favouritePiece(p: PeopleState): string | null {
 
 // ---------- past leases (the office wall) ----------
 
+const ENDINGS: readonly string[] = ['flying', 'comfortable', 'made', 'scraped', 'short'] satisfies Ending[];
+const amount = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(-1e9, Math.min(1e9, v)) : 0);
+const whole = (v: unknown, max: number) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= max ? v : null);
+
+/** A stored past lease, or null if it isn't one (a tampered or corrupted entry is dropped, not shown). */
+function pastLease(v: unknown): PastLease | null {
+  if (!isObject(v)) return null;
+  const n = whole(v.n, 1_000_000), seed = whole(v.seed, 0xffffffff);
+  if (n === null || seed === null || typeof v.ending !== 'string' || !ENDINGS.includes(v.ending)) return null;
+  return {
+    n, seed, ending: v.ending as Ending, cash: amount(v.cash), rentDue: amount(v.rentDue),
+    ...(v.owed === undefined ? {} : { owed: amount(v.owed) }),
+    piece: typeof v.piece === 'string' ? v.piece.slice(0, 200) : null,
+    jessFullTime: v.jessFullTime === true,
+    gifts: typeof v.gifts === 'number' && Number.isInteger(v.gifts) && v.gifts >= 0 ? Math.min(v.gifts, 10_000) : 0,
+    when: typeof v.when === 'string' ? v.when.slice(0, 40) : '',
+  };
+}
+
 export function pastLeases(): PastLease[] {
-  try { return JSON.parse(localStorage.getItem(PAST_KEY) ?? '[]') as PastLease[]; } catch { return []; }
+  return (getJson(KEYS.leases, Array.isArray) ?? []).slice(-12).map(pastLease).filter((x): x is PastLease => x !== null);
 }
 /** Bumped when a lease goes up on the wall (the view rebuilds its frames). */
 export const wall = { version: 0 };
 export function rememberLease(past: PastLease) {
   wall.version++;
-  try {
-    const all = pastLeases().filter(x => !(x.n === past.n && x.seed === past.seed));
-    localStorage.setItem(PAST_KEY, JSON.stringify([...all, past].slice(-12)));
-    localStorage.setItem(NEXT_KEY, String(past.n + 1));
-  } catch { /* storage blocked: the wall just doesn't keep */ }
+  // (storage blocked: the wall just doesn't keep)
+  const all = pastLeases().filter(x => !(x.n === past.n && x.seed === past.seed));
+  setItem(KEYS.leases, JSON.stringify([...all, past].slice(-12)));
+  setItem(KEYS.leaseNext, String(past.n + 1));
 }
 export function nextLeaseNumber(): number {
-  try { return Number(localStorage.getItem(NEXT_KEY)) || pastLeases().length + 1; } catch { return 1; }
+  return whole(Number(getItem(KEYS.leaseNext)), 1_000_000) ?? pastLeases().length + 1;
 }

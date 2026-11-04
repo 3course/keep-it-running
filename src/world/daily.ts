@@ -4,10 +4,10 @@
 import { Game } from '../sim/Game.js';
 import { newPeople } from '../people/state.js';
 import { newWorld, type WorldState } from './state.js';
+import { getJson, isObject, KEYS, setItem } from '../storage.js';
 
 /** The canonical start: day 3 of week 2 (past the first-week ramp, before the steady state). */
 export const DAILY_DAY = 8;
-const KEY = 'kir-daily';
 
 /** Today's date in Melbourne, YYYY-MM-DD. */
 export function melbourneDate(now = new Date()): string {
@@ -57,11 +57,28 @@ export function emojiLine(g: Game, w: WorldState): string {
   return money + time + fire + work + people;
 }
 
+interface DailyStore { last?: string; streak?: number; best?: number; results?: Record<string, number> }
+
+/** The streak as stored, with anything that isn't the right kind of thing dropped (a tampered value can't break the card). */
+function readDailyStore(): DailyStore {
+  const raw = getJson(KEYS.daily, isObject) ?? {};
+  const count = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 1 && v <= 100_000 ? v : undefined);
+  const store: DailyStore = {
+    last: typeof raw.last === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.last) ? raw.last : undefined,
+    streak: count(raw.streak), best: count(raw.best), results: {},
+  };
+  if (isObject(raw.results)) {
+    for (const [date, m] of Object.entries(raw.results).slice(-400)) {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(date) && typeof m === 'number' && Number.isFinite(m)) store.results![date] = Math.max(-100, Math.min(1, m));
+    }
+  }
+  return store;
+}
+
 /** Record today's result (once a date) and the streak: a day in a row extends it. */
 export function recordDaily(g: Game, w: WorldState, date = melbourneDate()): DailyResult {
   const d = g.today, margin = d.revenue > 0 ? (d.revenue - d.costs) / d.revenue : 0;
-  let store: { last?: string; streak?: number; best?: number; results?: Record<string, number> } = {};
-  try { store = JSON.parse(localStorage.getItem(KEY) ?? '{}'); } catch { /* blocked: a streak of one */ }
+  const store = readDailyStore(); // (blocked or unreadable: a streak of one)
   if (store.last !== date) {
     const y = new Date(`${date}T12:00:00Z`); y.setUTCDate(y.getUTCDate() - 1);
     const yesterday = y.toISOString().slice(0, 10);
@@ -69,7 +86,7 @@ export function recordDaily(g: Game, w: WorldState, date = melbourneDate()): Dai
     store.best = Math.max(store.best ?? 0, store.streak);
     store.last = date;
     store.results = { ...(store.results ?? {}), [date]: Math.round(margin * 1000) / 1000 };
-    try { localStorage.setItem(KEY, JSON.stringify(store)); } catch { /* fine */ }
+    setItem(KEYS.daily, JSON.stringify(store));
   }
   return { date, margin, sheets: d.sheetsDone, walked: Math.round(w.walkedToday ?? 0), costliest: g.story ?? 'Nothing went badly. Rare.', emoji: emojiLine(g, w), streak: store.streak ?? 1, best: store.best ?? 1 };
 }

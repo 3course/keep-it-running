@@ -31,7 +31,7 @@ describe('the title screen', () => {
     const b = await buttons(page);
     assert.ok(b.some(t => /new game/i.test(t)) && b.some(t => /settings/i.test(t)), b.join('|'));
     assert.ok(!b.some(t => /continue/i.test(t)), 'no save, no Continue');
-    assert.equal(await page.evaluate(() => localStorage.getItem("kir-save-v2")), null);
+    assert.equal(await page.evaluate(() => localStorage.getItem("kir:save-v2")), null);
     const m0 = await page.evaluate(() => window.kir.minute); await page.waitForTimeout(800);
     assert.equal(await page.evaluate(() => window.kir.minute), m0, 'the clock waits');
     await page.locator('.kirtitle .new').first().click();
@@ -57,7 +57,7 @@ describe('the title screen', () => {
     await page.locator('.kirtitle .set').first().click();
     await page.waitForTimeout(200);
     await page.getByRole('button', { name: /^fast$/i }).click();
-    const stored = await page.evaluate(() => localStorage.getItem('kir-settings'));
+    const stored = await page.evaluate(() => localStorage.getItem('kir:settings'));
     assert.match(stored, /"textSpeed":"fast"/);
     assert.equal(graphicsSearch('', 'low'), '?safe=1');
     assert.equal(graphicsSearch('', 'bare'), '?safe=2');

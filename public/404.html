@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- CSP: nothing but the one inline redirect script below (by its hash: change the script, update the hash). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-lp4gShTF55MoJ6xuhHBGt/5qsB0BVdKwnNeqkhgvVTY='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Keep It Running</title>
   <!-- GitHub Pages serves this for any missing page. Anything under the old /preview/ address goes home. -->

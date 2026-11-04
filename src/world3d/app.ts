@@ -80,13 +80,12 @@ import { perf } from './perf.js';
 import { applyTextures, Sawdust, type SheetLooks } from './detail.js';
 import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
+import { getItem, getJson, isObject, KEYS, removeItem, setItem } from '../storage.js';
 
 const C = WORLD.cell;
 const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
 interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
-
-const DAY_KEY = 'kir-daystart';
 
 export class World3D {
   readonly renderer: THREE.WebGLRenderer;
@@ -398,7 +397,7 @@ export class World3D {
 
   private newGameFromTitle(hadSave: boolean) {
     if (!hadSave) { this.leaveTitle(); return; }   // (the new game's already built: this one has no save to lose)
-    try { sessionStorage.setItem('kir-boot', 'new'); } catch { /* the title shows again: pick New game */ }
+    setItem(KEYS.boot, 'new', 'session'); // (blocked: the title shows again: pick New game)
     clearSave();
     this.leaving = true;
     location.reload();
@@ -408,8 +407,8 @@ export class World3D {
   openSettings() {
     showSettings(this.hud.labels.parentElement!, {
       close: () => {},
-      graphicsChanged: () => { this.save(); try { sessionStorage.setItem('kir-boot', 'resume'); } catch { /* title shows */ } location.reload(); },
-      resetSave: () => { clearSave(); try { localStorage.removeItem(DAY_KEY); } catch { /* fine */ } this.leaving = true; location.reload(); },
+      graphicsChanged: () => { this.save(); setItem(KEYS.boot, 'resume', 'session'); location.reload(); },
+      resetSave: () => { clearSave(); removeItem(KEYS.daystart); this.leaving = true; location.reload(); },
     });
   }
 
@@ -738,7 +737,7 @@ export class World3D {
     this.offerLayout();
     if (this.introPending && this.cafe && !this.title) {
       this.introPending = false;
-      let seen = false; try { seen = localStorage.getItem('kir-intro-seen') === '1'; } catch { /* fine */ }
+      const seen = getItem(KEYS.introSeen) === '1';
       this.cafe.intro(seen);
     }
     this.cafe.offer();
@@ -2285,7 +2284,7 @@ export class World3D {
   private snapDay() {
     if (this.mode === 'daily') return;
     writeSave(this.g, this.w);
-    try { const raw = localStorage.getItem(WORLD.saveKey); if (raw) localStorage.setItem(DAY_KEY, JSON.stringify({ day: this.g.dayIndex, seed: this.g.seed, raw })); } catch { /* no restart */ }
+    const raw = getItem(KEYS.save); if (raw) setItem(KEYS.daystart, JSON.stringify({ day: this.g.dayIndex, seed: this.g.seed, raw })); // (blocked: no restart)
   }
   /** A game starting at the day's open (not one loaded mid-day) has a morning to go back to. */
   private snapFirstMorning() {
@@ -2293,13 +2292,13 @@ export class World3D {
     this.hud.setRestartable(this.mode !== 'daily' && !!this.daySnap());
   }
   private daySnap(): string | null {
-    try { const s = JSON.parse(localStorage.getItem(DAY_KEY) ?? 'null'); return s && s.day === this.g.dayIndex && s.seed === this.g.seed ? s.raw : null; } catch { return null; }
+    const s = getJson(KEYS.daystart, isObject); return s && s.day === this.g.dayIndex && s.seed === this.g.seed && typeof s.raw === 'string' ? s.raw : null;
   }
 
   /** Back to this morning: the day-start save comes back and the page reloads onto it (no title). */
   private restartDay() {
     const raw = this.daySnap(); if (!raw) return;
-    try { localStorage.setItem(WORLD.saveKey, raw); sessionStorage.setItem('kir-boot', 'resume'); } catch { return; }
+    if (!setItem(KEYS.save, raw)) return; setItem(KEYS.boot, 'resume', 'session');
     this.leaving = true;
     location.reload();
   }

@@ -10,7 +10,7 @@ after(() => env.close());
 
 async function open(query, seen = false) {
   const context = await env.browser.newContext(PHONE);
-  if (seen) await context.addInitScript(() => { try { localStorage.setItem('kir-intro-seen', '1'); } catch { /* fine */ } });
+  if (seen) await context.addInitScript(() => { try { localStorage.setItem('kir:intro-seen', '1'); } catch { /* fine */ } });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));

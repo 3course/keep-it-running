@@ -184,7 +184,7 @@ describe('the lease, in the shed', () => {
     // well short of the rent: game over, the week, and start again (playtest 1)
     const text = await game.page.evaluate(() => document.querySelector('#kir-hud .summary').textContent);
     assert.match(text, /Game over/); assert.match(text, /The week/); assert.match(text, /Start over/);
-    const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir-leases')));
+    const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir:leases')));
     assert.equal(wall.at(-1).ending, 'short'); // $1,000 less the week's overheads: well short of the rent
     await game.close();
   });
@@ -203,7 +203,7 @@ describe('the lease, in the shed', () => {
     await game.page.waitForFunction(() => window.kirScene.knockoff.mode === 'reckoning');
     assert.equal(await game.eval((g, w) => w.lease.ending), 'scraped');
     assert.equal(await game.eval((g, w) => w.lease.owed), 500);
-    const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir-leases')));
+    const wall = await game.page.evaluate(() => JSON.parse(localStorage.getItem('kir:leases')));
     assert.equal(wall.at(-1).owed, 500);
     // the next lease: the usual rent plus what rode over
     const next = await game.page.evaluate(async () => {
@@ -238,7 +238,7 @@ describe('the daily', () => {
     await page.waitForSelector('#kir-hud .summary .dailycard');
     const card = await page.evaluate(() => document.querySelector('#kir-hud .summary').innerText);
     assert.match(card, /Margin\s*20%/); assert.match(card, /Streak\s*1 day/); assert.match(card, /Cost you most/);
-    assert.equal(await page.evaluate(() => localStorage.getItem('kir-save-v2')), null, 'no save');
+    assert.equal(await page.evaluate(() => localStorage.getItem('kir:save-v2')), null, 'no save');
     assert.match(await page.evaluate(async () => (await import(new URL('src/world/daily.ts', document.baseURI).href)).shareText({ date: 'x', margin: 0.2, sheets: 7, walked: 1234, costliest: 'A fire.', emoji: '💰✅🧯🪚☕', streak: 3, best: 3 })), /Margin 20% · 7 sheets · 1\.2 km walked\nCost me most: A fire\.\nStreak: 3 days/);
     await context.close();
   });
