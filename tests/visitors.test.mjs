@@ -256,6 +256,17 @@ describe('how often a mate drops in (CONFIG.visitors.perDay)', () => {
   });
 });
 
+describe("a mate who said he'd be back after two", () => {
+  it("doesn't turn up the next day if he couldn't come back that day", () => {
+    const g = new Game(3);
+    g.mateReturn = { mate: g.lastMate ?? 'tim', minute: 14 * 60 };
+    while (g.phase === 'day') { g.distractions = g.distractions.filter(d => d.kind !== 'friend').concat([{ id: 999, kind: 'friend', remaining: 999, engaged: false }]); g.tick(); } // someone's in all afternoon
+    if (g.phase === 'endOfDayPrompt') g.knockOff();
+    g.nextDay();
+    assert.equal(g.mateReturn, null, 'the promise was for yesterday');
+  });
+});
+
 describe('the visit scheduler, in the day log (playtest 1: a day with no mate)', () => {
   it('every day: 1–2 planned, logged when planned and when each one walks in', () => {
     for (let seed = 1; seed <= 20; seed++) {

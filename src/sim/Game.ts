@@ -437,6 +437,7 @@ export class Game {
     this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
     this.distractions = [];
+    this.mateReturn = null; // "back after two" was for that day
     this.visitorRng = new Rng((Math.imul(this.seed, 31) + Math.imul(this.dayIndex, 0x9e3779b1)) >>> 0);
     this.visitorBeers = {};
     this.callbacks = [];
