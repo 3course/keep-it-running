@@ -579,11 +579,6 @@ function buildDecor(dc: Decor, grid: number[][]): THREE.Group {
       }
       break;
     }
-    case 'pallet':
-      for (const sz of [-1, 0, 1]) g.add(boxAt(w - 0.1, 0.09, 0.12, 0xa07a48, 0, 0, sz * (d / 2 - 0.12)));
-      g.add(boxAt(w - 0.1, 0.05, d - 0.1, 0x8a6a40, 0, 0.09));
-      for (let i = 0; i < 3; i++) g.add(boxAt(w - 0.3 - rnd() * 0.2, 0.04, d - 0.3, i % 2 ? 0xd9be8c : 0xcdb07c, (rnd() - 0.5) * 0.1, 0.14 + i * 0.045));
-      break;
     case 'bench': {
       g.add(boxAt(w - 0.05, 0.06, d - 0.15, 0x8a6a40, 0, 0.86));
       for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) g.add(boxAt(0.07, 0.86, 0.07, 0x5a4a38, sx * (w / 2 - 0.1), 0, sz * (d / 2 - 0.12)));
@@ -630,10 +625,6 @@ function buildDecor(dc: Decor, grid: number[][]): THREE.Group {
       [[-0.22, -0.2], [0.24, -0.15], [0.0, 0.26]].forEach(([x, z], i) => { g.add(cyl(0.29, 0.88, cols[i % 3], x, 0, z)); g.add(cyl(0.3, 0.03, 0x2a2a2a, x, 0.88, z)); });
       break;
     }
-    case 'panels':
-      for (let i = 0; i < 7; i++) g.add(boxAt(w - 0.2 - (i % 2) * 0.06, 0.04, d - 0.2, i % 2 ? 0xe9d6ac : 0xddc79a, (rnd() - 0.5) * 0.05, 0.12 + i * 0.045));
-      g.add(boxAt(w - 0.1, 0.12, d - 0.1, 0x8a6a40));
-      break;
     case 'cable': {
       // a cable snaking across the floor: short flat segments, walked over
       const n = 8, len = Math.max(w, d) / n;
