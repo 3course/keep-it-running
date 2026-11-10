@@ -19,7 +19,6 @@ export const KEYS = {
   introSeen: 'intro-seen',  // src/world3d/cafe.ts, app.ts
   padPinned: 'pad-pinned',  // src/ui/hud.ts
   boot: 'boot',             // sessionStorage: what the title should do after a reload (src/main.ts)
-  swKilled: 'sw-killed',    // sessionStorage: the kill switch has reloaded this tab once (src/serviceWorker.ts)
 } as const;
 export type KeyName = (typeof KEYS)[keyof typeof KEYS];
 
