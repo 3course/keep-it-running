@@ -790,7 +790,11 @@ export class Game {
     if (this.machineDown) this.machine = 'down';
     else if (this.fire?.stage === 'duct') this.machine = 'fire';
     else if (this.fault) this.machine = this.fault.def.id === 'partLifted' ? 'estop' : 'fault';
-    else if (this.current && this.current.status === 'cutting') this.machine = this.replacing ? 'paused' : 'cutting';
+    // still paused if what paused it hasn't finished: a swap, the breaker, the inspector's walk-round
+    else if (this.current && this.current.status === 'cutting') {
+      this.machine = this.replacing || this.powerTripped || this.inspectorTouring ? 'paused' : 'cutting';
+      if (this.inspectorTouring && this.machine === 'paused') this.rare!.pausedCut = true; // (finishCouncil starts it again)
+    }
     else { this.machine = 'idle'; this.current = null; }
   }
 
