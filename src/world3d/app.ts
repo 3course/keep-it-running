@@ -279,6 +279,7 @@ export class World3D {
     this.hud = new Hud(canvas, {
       goTo: (targets, key) => {
         this.hints.mark('notepad');
+        this.hints.mark('drag'); // a walk's a walk: the notepad got you there
         // a fire with the extinguisher not in your hands: go to the nearest one, wherever it is (a hook or the floor)
         if (key === 'fire' && this.w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e?.down) { this.walkToPoint(e.x, e.z); this.pendingExt = e.h; return; } }
         this.goToNearest(targets, key);
@@ -570,6 +571,9 @@ export class World3D {
   }
 
   private tap(lx: number, ly: number) {
+    // tapping gets you about too: "Drag anywhere to walk" is learnt either way (left unmarked, it held back every hint
+    // after it, the fault and gesture ones included, for anyone who only ever tapped)
+    this.hints.mark('drag');
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
     const morning = this.gratitude.hit(this.raycaster);
     if (morning) {

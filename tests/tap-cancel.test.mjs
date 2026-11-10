@@ -43,3 +43,19 @@ describe('touch: tap and cancel', () => {
     } finally { await game.close(); }
   });
 });
+
+describe('the first hint', () => {
+  it('"Drag anywhere to walk" is learnt by tapping to walk too, so the hints after it come through', async () => {
+    const game = await freshGame(env);
+    try {
+      await game.page.evaluate(async () => { const { WORLD } = await import(new URL('src/world/worldConfig.ts', document.baseURI).href); WORLD.tapMaxMs = 60_000; });
+      await game.eval((g, w, s) => { w.tour = null; s.hints.reset(); });
+      assert.equal(await game.eval((g, w, s) => s.hints.current), 'Drag anywhere to walk');
+      const cdp = await game.context.newCDPSession(game.page);
+      await touch(game, cdp, 'touchEnd');
+      const now = await game.eval((g, w, s) => s.hints.current);
+      assert.notEqual(now, 'Drag anywhere to walk', 'a tap-walk counts');
+      assert.equal(now, 'Tap things to use them', 'and the next one comes up');
+    } finally { await game.close(); }
+  });
+});
