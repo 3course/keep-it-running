@@ -9,10 +9,9 @@ import { graphicsSearch } from './settings.js';
 import { dayHeading } from './world/lease.js';
 import { dailyStart, seedParam, shiftSeed } from './world/daily.js';
 import { getItem, KEYS, removeItem } from './storage.js';
-import { checkSwKill, checkSwUpdates } from './serviceWorker.js';
+import { checkSwUpdates } from './serviceWorker.js';
 
 initAnalytics();
-checkSwKill();
 checkSwUpdates();
 
 // ?daily: today's daily (Melbourne date), from the canonical start, saving nothing but the result
