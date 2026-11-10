@@ -48,7 +48,7 @@ function rules(g: Game, w: WorldState): Said[] {
   const hot = g.fireStarts.filter(f => f.bag > CONFIG.kerr.fullBagAbove);
   if (hot.length) {
     const f = hot[0], c = hot.length * CONFIG.kerr.fireCost;
-    out.push({ cost: c, line: `${hot.length > 1 ? `${hot.length} fires` : `Fire at ${g.formatTime(f.minute)}`} with the bag ${Math.round(f.bag * 100)}% full. Full bags catch. Change it at ${Math.round(CONFIG.fire.bagFullAbove * 100)}.` });
+    out.push({ cost: c, line: `${hot.length > 1 ? `${hot.length} fires` : `Fire at ${g.formatTime(f.minute)}`} with the bag ${Math.round(f.bag * 100)}% full. Full bags catch. Change it at ${Math.round(CONFIG.fire.bagFullAbove * 100)}%.` });
   }
   // a ute kept waiting at the roller door
   const now = g.dayIndex * 1440 + g.minute, today = g.dayIndex * 1440;
