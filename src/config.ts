@@ -154,8 +154,8 @@ export const CONFIG = {
     walkToDuctMinutes: 6,
     walkBackMinutes: 5,
     sprayMinutes: { spot: 3, duct: 6 }, // hold E at the duct this long
-    refillEveryUses: 2,           // the extinguisher is good for this many fires…
-    refillCost: 60,               // …then it's a refill
+    refillEveryUses: 2,           // the extinguisher is good for this many fires (counted across days, not reset overnight)…
+    refillCost: 60,               // …then it's a refill (on the books as a fix)
     // Escalation (spot → duct → extractor) runs at the day's breakdown rate (difficulty, below): a spot fire on a grace day never spreads.
     // The lesson: one scripted spot fire on `day`, the first minute a sheet's cutting from `fromHour`, to teach the extinguisher
     // walk before fires matter. It glows straight away and escalates at escalationMult of the day's rate.

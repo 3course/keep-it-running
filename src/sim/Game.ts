@@ -128,7 +128,8 @@ export class Game {
   fireResponse: FireResponse | null = null;
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
-  extinguisherUsesToday = 0;
+  /** Fires put out with the extinguisher, ever (over the lease: a new game starts at 0): every refillEveryUses-th is a refill. */
+  extinguisherUses = 0;
   /** How fast the clock runs (CONFIG.clock): set each frame by the view from scaleFor(); the sim leaves it at 1. */
   timeScale = 1;
   /** Yesterday's numbers (Kerr shows them; the week's list resets on Monday). */
@@ -449,7 +450,6 @@ export class Game {
     this.fireResponse = null;
     this.spraying = false;
     this.machineDown = false;
-    this.extinguisherUsesToday = 0;
     // unfinished work carries over; delivered, scrapped and lost jobs drop off the board
     const carried = this.jobs.filter(j => j.status === 'queued');
     // the morning: its own stream per day, so yesterday's play can't change what today's board and calls are
@@ -892,9 +892,9 @@ export class Game {
     const c = CONFIG.fire;
     this.fire = null;
     this.spraying = false;
-    this.extinguisherUsesToday += 1;
+    this.extinguisherUses += 1;
     this.say('Fire out.', 'good');
-    if (this.extinguisherUsesToday % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
+    if (this.extinguisherUses % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
     this.fireResponse = { step: 'returning', remaining: this.fireWalk(c.walkBackMinutes) };
     this.settleMachine();
   }

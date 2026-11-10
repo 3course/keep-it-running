@@ -36,7 +36,7 @@ Rule of thumb: a fire handled well costs one cut (~$160 margin). A fire ignored 
 ## Problem table
 Columns: trigger · how obvious in the scene · steps to fix · time · $ cost · escalates to
 
-1. Spot fire in exhaust duct · random while cutting, more likely with full bag or dull bit (max 1 on day 1, none during the tour) · HIGH: smoke, orange glow, a pointer to the extinguisher · get the extinguisher (wherever you left it: it's carried, not hung) → walk to duct → spray · 20 s · $0 (refill $60 if used twice in a day) · duct fire → extractor fire → machine stops, $800 repair, lose rest of day
+1. Spot fire in exhaust duct · random while cutting, more likely with full bag or dull bit (max 1 on day 1, none during the tour) · HIGH: smoke, orange glow, a pointer to the extinguisher · get the extinguisher (wherever you left it: it's carried, not hung) → walk to duct → spray · 20 s · $0 (refill $60 every second use, counted across the lease) · duct fire → extractor fire → machine stops, $800 repair, lose rest of day
 2. Extractor bag full · every ~4 cuts · MED: bag swells, dust on floor · stop extractor → unclip → carry to bin → fit new → restart · 25 s · $15 · dust everywhere, fire chance doubles, cut quality drops
 3. Bit dull · every ~8 cuts · LOW: rougher sound, fuzzy edges · stop → swap bit → restart · 15 s · $0 · bit breaks mid-cut: sheet wasted ($90) + $40 bit
 4. Bit breaks · dull bit ignored, or random 2% · HIGH: bang, machine halts · clear bed → swap bit → reload sheet → restart · 40 s · $130 · —
