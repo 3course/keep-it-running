@@ -161,3 +161,40 @@ describe('pickups never leave you with nothing to start (playtest 1)', () => {
     assert.equal(next.text, `Grab the next sheet: ${g.nextUp().name}`);
   });
 });
+
+describe('a sheet off with nothing left on the board (CONFIG.pickup.ringNextCallWhenEmpty)', () => {
+  /** A calm day with exactly `queued` sheets on the board and two order calls still to ring, at +2 h and +4 h. */
+  function board(queued) {
+    const g = calm(3, 10);
+    g.jobs.filter(j => j.status === 'queued').forEach((j, i) => { if (i >= queued) j.status = 'lost'; });
+    g.orderCalls = [{ minute: g.minute + 120, sheets: 1 }, { minute: g.minute + 240, sheets: 1 }];
+    return g;
+  }
+  const ringing = g => g.distractions.filter(d => d.kind === 'phone').length;
+
+  it("today's next order call rings now, not at its slot (the later one keeps its time)", () => {
+    assert.equal(P.ringNextCallWhenEmpty, true);
+    const g = board(1);
+    const later = g.orderCalls[1].minute;
+    finishOne(g); // the board's empty now
+    assert.equal(g.queued.length, 0);
+    assert.equal(ringing(g), 1, 'the phone rang straight away');
+    assert.deepEqual(g.orderCalls.map(c => c.minute), [later], 'the one after still rings at its own time');
+  });
+
+  it('with sheets still on the board, the next call waits for its slot', () => {
+    const g = board(2);
+    const slots = g.orderCalls.map(c => c.minute);
+    finishOne(g);
+    assert.equal(g.queued.length, 1);
+    assert.equal(ringing(g), 0, 'no early ring');
+    assert.deepEqual(g.orderCalls.map(c => c.minute), slots);
+  });
+
+  it('no calls left today: nothing to ring (the board just stays empty)', () => {
+    const g = board(1);
+    g.orderCalls = [];
+    finishOne(g);
+    assert.equal(ringing(g), 0);
+  });
+});
