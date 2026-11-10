@@ -155,19 +155,27 @@ const CASES = {
     assert.ok(await game.eval((g, w, s) => s.built.inspector.visible), 'they\'re in the shed');
     assert.equal((await tapLabel(game, 'Show them round')).said, 'Machine off; walking the inspector round');
     assert.equal(await game.eval(g => g.inspectorTouring), true);
-    // the walk-round only counts while you're with them, and they wait when you fall behind (1.5 s of frames, not of
-    // real time: what's counted is the view's own time)
-    await steps(game, 30);
-    const near = await game.eval(g => g.rare.escortSec);
-    assert.ok(near > 1, `counted while beside them (${near.toFixed(2)} s of 1.5)`);
+    // the walk-round counts game minutes while you're with them (the clock's stopped here: advance() runs it), and
+    // they wait when you fall behind
+    const tour = await game.eval(g => g.rareDef('council').tourMinutes);
+    await frames(game, 3);
+    assert.equal(await game.eval(g => g.escorting), true, 'beside them');
+    await advance(game, 10);
+    assert.equal(await game.eval(g => g.rare.escortMinutes), 10, '10 game minutes beside them: 10 counted');
     const where = await game.eval((g, w, s) => { s.pos = { x: 4.75, z: 21.75 }; return [s.inspector.x, s.inspector.z]; }); // off in the office
     await frames(game, 3);
-    const before = await game.eval(g => g.rare.escortSec);
-    await steps(game, 30);
-    assert.equal(await game.eval(g => g.rare.escortSec), before, 'not counted while you\'re away');
+    assert.equal(await game.eval(g => g.escorting), false);
+    await advance(game, 15);
+    assert.equal(await game.eval(g => g.rare.escortMinutes), 10, 'not counted while you\'re away');
+    assert.equal(await game.eval(g => g.inspectorTouring), true);
     const now = await game.eval((g, w, s) => [s.inspector.x, s.inspector.z]);
     assert.ok(Math.hypot(now[0] - where[0], now[1] - where[1]) < 0.6, 'and they waited for you');
-    await game.eval(g => { g.escort(90); });
+    await game.eval((g, w, s, p) => { s.pos = { x: p[0], z: p[1] }; }, now); // back beside them
+    await frames(game, 3);
+    await advance(game, tour - 11);
+    assert.equal(await game.eval(g => g.rare.escortMinutes), tour - 1);
+    assert.equal(await game.eval(g => g.inspectorTouring), true, `not done after ${tour - 1} game minutes`);
+    await advance(game, 1);
     await frames(game, 3);
     assert.equal(await game.eval(g => g.rare.outcome), 'passed');
     assert.equal(await game.eval((g, w, s) => s.built.inspector.visible), false, 'and they\'re gone');

@@ -94,10 +94,10 @@ const bagFull = (g: Game) => 1 - g.wear.filter > CONFIG.fire.bagFullAbove;
 
 /** Competent: changes a full bag before the inspector sees it, walks them round, and clears the slats while it cuts. */
 function competentRare(g: Game): boolean {
-  if (g.inspectorTouring) { g.escort(60); return true; }
+  if (g.inspectorTouring) { g.escort(1); return true; }
   if (g.inspectorWaiting && g.canAct && !g.fault) {
     if (bagFull(g) && !g.replacing && g.replaceConsumable('filter')) return true;
-    if (!g.replacing && g.showCouncilRound()) { g.escort(60); return true; }
+    if (!g.replacing && g.showCouncilRound()) { g.escort(1); return true; }
   }
   if (g.dockBlocked && g.canAct && (g.machine !== 'idle' || g.truckOnApron)) return g.clearDebris();
   return false;
@@ -105,8 +105,8 @@ function competentRare(g: Game): boolean {
 
 /** Average: gets to the inspector and the slats late a third of the time (like its faults), but gets there. */
 function averageRare(g: Game): boolean {
-  if (g.inspectorTouring) { g.escort(60); return true; }
-  if (g.inspectorWaiting && g.canAct && averageReacts(g, `council-${g.dayIndex}`, 5, 25) && g.showCouncilRound()) { g.escort(60); return true; }
+  if (g.inspectorTouring) { g.escort(1); return true; }
+  if (g.inspectorWaiting && g.canAct && averageReacts(g, `council-${g.dayIndex}`, 5, 25) && g.showCouncilRound()) { g.escort(1); return true; }
   if (g.dockBlocked && g.canAct && averageReacts(g, `ute-${g.dayIndex}`, 10, 40)) return g.clearDebris();
   return false;
 }
@@ -115,7 +115,7 @@ function averageRare(g: Game): boolean {
 const sloppyDodges = new WeakMap<Game, Map<number, boolean>>();
 /** Sloppy: leaves the inspector standing half the time, wanders off mid-walk, and only clears the slats for a truck. */
 function sloppyRare(g: Game): boolean {
-  if (g.inspectorTouring) { if (P(g).chance(0.6)) g.escort(60); return true; }
+  if (g.inspectorTouring) { if (P(g).chance(0.6)) g.escort(1); return true; }
   if (g.inspectorWaiting && g.canAct) {
     let m = sloppyDodges.get(g);
     if (!m) sloppyDodges.set(g, m = new Map());

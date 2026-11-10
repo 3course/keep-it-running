@@ -50,7 +50,7 @@ Columns: trigger · how obvious in the scene · steps to fix · time · $ cost �
 12. Offcut bin overflowing · every ~5 cuts · MED: pile on floor · carry to skip (2 trips) · 20 s · $0 · trip hazard, player walks slower in that zone
 13. Rush job call · 1/day, afternoon · MED · accept → bump queue · 10 s · — · accept and miss: fewer calls tomorrow
 14. Beer o'clock · 2pm · HIGH: fridge light · open fridge → drink · 5 s · $0 · each beer −15% task speed, +10% fumble, stackable
-15. Council/safety visit · weekly · HIGH: clipboard person · stop machine, walk them round · 90 s · $300 fine if bag full or extinguisher missing · —
+15. Council/safety visit · weekly · HIGH: clipboard person · stop machine, walk them round · 30 game min (only while you're with them) · $300 fine if bag full or extinguisher missing · —
 
 ## Scope for prototype 1
 Build only #1, #2, #3/#4, #6, #7, #8. One job type, one sheet type, one day. Defer beer, deliveries, power, compressor, council.

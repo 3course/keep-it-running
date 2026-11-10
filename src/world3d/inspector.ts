@@ -1,7 +1,7 @@
 // The council inspector (a rare event), on foot. Game says when they're here and when the walk-round is on; this only
 // walks them: waiting just inside the roller door, then round the machine, the extractor and the wall extinguisher and
 // back, lingering at each, and stopping to wait whenever you fall behind. The walk-round only counts while you're with
-// them (the view calls Game.escort while you're within WORLD.inspectorStayClose).
+// them: `Game.escorting` is set while you're within WORLD.inspectorStayClose, and each game minute then counts.
 import type { Game } from '../sim/Game.js';
 import { COLS, ROWS } from '../world/layout.js';
 import { findPath, smooth, type P, type Walkable } from '../world/pathfind.js';
@@ -31,6 +31,7 @@ export class InspectorWalker {
   update(dt: number, g: Game, you: { x: number; z: number }) {
     const r = g.rare;
     const here = r?.id === 'council' && r.phase === 'live' && g.phase === 'day';
+    g.escorting = false;
     if (!here) { this.visible = false; this.path = null; this.stop = 0; this.linger = 0; this.place(DOOR); return; }
     this.visible = true;
     const near = Math.hypot(you.x - this.x, you.z - this.z) <= WORLD.inspectorStayClose;
@@ -39,7 +40,7 @@ export class InspectorWalker {
       this.facing = Math.atan2(-(you.x - this.x), -(you.z - this.z));
       return;
     }
-    if (near) g.escort(dt); // the walk-round counts while you're with them
+    g.escorting = near; // the walk-round counts (in game minutes, as the clock ticks) while you're with them
     if (this.linger > 0) { this.linger -= dt; return; }
     if (!this.path) {
       if (this.stop >= STOPS.length) return; // round done: Game finishes it when the time's in

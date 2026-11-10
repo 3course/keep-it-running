@@ -106,8 +106,8 @@ describe('council inspection', () => {
     assert.equal(g.machine, 'paused', 'machine stopped for them');
     g.tick();
     assert.equal(job.progress, progress, 'nothing cut on the walk-round');
-    g.escort(def('council').tourSeconds - 1);
-    assert.ok(g.inspectorTouring, 'not done until the full 90 s');
+    g.escort(def('council').tourMinutes - 1);
+    assert.ok(g.inspectorTouring, `not done until the full ${def('council').tourMinutes} game minutes`);
     g.escort(1);
     assert.equal(g.rare.outcome, 'passed');
     assert.equal(g.rapport, Math.min(CONFIG.rapport.max, rapport + def('council').passRapport));
@@ -120,11 +120,33 @@ describe('council inspection', () => {
       const g = landed('council');
       setup(g);
       const cash = g.cash, fees = g.today.fees;
-      g.showCouncilRound(); g.escort(def('council').tourSeconds);
+      g.showCouncilRound(); g.escort(def('council').tourMinutes);
       assert.equal(g.rare.outcome, 'fined');
       assert.equal(g.cash, cash - def('council').penalty);
       assert.equal(g.today.fees, fees + def('council').penalty, 'on the books as a fee');
     }
+  });
+
+  it(`the walk-round is ${def('council').tourMinutes} game minutes beside them, counted by the clock, and only while you're with them`, () => {
+    const g = landed('council');
+    cutting(g);
+    const tour = def('council').tourMinutes;
+    assert.equal(tour, 30);
+    assert.ok(g.showCouncilRound());
+    g.escorting = true;
+    for (let i = 0; i < tour - 10; i++) g.tick();
+    g.escorting = false; // wandered off: the clock runs, the round doesn't
+    for (let i = 0; i < 15; i++) g.tick();
+    assert.equal(g.rare.escortMinutes, tour - 10, 'nothing counted while you were away');
+    g.escorting = true;
+    for (let i = 0; i < 9; i++) g.tick();
+    assert.equal(g.rare.escortMinutes, tour - 1);
+    assert.ok(g.inspectorTouring, `not done after ${tour - 1} game minutes`);
+    assert.equal(g.machine, 'paused', 'the cut stays stopped the whole round');
+    g.tick();
+    assert.equal(g.rare.outcome, 'passed', `done on game minute ${tour}`);
+    assert.equal(g.machine, 'cutting');
+    g.escorting = false;
   });
 
   it(`left standing for ${def('council').waitMinutes} minutes, they write you up anyway`, () => {

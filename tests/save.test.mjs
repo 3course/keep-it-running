@@ -169,3 +169,26 @@ describe('loading a save', () => {
     });
   });
 });
+
+describe('older saves', () => {
+  it("a council walk-round saved in real seconds (escortSec) loads mid-round and starts the round over in game minutes", () => {
+    const g = new Game(1, 5);
+    g.maybeDistraction = () => {};
+    assert.ok(g.forceRareEvent('council'));
+    for (let i = 0; i < 400 && g.rare.phase !== 'live'; i++) g.tick();
+    assert.ok(g.showCouncilRound());
+    const file = JSON.parse(saveText(g, newWorld(g)));
+    delete file.game.rare.escortMinutes;
+    file.game.rare.escortSec = 45;
+    delete file.game.escorting;
+    const back = parseSave(JSON.stringify(file));
+    assert.ok(back, 'loads');
+    const r = back.game.rare;
+    assert.equal(r.escortSec, undefined, 'the old field is gone');
+    assert.equal(r.escortMinutes, 0);
+    assert.equal(back.game.escorting, false);
+    assert.ok(back.game.inspectorTouring, 'still mid-round');
+    back.game.escort(back.game.rareDef('council').tourMinutes);
+    assert.equal(back.game.rare.outcome, 'passed');
+  });
+});

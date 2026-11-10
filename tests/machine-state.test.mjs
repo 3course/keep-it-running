@@ -37,7 +37,7 @@ describe('the machine after a fire is put out', () => {
 
   it("the inspector's walk-round is on: stays paused, and starts again when they're done", () => {
     const g = cuttingWithDuctFire();
-    g.rare = { id: 'council', phase: 'live', touring: true, escortSec: 0, pausedCut: false };
+    g.rare = { id: 'council', phase: 'live', touring: true, escortMinutes: 0, pausedCut: false };
     g.extinguish();
     assert.equal(g.machine, 'paused', 'not cutting mid-tour');
     g.finishCouncil(true);

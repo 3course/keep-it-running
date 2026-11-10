@@ -379,8 +379,8 @@ export function inspectorActions(g: Game): Action[] {
 export function inspectorStatus(g: Game): string | null {
   if (g.inspectorWaiting) return `Council: "Mind if I have a look round?" (${g.rare!.waitLeft}m)`;
   if (g.inspectorTouring) {
-    const left = Math.max(0, Math.ceil(CONFIG.rareEvent.events.find(e => e.id === 'council')!.tourSeconds! - (g.rare!.escortSec ?? 0)));
-    return `Council: walking the round, stay with them (${left}s)`;
+    const left = Math.max(0, Math.ceil(CONFIG.rareEvent.events.find(e => e.id === 'council')!.tourMinutes! - (g.rare!.escortMinutes ?? 0)));
+    return `Council: walking the round, stay with them (${left}m)`;
   }
   return null;
 }

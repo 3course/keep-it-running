@@ -117,6 +117,14 @@ function gameFromJson(raw: Loose): Game {
   g.deliveries = g.deliveries.filter(d => isObject(d) && Array.isArray(d.lines));
   for (const d of g.deliveries) d.lines = d.lines.filter(l => isObject(l) && CONFIG.jobs.types.some(t => t.id === l.type));
   if (g.fire !== null && !isObject(g.fire)) g.fire = null;
+  if (g.rare != null && !isObject(g.rare)) g.rare = null;
+  if (g.rare) {
+    // a save from before the walk-round ran in game minutes (escortSec, real seconds): the round starts over
+    const r = g.rare as unknown as Loose;
+    delete r.escortSec;
+    if (r.id === 'council' && (typeof r.escortMinutes !== 'number' || !Number.isFinite(r.escortMinutes) || r.escortMinutes < 0)) r.escortMinutes = 0;
+  }
+  g.escorting = false; // the view sets it each frame from where you are
   // a save from before stock was valued: what's on the pallet is worth what it costs to buy
   if (!('stockValue' in data)) for (const t of CONFIG.jobs.types) g.stockValue[t.id] = g.stock[t.id] * t.boardCost;
   for (const d of g.deliveries) {

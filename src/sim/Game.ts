@@ -583,6 +583,8 @@ export class Game {
   /** Advance one game minute. No-op outside the working day. */
   /** The player's pen is moving on a signature pad right now (the view sets it): whoever's waiting for it waits. */
   signing = false;
+  /** You're beside the inspector on the walk-round (set by the view each frame): each game minute counts toward it. The sim calls escort() itself. */
+  escorting = false;
 
   tick() {
     if (this.phase !== 'day') return;
@@ -594,6 +596,8 @@ export class Game {
 
     // competence recovery
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.recoveryPerMinute);
+
+    if (this.escorting) this.escort(1);
 
     this.tickBeer();
     this.tickWalkIns();
@@ -1916,7 +1920,7 @@ export class Game {
   private landRare(r: RareEventState, def: RareEvent) {
     r.phase = 'live';
     if (r.id === 'council') {
-      r.waitLeft = def.waitMinutes; r.escortSec = 0; r.touring = false;
+      r.waitLeft = def.waitMinutes; r.escortMinutes = 0; r.touring = false;
       this.say("The council's here: an inspector with a clipboard at the roller door. Stop the machine and walk them round.", 'bad');
     } else if (r.id === 'bigJob') {
       const rr = this.at('bigJob');
@@ -1960,18 +1964,21 @@ export class Game {
   showCouncilRound(): boolean {
     const r = this.rare;
     if (!this.inspectorWaiting || !r || this.phase !== 'day' || !this.canAct) return false;
-    r.touring = true; r.escortSec = 0;
+    r.touring = true; r.escortMinutes = 0;
     if (this.machine === 'cutting') { this.machine = 'paused'; r.pausedCut = true; }
     this.say('Machine off. Walking the inspector round.');
     return true;
   }
 
-  /** Time spent with the inspector on the walk-round (the view: while you're beside them; the sim: a minute a tick). */
-  escort(seconds: number) {
+  /**
+   * Game minutes spent with the inspector on the walk-round. The view sets `escorting` while you're beside them and each
+   * tick counts a minute; the sim calls this once a tick. Done at `tourMinutes`.
+   */
+  escort(minutes: number) {
     const r = this.rare;
     if (!this.inspectorTouring || !r) return;
-    r.escortSec = (r.escortSec ?? 0) + seconds;
-    if (r.escortSec >= this.rareDef('council').tourSeconds!) this.finishCouncil(true);
+    r.escortMinutes = (r.escortMinutes ?? 0) + minutes;
+    if (r.escortMinutes >= this.rareDef('council').tourMinutes!) this.finishCouncil(true);
   }
 
   private finishCouncil(walked: boolean) {
