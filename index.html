@@ -2,6 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Content-Security-Policy: only this site's own scripts, styles, images and workers, plus Google Analytics (src/analytics.ts loads gtag.js from googletagmanager.com, which sends hits to google-analytics.com). 'unsafe-inline' styles: the inline <style> below and the HUD's element styles. See docs/SECURITY.md. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.googletagmanager.com; connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com; img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com; style-src 'self' 'unsafe-inline'; worker-src 'self'; object-src 'none'; base-uri 'self'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#14110f" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

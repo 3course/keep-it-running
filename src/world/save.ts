@@ -3,13 +3,14 @@
 // are copied out and back in, with the few non-JSON bits (RNG state, the upgrade Set, fault references,
 // the current-job reference) handled by hand.
 import { track } from '../analytics.js';
-import { CONFIG } from '../config.js';
+import { CONFIG, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
 import { Rng } from '../sim/rng.js';
 import type { Job } from '../sim/types.js';
 import type { WorldState } from './state.js';
-import { WORLD } from './worldConfig.js';
+import { getItem, KEYS, removeItem, setItem } from '../storage.js';
+import { CARRIES, newWorld } from './state.js';
 
 const SAVE_VERSION = 2; // 2: positions in metres (Three.js world)
 
@@ -28,31 +29,92 @@ function gameToJson(g: Game): Loose {
   return out;
 }
 
-function gameFromJson(data: Loose): Game {
-  const g = new Game();
+// ---------- loading a save safely ----------
+// A save is whatever is in localStorage: it might be from an older build, cut off half-written, or edited by hand. Loading
+// keeps every field that's the right kind of thing and puts a fresh game's value back for any that isn't, clamps the
+// numbers that index or divide something, and drops references that point at nothing — so a bad save loads as a
+// slightly odd game (or not at all), never as one that crashes mid-shift.
+
+/** Keys that must never be copied onto an object from parsed JSON (they'd reach the prototype). */
+const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
+/** Sanity bounds for loaded numbers: far past anything a real game reaches, short of anything that breaks the maths. */
+const LIMIT = { money: 1e9, dayIndex: 100_000 };
+
+const isObject = (v: unknown): v is Loose => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isPlain = (v: unknown): v is Loose => isObject(v) && Object.getPrototypeOf(v) === Object.prototype;
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const isUint32 = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 0xffffffff;
+
+/** Is `v` the same kind of JSON value as `like` (a fresh game's value for that field)? A field a fresh game leaves null or unset takes anything. */
+function sameKind(v: unknown, like: unknown): boolean {
+  if (like === null || like === undefined) return true;
+  if (typeof like === 'number') return typeof v === 'number' && Number.isFinite(v); // (JSON.parse('1e999') is Infinity)
+  if (typeof like === 'string' || typeof like === 'boolean') return typeof v === typeof like;
+  if (Array.isArray(like)) return Array.isArray(v);
+  if (typeof like === 'object') return isObject(v);
+  return false; // a method: never from a save
+}
+
+/**
+ * `v` with every field that's the wrong kind (against `like`) swapped for `like`'s, `depth` levels into plain objects.
+ * Inside those (not at the top: the caller decides what a missing top-level field means) a field `like` has and `v`
+ * lacks is filled in from `like`, as a fresh game would have it.
+ */
+function repair(v: Loose, like: Loose, depth: number, fill = false): Loose {
+  const out: Loose = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (UNSAFE.has(k)) continue;
+    const l = like[k];
+    if (!sameKind(x, l)) { out[k] = structuredClone(l); continue; }
+    out[k] = depth > 0 && isPlain(l) && isObject(x) ? repair(x, l, depth - 1, true) : x;
+  }
+  if (fill) for (const [k, l] of Object.entries(like)) if (!(k in out) && l !== undefined && typeof l !== 'function') out[k] = structuredClone(l);
+  return out;
+}
+
+function rngFrom(v: unknown, fallbackSeed: number): Rng {
+  const r = new Rng(fallbackSeed);
+  const s = isObject(v) ? v.s : undefined;
+  if (typeof s === 'number' && Number.isFinite(s)) (r as unknown as { s: number }).s = s >>> 0;
+  return r;
+}
+
+function gameFromJson(raw: Loose): Game {
+  const seed = isUint32(raw.seed) ? raw.seed : undefined;
+  const g = new Game(seed);
   const target = g as unknown as Loose;
-  for (const [k, v] of Object.entries(data)) target[k] = v;
+  const data = repair(raw, target, 2);
+  tidyLists(data, 2);
+  // fields of the wrong kind come back as the fresh game's value; the hand-restored ones below are skipped here
+  for (const [k, v] of Object.entries(data)) {
+    if (k === 'seed' || k === 'actionRng' || k === 'visitorRng' || k === 'rng' || k === 'upgrades' || k === 'current' || k === 'fault') continue;
+    target[k] = v;
+  }
+  // the clock and the money: whole days from 1, a minute inside the day, cash a real number
+  g.dayIndex = clamp(Math.floor(g.dayIndex), 1, LIMIT.dayIndex);
+  g.day = clamp(Math.floor(g.day), 1, CONFIG.week.days);
+  g.minute = clamp(g.minute, 0, 24 * 60);
+  target.cash = clamp(g.cash, -LIMIT.money, LIMIT.money);
+  g.rapport = clamp(g.rapport, CONFIG.rapport.min, CONFIG.rapport.max);
+  g.competence = clamp(g.competence, 0, CONFIG.competence.max);
+  for (const k of Object.keys(g.wear) as (keyof Game['wear'])[]) g.wear[k] = clamp(g.wear[k], 0, 1);
   // the player's stream; a save from before the world's rolls got their own streams had one `rng` for everything,
   // and carries on from where it was (the world's rolls are derived from the seed, so there's nothing else to restore)
-  const ar = new Rng();
-  (ar as unknown as { s: number }).s = ((data.actionRng ?? data.rng) as { s: number }).s;
-  g.actionRng = ar;
-  delete target.rng;
+  g.actionRng = rngFrom(raw.actionRng ?? raw.rng, g.seed);
   // a save from before visitors had their own stream: the new game's (reseeded tomorrow) does
-  if (data.visitorRng) {
-    const vr = new Rng();
-    (vr as unknown as { s: number }).s = (data.visitorRng as { s: number }).s;
-    g.visitorRng = vr;
-  } else g.visitorRng = new Rng(g.seed);
-  g.upgrades = new Set(data.upgrades as Game['upgrades'] extends Set<infer U> ? U[] : never);
-  const jobs = data.jobs as Job[];
-  g.jobs = jobs;
-  g.current = data.current == null ? null : jobs.find(j => j.id === data.current) ?? null;
-  const f = data.fault as (Loose & { def: string; path: string | null }) | null;
-  if (f) {
-    const def = FAULTS.find(d => d.id === f.def)!;
-    g.fault = { ...(f as unknown as NonNullable<Game['fault']>), def, path: f.path ? def.paths.find(p => p.id === f.path) : undefined };
-  } else g.fault = null;
+  g.visitorRng = rngFrom(raw.visitorRng, g.seed);
+  const known = new Set<string>(CONFIG.upgrades.map(u => u.id));
+  g.upgrades = new Set((Array.isArray(raw.upgrades) ? raw.upgrades : []).filter((u): u is UpgradeId => typeof u === 'string' && known.has(u)));
+  const jobs = g.jobs = g.jobs.filter((j): j is Job => isObject(j) && typeof j.id === 'number');
+  g.current = raw.current == null ? null : jobs.find(j => j.id === raw.current) ?? null;
+  const f = raw.fault;
+  const def = isObject(f) ? FAULTS.find(d => d.id === f.def) : undefined;
+  if (isObject(f) && def) {
+    g.fault = { ...(repair(f, {}, 0) as unknown as NonNullable<Game['fault']>), def, path: typeof f.path === 'string' ? def.paths.find(p => p.id === f.path) : undefined };
+  } else g.fault = null; // (a fault that isn't in the game any more: cleared)
+  g.deliveries = g.deliveries.filter(d => isObject(d) && Array.isArray(d.lines));
+  for (const d of g.deliveries) d.lines = d.lines.filter(l => isObject(l) && CONFIG.jobs.types.some(t => t.id === l.type));
+  if (g.fire !== null && !isObject(g.fire)) g.fire = null;
   // a save from before stock was valued: what's on the pallet is worth what it costs to buy
   if (!('stockValue' in data)) for (const t of CONFIG.jobs.types) g.stockValue[t.id] = g.stock[t.id] * t.boardCost;
   for (const d of g.deliveries) {
@@ -65,25 +127,81 @@ function gameFromJson(data: Loose): Game {
   return g;
 }
 
-export function writeSave(g: Game, w: WorldState) {
-  const file: SaveFile = { v: SAVE_VERSION, savedAt: Date.now(), game: gameToJson(g), world: w };
-  try { localStorage.setItem(WORLD.saveKey, JSON.stringify(file)); } catch { /* storage full or blocked: play on without saving */ }
+/** Lists: holes (null) and anything not the same kind as the list's first entry are dropped. */
+function tidyLists(o: Loose, depth: number) {
+  for (const [k, v] of Object.entries(o)) {
+    if (Array.isArray(v)) {
+      const kind = (x: unknown) => (x === null ? 'null' : Array.isArray(x) ? 'array' : typeof x);
+      const first = v.find(x => x !== null);
+      o[k] = v.filter(x => x !== null && kind(x) === kind(first));
+    } else if (depth > 0 && isObject(v)) tidyLists(v, depth - 1);
+  }
 }
 
-export function readSave(): { game: Game; world: WorldState } | null {
+/**
+ * The last check: a copy of the loaded game plays on to tomorrow morning. Anything the repairs above missed that
+ * would throw mid-shift throws here instead, and the save is refused (a fresh game) rather than crashing later.
+ */
+function playsOn(text: string): boolean {
   try {
-    const raw = localStorage.getItem(WORLD.saveKey);
-    if (!raw) return null;
-    const file = JSON.parse(raw) as SaveFile;
-    if (file.v !== SAVE_VERSION) return null;
-    return { game: gameFromJson(file.game), world: file.world };
+    const file = JSON.parse(text) as SaveFile;
+    const g = gameFromJson(file.game);
+    for (let guard = 0; guard < 4 * 24 * 60; guard++) {
+      if (g.phase === 'day') g.tick();
+      else if (g.phase === 'endOfDayPrompt') g.knockOff();
+      else { g.nextDay(); return true; }
+    }
+    return true;
+  } catch { return false; }
+}
+
+const BEDS: readonly WorldState['bed'][] = ['empty', 'placed', 'clamped', 'running', 'done', 'scrap'];
+
+/** The shed from a save, checked against a fresh one the same way (a missing number or flag gets the fresh value). */
+function worldFromJson(raw: unknown, g: Game): WorldState {
+  const fresh = newWorld(g) as unknown as Loose;
+  if (!isObject(raw)) return fresh as unknown as WorldState;
+  const w = repair(raw, fresh, 2);
+  for (const [k, v] of Object.entries(fresh)) if (!(k in w) && (typeof v !== 'object' || Array.isArray(v) || k === 'hooks')) w[k] = structuredClone(v);
+  const out = w as unknown as WorldState;
+  if (!BEDS.includes(out.bed)) out.bed = 'empty';
+  if (out.carrying !== null && !CARRIES.includes(out.carrying)) out.carrying = null;
+  out.offcutBin = clamp(out.offcutBin, 0, 1);
+  out.finishedStack = clamp(Math.floor(out.finishedStack), 0, 1000);
+  return out;
+}
+
+/** The save as text (what writeSave stores, and parseSave reads back). */
+export function saveText(g: Game, w: WorldState): string {
+  const file: SaveFile = { v: SAVE_VERSION, savedAt: Date.now(), game: gameToJson(g), world: w };
+  return JSON.stringify(file);
+}
+
+export function writeSave(g: Game, w: WorldState) {
+  try { setItem(KEYS.save, saveText(g, w)); } catch { /* storage full or blocked: play on without saving */ }
+}
+
+/** A save as text (localStorage, or the day-start copy) to a game, or null if it isn't one we can load. Never throws. */
+export function parseSave(raw: string): { game: Game; world: WorldState } | null {
+  try {
+    const file: unknown = JSON.parse(raw);
+    if (!isObject(file) || file.v !== SAVE_VERSION || !isObject(file.game)) return null;
+    const game = gameFromJson(file.game);
+    const world = worldFromJson(file.world, game);
+    if (!playsOn(saveText(game, world))) { track('save_refused', { day_index: game.dayIndex }); return null; }
+    return { game, world };
   } catch {
     return null; // corrupt save: start fresh rather than crash
   }
 }
 
+export function readSave(): { game: Game; world: WorldState } | null {
+  const raw = getItem(KEYS.save);
+  return raw ? parseSave(raw) : null;
+}
+
 export function clearSave() {
-  try { localStorage.removeItem(WORLD.saveKey); } catch { /* ignore */ }
+  removeItem(KEYS.save);
 }
 
 /** Wipe the save and reload into a brand-new game: starting cash, day 1, no upgrades. */

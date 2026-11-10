@@ -3,6 +3,7 @@
 // motion. Reading is safe anywhere (blocked storage: the defaults); changing one saves it and tells whoever's listening.
 import { TEXT } from './ui/talk.js';
 import { WORLD } from './world/worldConfig.js';
+import { getJson, isObject, KEYS, setItem } from './storage.js';
 
 export type TextSpeed = 'slow' | 'normal' | 'fast';
 /** auto: whatever the GPU probe says. low: the plain pipeline (?safe=1). bare: and no shadows (?safe=2). */
@@ -10,11 +11,10 @@ export type Graphics = 'auto' | 'low' | 'bare';
 export interface Settings { sound: number; music: number; textSpeed: TextSpeed; graphics: Graphics; reduceMotion: boolean }
 
 export const DEFAULT_SETTINGS: Settings = { sound: 1, music: 1, textSpeed: 'normal', graphics: 'auto', reduceMotion: false };
-const KEY = 'kir-settings';
 
 function load(): Settings {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<Settings>;
+    const raw = (getJson(KEYS.settings, isObject) ?? {}) as Partial<Settings>;
     const num = (v: unknown, d: number) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : d);
     return {
       sound: num(raw.sound, DEFAULT_SETTINGS.sound), music: num(raw.music, DEFAULT_SETTINGS.music),
@@ -34,7 +34,7 @@ apply();
 
 export function setSetting<K extends keyof Settings>(key: K, value: Settings[K]) {
   SETTINGS[key] = value;
-  try { localStorage.setItem(KEY, JSON.stringify(SETTINGS)); } catch { /* blocked: it holds for this session */ }
+  setItem(KEYS.settings, JSON.stringify(SETTINGS)); // (blocked: it holds for this session)
   apply();
   for (const f of listeners) f(SETTINGS);
 }

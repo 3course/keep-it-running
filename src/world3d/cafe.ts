@@ -25,6 +25,7 @@ import { Figure } from './figures.js';
 import { friendLook, NAMED, randomLook } from './looks.js';
 import { snapToPixels } from './pixelSnap.js';
 import type { Sfx } from './sfx.js';
+import { KEYS, setItem } from '../storage.js';
 
 /** The strip, out past the side yard (metres). */
 const O = new THREE.Vector3(-14, 0, 8);
@@ -304,7 +305,7 @@ export class Cafe {
     const wasIntro = this.introMode;
     this.introMode = false;
     this.skipChip?.remove(); this.skipChip = null; this.showNext(false);
-    if (wasIntro) { w.introDone = true; try { localStorage.setItem('kir-intro-seen', '1'); } catch { /* fine */ } }
+    if (wasIntro) { w.introDone = true; setItem(KEYS.introSeen, '1'); }
     this.active = false;
     this.talk.clear();
     this.signEl.style.display = 'none';

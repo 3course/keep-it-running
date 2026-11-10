@@ -1,6 +1,7 @@
 // The phone, heard: an old-style double ring synthesised with WebAudio (no sound files).
 // Two tones with a fast tremolo, gated by the ring cadence, panned toward the office and quieter
 // the further away you are. One cadence drives both the sound and the on-screen pointer's pulse.
+import { getItem, KEYS, setItem } from '../storage.js';
 
 const PERIOD = 3.0; // s: ring-ring … pause
 
@@ -9,8 +10,6 @@ export function ringOn(t: number): boolean {
   const p = t % PERIOD;
   return p < 0.4 || (p >= 0.6 && p < 1.0);
 }
-
-const MUTE_KEY = 'kir-muted';
 
 export type CueKind = 'knock' | 'beeper' | 'buzz' | 'crunch';
 
@@ -22,7 +21,7 @@ export class RingSound {
   muted = false;
 
   constructor() {
-    try { this.muted = localStorage.getItem(MUTE_KEY) === '1'; } catch { /* storage blocked */ }
+    this.muted = getItem(KEYS.muted) === '1';
   }
 
   /** Browsers only allow audio after a user gesture: call from the first tap or key press. */
@@ -47,7 +46,7 @@ export class RingSound {
 
   setMuted(m: boolean) {
     this.muted = m;
-    try { localStorage.setItem(MUTE_KEY, m ? '1' : '0'); } catch { /* storage blocked */ }
+    setItem(KEYS.muted, m ? '1' : '0');
   }
 
   /** Call every frame. pan: -1 left .. 1 right. volume: 0..1. */

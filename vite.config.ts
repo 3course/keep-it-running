@@ -39,6 +39,16 @@ export default defineConfig({
         ],
       },
       workbox: {
+        // A new deploy replaces the old cache: the precache is named for this build's commit, so the new worker
+        // installs into a fresh cache, takes over at once (skipWaiting + clientsClaim; registerType autoUpdate reloads
+        // open tabs onto it) and deletes the previous build's precache (cleanupOutdatedCaches).
+        cacheId: `kir-${commit}`,
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // the kill switch (public/sw-kill.js): if <base>sw-kill.txt is ever deployed, the worker clears every cache
+        // and unregisters itself
+        importScripts: ['sw-kill.js'],
         globPatterns: ['**/*.{js,css,html,png,svg,webmanifest}'],
         globIgnores: ['og-image.png'], // the share tile is for crawlers, not worth caching on every phone
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,

@@ -8,6 +8,7 @@ import type { Game } from '../sim/Game.js';
 import type { ObjectId } from '../world/layout.js';
 import type { TodoItem } from '../world/todo.js';
 import { WORLD } from '../world/worldConfig.js';
+import { getItem, KEYS, setItem } from '../storage.js';
 
 const HAND = "'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive";
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
@@ -321,7 +322,7 @@ export class Hud {
       });
       document.addEventListener('fullscreenchange', () => { fs.title = document.fullscreenElement ? 'Leave fullscreen' : 'Fullscreen'; });
     }
-    try { this.pinned = localStorage.getItem('kir-pad-pinned') !== '0'; } catch { /* default: pinned */ }
+    this.pinned = getItem(KEYS.padPinned) !== '0'; // default: pinned
     // the speech bubbles go under the labels: a mate's answer buttons always sit over what he's saying
     this.stage.append(this.bubble, this.mateBubble, this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.pauseBtn, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
     if (this.fsBtn) this.stage.appendChild(this.fsBtn);
@@ -367,7 +368,7 @@ export class Hud {
   private setPinned(p: boolean) {
     this.pinned = p;
     this.pad.classList.toggle('open', p);
-    try { localStorage.setItem('kir-pad-pinned', p ? '1' : '0'); } catch { /* fine */ }
+    setItem(KEYS.padPinned, p ? '1' : '0');
     this.placeTab();
   }
 

@@ -8,8 +8,12 @@ import { newWorld } from './world/state.js';
 import { graphicsSearch } from './settings.js';
 import { dayHeading } from './world/lease.js';
 import { dailyStart, seedParam, shiftSeed } from './world/daily.js';
+import { getItem, KEYS, removeItem } from './storage.js';
+import { checkSwKill, checkSwUpdates } from './serviceWorker.js';
 
 initAnalytics();
+checkSwKill();
+checkSwUpdates();
 
 // ?daily: today's daily (Melbourne date), from the canonical start, saving nothing but the result
 const daily = new URLSearchParams(location.search).has('daily');
@@ -36,9 +40,9 @@ const gpu = probeGpu(graphicsSearch(location.search));
 Object.assign(window as unknown as { kir: Game; kirGpu: GpuInfo }, { kir: game, kirGpu: gpu });
 
 // The title comes first on a load. Not for the daily, ?title=0 / ?intro=0 (the tests), or straight after a choice made on it
-// (New game, a graphics change, Restart day reload the page and set 'kir-boot').
-let boot: string | null = null;
-try { boot = sessionStorage.getItem('kir-boot'); sessionStorage.removeItem('kir-boot'); } catch { /* none */ }
+// (New game, a graphics change, Restart day reload the page and set the session's KEYS.boot).
+const boot = getItem(KEYS.boot, 'session');
+removeItem(KEYS.boot, 'session');
 const q = new URLSearchParams(location.search);
 const showTitle = !daily && !boot && q.get('title') !== '0' && q.get('intro') !== '0';
 const title = showTitle ? { summary: saved && world.lease ? dayHeading(game, world.lease) : null } : null;

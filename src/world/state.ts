@@ -5,9 +5,11 @@ import { WORLD } from './worldConfig.js';
 import type { PeopleState } from '../people/state.js';
 
 /** What the player can be carrying. One thing at a time. */
-export type Carry = 'sheet' | 'cut' | 'scrap' | 'extinguisher' | 'bag' | 'offcuts' | 'bundle' | 'debris'
-  | 'bit' | 'newBag' | 'stack' // a bit (or collet) from the rack, a new extractor bag, the finished stack for the ute
-  | 'cans';                     // the morning after: empties on their way to the refund bag (w.canCount of them)
+export const CARRIES = ['sheet', 'cut', 'scrap', 'extinguisher', 'bag', 'offcuts', 'bundle', 'debris',
+  'bit', 'newBag', 'stack', // a bit (or collet) from the rack, a new extractor bag, the finished stack for the ute
+  'cans',                   // the morning after: empties on their way to the refund bag (w.canCount of them)
+] as const;
+export type Carry = (typeof CARRIES)[number];
 
 /**
  * The physical shed: the things the economy (Game) doesn't model — where you are, what's in your hands,

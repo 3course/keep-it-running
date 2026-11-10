@@ -2,6 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
+  <!-- CSP: nothing but the one inline redirect script below (by its hash: change the script, update the hash). -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'sha256-VzEDO2T8OyW1OO92kF2VwRF1Ox2tKIca+AIfZAYhyYg='; style-src 'unsafe-inline'; object-src 'none'; base-uri 'self'" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!-- The 3D build used to live here (/preview/). It's the whole site now: send old links home, query string and all. -->
   <meta http-equiv="refresh" content="0; url=/" />

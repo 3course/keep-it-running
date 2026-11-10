@@ -1,7 +1,7 @@
 // Little sounds, synthesised (no files): a can cracking, a tram somewhere down the road, a dog a few yards over, a
 // cheer, and some music once someone puts it on. Off when the game's muted.
 import { SETTINGS, onSettings } from '../settings.js';
-const MUTE_KEY = 'kir-muted';
+import { getItem, KEYS } from '../storage.js';
 
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -9,7 +9,7 @@ export class Sfx {
   private musicLevel = 0.05;
   private music: { gain: GainNode; timer: number } | null = null;
 
-  get muted() { try { return localStorage.getItem(MUTE_KEY) === '1'; } catch { return false; } }
+  get muted() { return getItem(KEYS.muted) === '1'; }
 
   /** After a user gesture. */
   unlock() {
