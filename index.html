@@ -2,6 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!-- Content-Security-Policy: only this site's own scripts, styles, images and workers. 'unsafe-inline' styles: the inline <style> below and Phaser's canvas sizing. (frame-ancestors can't be set from a meta tag; see docs/SECURITY.md.) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; worker-src 'self'; object-src 'none'; base-uri 'self'" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- Share tile (Open Graph + Twitter card): static and absolute, since crawlers don't run JS. This build is served at /panel/; the image is the world build's title screen (made by `npm run og` on the world branch). -->
     <meta name="description" content="Run a CNC router in a Melbourne shed. Keep it cutting, keep the margin, don't burn the place down." />
