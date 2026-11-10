@@ -23,7 +23,7 @@ import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
 import { boxAt, buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
-import { moveAndSlide, type Box } from './collide.js';
+import { dropSpot, moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { Particles } from './particles.js';
 import { ShedLighting } from './lighting.js';
@@ -1971,7 +1971,12 @@ export class World3D {
     const c = this.g.putDownCan();
     if (!c) return;
     const w = this.w, side = (c.id % 3 - 1) * 0.12;
-    (w.canSpots ??= {})[c.id] = { x: this.pos.x + w.fx * 0.3 - w.fy * side, z: this.pos.z + w.fy * 0.3 + w.fx * side };
+    (w.canSpots ??= {})[c.id] = this.dropAt(this.pos.x + w.fx * 0.3 - w.fy * side, this.pos.z + w.fy * 0.3 + w.fx * side, WORLD.dropRadius.can);
+  }
+
+  /** Where a thing put down at (tx, tz) lands: there, or nearer your feet if that's in a wall or a machine. */
+  private dropAt(tx: number, tz: number, r: number) {
+    return dropSpot(this.pos.x, this.pos.z, tx, tz, r, this.boxes(), (x, z) => this.walkable(Math.floor(x / C), Math.floor(z / C)));
   }
 
   // ---------- the extinguisher, carried like a can (playtest 1) ----------
@@ -1990,7 +1995,7 @@ export class World3D {
   private putExtDown() {
     const w = this.w;
     if (w.carrying !== 'extinguisher' || !w.extinguisherFrom) return;
-    (w.extAt ??= {})[w.extinguisherFrom] = { x: this.pos.x + w.fx * 0.35, z: this.pos.z + w.fy * 0.35 };
+    (w.extAt ??= {})[w.extinguisherFrom] = this.dropAt(this.pos.x + w.fx * 0.35, this.pos.z + w.fy * 0.35, WORLD.dropRadius.extinguisher);
     w.carrying = null; w.extinguisherFrom = null;
   }
 

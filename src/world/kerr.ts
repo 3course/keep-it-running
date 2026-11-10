@@ -32,8 +32,14 @@ function sheetMargin(g: Game): number {
 }
 
 /** The rules. Each reads the day (Game's log and numbers) and says one line if it has something to say. */
-function rules(g: Game): Said[] {
+function rules(g: Game, w: WorldState): Said[] {
   const d = g.today, out: Said[] = [];
+  // the wall extinguisher left off its bracket overnight: the council writes that up (Game.finishCouncil), so say so
+  // before an inspection costs the fine
+  if (w.extOffOvernight && w.hooks.wall === false) {
+    const fine = CONFIG.rareEvent.events.find(e => e.id === 'council')!.penalty;
+    out.push({ cost: fine, line: `Extinguisher was off its bracket overnight. Council fines that, ${money(fine)}, if they turn up. Hang it back up.` });
+  }
   const perMinute = CONFIG.jobs.machineRatePerMinute;
   // the router sat idle (the day log's "Idle …" stretches)
   const idle = d.idleMinutes ?? 0;
@@ -103,7 +109,7 @@ export function kerrScreen(g: Game, w: WorldState): KerrScreen {
     if (!g.hasMilestone('secondBitRack')) left.push(`best day ${money(Math.max(0, m.bestDayProfit))} of ${money(c.bigDayProfit)} → second bit rack`);
     header.push(['MILESTONES', left.length ? left.join('. ') + '.' : 'all done.']);
   }
-  const said = rules(g).sort((a, b) => b.cost - a.cost).map(s => s.line).slice(0, CONFIG.kerr.maxLines);
+  const said = rules(g, w).sort((a, b) => b.cost - a.cost).map(s => s.line).slice(0, CONFIG.kerr.maxLines);
   for (const f of filler(g, w)) if (said.length < CONFIG.kerr.minLines) said.push(f);
   return { header, advice: said };
 }

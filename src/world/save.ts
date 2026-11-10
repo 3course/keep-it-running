@@ -10,7 +10,9 @@ import { Rng } from '../sim/rng.js';
 import type { Job } from '../sim/types.js';
 import type { WorldState } from './state.js';
 import { getItem, KEYS, removeItem, setItem } from '../storage.js';
-import { CARRIES, newWorld } from './state.js';
+import { CARRIES, HOOKS, hookThere, newWorld, type Hook } from './state.js';
+import { DEFAULT_PLAN, fullPlan, reachableFor } from './layoutPlan.js';
+import { WORLD } from './worldConfig.js';
 
 const SAVE_VERSION = 2; // 2: positions in metres (Three.js world)
 
@@ -155,6 +157,41 @@ function playsOn(text: string): boolean {
   } catch { return false; }
 }
 
+/**
+ * Each extinguisher in the shed ends up in exactly one place: on its bracket, in your hands, or down on floor you can
+ * get to. A put-down spot that isn't (junk, in a wall or a machine, a walled-off room) goes back on its bracket.
+ * Carrying one with no bracket of its own puts it down where you stand, as whichever one is missing (or on its bracket
+ * if you're not standing anywhere real). One that's in no place at all goes back on its bracket.
+ */
+function tidyExtinguishers(w: WorldState, g: Game) {
+  let reach: (x: number, y: number) => boolean;
+  try { reach = reachableFor(fullPlan(w.layout)); } catch { reach = reachableFor(DEFAULT_PLAN); }
+  const C = WORLD.cell;
+  const onFloor = (p: unknown): p is { x: number; z: number } => isObject(p) && typeof p.x === 'number' && typeof p.z === 'number'
+    && Number.isFinite(p.x) && Number.isFinite(p.z) && reach(Math.floor(p.x / C), Math.floor(p.z / C));
+  const here = HOOKS.map(h => h.hook).filter(h => hookThere(g, h));
+  const isHook = (h: unknown): h is Hook => typeof h === 'string' && (here as string[]).includes(h);
+  if (!isObject(w.hooks)) w.hooks = { wall: true, shed: true, exhaust: true };
+  const hooks = w.hooks as Record<Hook, boolean | undefined>;
+  const down: Partial<Record<Hook, { x: number; z: number }>> = {};
+  for (const [h, p] of Object.entries(isObject(w.extAt) ? w.extAt : {})) {
+    if (!isHook(h)) continue;
+    if (onFloor(p)) { down[h] = { x: p.x, z: p.z }; hooks[h] = false; } else hooks[h] = true; // a bad spot: back on its bracket
+  }
+  if (w.carrying === 'extinguisher') {
+    const h = w.extinguisherFrom;
+    if (isHook(h)) { delete down[h]; hooks[h] = false; } // in your hands (wherever else the save had it)
+    else {
+      w.carrying = null; w.extinguisherFrom = null;
+      const missing = here.find(x => hooks[x] === false && !down[x]);
+      if (missing) { if (onFloor({ x: w.px, z: w.py })) down[missing] = { x: w.px, z: w.py }; else hooks[missing] = true; }
+    }
+  } else w.extinguisherFrom = null;
+  // off its bracket, not in your hands, not on the floor: nowhere. Back on the bracket.
+  for (const h of here) if (hooks[h] === false && !down[h] && !(w.carrying === 'extinguisher' && w.extinguisherFrom === h)) hooks[h] = true;
+  w.extAt = down;
+}
+
 const BEDS: readonly WorldState['bed'][] = ['empty', 'placed', 'clamped', 'running', 'done', 'scrap'];
 
 /** The shed from a save, checked against a fresh one the same way (a missing number or flag gets the fresh value). */
@@ -166,6 +203,7 @@ function worldFromJson(raw: unknown, g: Game): WorldState {
   const out = w as unknown as WorldState;
   if (!BEDS.includes(out.bed)) out.bed = 'empty';
   if (out.carrying !== null && !CARRIES.includes(out.carrying)) out.carrying = null;
+  tidyExtinguishers(out, g);
   out.offcutBin = clamp(out.offcutBin, 0, 1);
   out.finishedStack = clamp(Math.floor(out.finishedStack), 0, 1000);
   return out;

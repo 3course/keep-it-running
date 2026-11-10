@@ -200,8 +200,9 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
     case 'exhaustExtinguisher': {
       const hook = HOOKS.find(h => h.id === id)!.hook;
       if (!hookThere(g, hook)) return [];
-      // only worth taking down when there's a fire to put out
-      if (empty && onHook(g, w, hook) && g.fire) return [{ label: 'Grab extinguisher', twoHands: true, done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
+      // take it down any time (put it somewhere handier, or carry it about); in a fire, arriving grabs it, otherwise it's a
+      // tap on the label, so a near-miss for the fridge next door doesn't walk off with it
+      if (empty && onHook(g, w, hook)) return [{ label: 'Grab extinguisher', twoHands: true, auto: !!g.fire, done: 'Grabbed the extinguisher', run: () => { w.hooks[hook] = false; w.carrying = 'extinguisher'; w.extinguisherFrom = hook; } }];
       // back on a hook (its own, or any empty one: the one you hang it on has it now)
       if (w.carrying === 'extinguisher' && !onHook(g, w, hook)) return [{ label: 'Hang it up', done: 'Extinguisher back on its hook', run: () => {
         if (w.extinguisherFrom && w.extinguisherFrom !== hook) w.hooks[w.extinguisherFrom] = false;

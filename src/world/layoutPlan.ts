@@ -6,7 +6,7 @@
 // STATIONS moves. Effects are measured against the default plan, so the default layout plays exactly as before.
 import { CONFIG } from '../config.js';
 import type { LayoutEffects } from '../sim/types.js';
-import { COLS, DECOR, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, T, buildGrid, objectById, type ObjectId, type Rect } from './layout.js';
+import { COLS, DECOR, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, buildGrid, objectById, type ObjectId, type Rect } from './layout.js';
 import { findPath, type P } from './pathfind.js';
 
 export type StationId = 'plyPallet' | 'finishedPallet' | 'extractor' | 'bitRack' | 'offcutBin' | 'compressor' | 'extinguisher'
@@ -75,6 +75,22 @@ export function walkableFor(plan: Plan, grid = buildGrid()) {
   const block = new Set<number>();
   for (const r of [...fixedSolids(), ...STATION_IDS.filter(id => STATIONS[id].solid).map(id => rectOf(id, plan[id]))]) for (const c of cellsOf(r)) block.add(c.y * COLS + c.x);
   return (x: number, y: number) => x >= 0 && y >= 0 && x < COLS && y < ROWS && grid[y][x] !== T.WALL && !block.has(y * COLS + x);
+}
+
+/** Floor the player can actually get to under a plan: walkable and joined to the start (not a walled-off room). */
+export function reachableFor(plan: Plan) {
+  const walk = walkableFor(plan), seen = new Uint8Array(COLS * ROWS), todo = [START_TILE];
+  seen[START_TILE.y * COLS + START_TILE.x] = 1;
+  while (todo.length) {
+    const c = todo.pop()!;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const x = c.x + dx, y = c.y + dy;
+      if (!walk(x, y) || seen[y * COLS + x]) continue;
+      seen[y * COLS + x] = 1;
+      todo.push({ x, y });
+    }
+  }
+  return (x: number, y: number) => x >= 0 && y >= 0 && x < COLS && y < ROWS && seen[y * COLS + x] === 1;
 }
 
 /** What's wrong with where a station is (null: fine). */

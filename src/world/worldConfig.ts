@@ -11,6 +11,9 @@ export const WORLD = {
 
   // player
   playerRadius: 0.22,
+  // footprint (m) of a thing put down: kept clear of walls and machines (src/world3d/collide.ts dropSpot); under
+  // playerRadius, so where you stand always fits it
+  dropRadius: { can: 0.04, extinguisher: 0.12 },
   maxSpeed: 3.0,                       // m/s at full stick — machine→phone ≈ 3 s (through the office door and straight on), machine→exhaust unit ≈ 6 s
   accel: 9,                            // how quickly velocity chases the stick (1/s)
   turnRate: 10,                        // facing catch-up (1/s)
