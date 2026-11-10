@@ -21,6 +21,7 @@ import { leaseDay, leaseLength, outcome, projectedCash, quietWeek } from '../wor
 import { logEvent, type WorldState } from '../world/state.js';
 import { Talk } from '../ui/talk.js';
 import { boxAt, toon } from './build.js';
+import { removeAndDispose } from './dispose.js';
 import { Figure } from './figures.js';
 import { friendLook, NAMED, randomLook } from './looks.js';
 import { snapToPixels } from './pixelSnap.js';
@@ -139,7 +140,7 @@ export class Cafe {
     this.minute = CONFIG.clock.startHour * 60 - 15;
     this.d.setHud(false);
     this.set.visible = true;
-    for (const f of this.figs.values()) this.set.remove(f.root);
+    for (const f of this.figs.values()) f.dispose();
     this.figs.clear();
     this.fig('mai', NAMED.mai, new THREE.Vector3(-0.4, 0, -1.0), false);
     this.fig('sparky', NAMED.sparky, new THREE.Vector3(2.6, 0, 0.4), true);
@@ -184,7 +185,7 @@ export class Cafe {
     this.minute = CONFIG.clock.startHour * 60 - 15;
     this.d.setHud(false);
     this.set.visible = true;
-    for (const f of this.figs.values()) this.set.remove(f.root);
+    for (const f of this.figs.values()) f.dispose();
     this.figs.clear();
     // who's here: the barista and the sparky always; the rest if today's like that
     this.fig('mai', NAMED.mai, new THREE.Vector3(-0.4, 0, -1.0), false); // at the counter window
@@ -310,6 +311,8 @@ export class Cafe {
     this.talk.clear();
     this.signEl.style.display = 'none';
     this.set.visible = false;
+    for (const f of this.figs.values()) f.dispose(); // (everyone's made afresh next time)
+    this.figs.clear();
     this.d.setHud(true);
     this.d.arrive();
     this.d.save();
@@ -532,7 +535,13 @@ export class Cafe {
     }
   }
 
-  dispose() { this.talk.clear(); this.chip?.remove(); this.skipChip?.remove(); this.nextBtn?.remove(); this.signEl.remove(); this.d.scene.remove(this.set); }
+  /** Replaced (a rebuilt world): its bubbles, chips and listener go; the set's GPU resources go with the old scene. */
+  dispose() {
+    this.talk.destroy(); this.chip?.remove(); this.skipChip?.remove(); this.nextBtn?.remove(); this.signEl.remove();
+    for (const f of this.figs.values()) f.dispose();
+    this.figs.clear();
+    removeAndDispose(this.set);
+  }
 }
 
 function signTex(text: string, colour = '#f4efe0') {

@@ -8,6 +8,8 @@ const roots = new Set<THREE.Object3D>();
 
 /** Snap this root (a figure, at its feet) to whole render pixels from now on. */
 export function snapToPixels(o: THREE.Object3D) { roots.add(o); }
+/** Stop snapping it (it's gone). */
+export function unsnap(o: THREE.Object3D) { roots.delete(o); }
 
 const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), size = new THREE.Vector2();
 

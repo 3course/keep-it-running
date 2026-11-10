@@ -3,6 +3,7 @@
 // raw MDF showing in the engraving, glossy acrylic with lit-up edges. `rich` false (the low tier, ?safe) keeps it to
 // flat toon colours: no textures, no gloss.
 import * as THREE from 'three';
+import { shared } from './dispose.js';
 import { flatDesign, type Pt } from '../designs/path.js';
 import type { Design } from '../designs/types.js';
 import { toonRamp } from './build.js';
@@ -49,7 +50,7 @@ function textures() {
     let s = 37; const r = () => (s = (s * 16807) % 2147483647) / 2147483647;
     for (let i = 0; i < 40; i++) { c.fillStyle = r() < 0.5 ? '#a8805a' : '#c09a70'; c.fillRect(Math.floor(r() * 16), Math.floor(r() * 16), 1, 1); }
   });
-  return (texCache = { grain, layers, mdfEdge });
+  return (texCache = { grain: shared(grain), layers: shared(layers), mdfEdge: shared(mdfEdge) });
 }
 
 export interface Piece { group: THREE.Group; dispose(): void; size: number }

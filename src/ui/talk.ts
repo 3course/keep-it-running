@@ -52,6 +52,7 @@ export class Talk {
   private replies: HTMLDivElement;
   /** Taps anywhere (not on a reply) hurry the current line along. */
   onTap: (() => void) | null = null;
+  private tapped = () => this.onTap?.();
 
   constructor(private parent: HTMLElement, readonly cls = '') {
     if (!document.getElementById('kir-talk-css')) {
@@ -62,7 +63,7 @@ export class Talk {
     this.replies.style.display = 'none';
     for (const t of ['pointerdown', 'pointerup', 'click'] as const) this.replies.addEventListener(t, e => e.stopPropagation());
     parent.appendChild(this.replies);
-    window.addEventListener('pointerdown', () => this.onTap?.());
+    window.addEventListener('pointerdown', this.tapped);
   }
 
   /** Put `text` over `who` (an id; one bubble each). `name`: shown small above it. */
@@ -151,6 +152,8 @@ export class Talk {
   get options() { return [...this.replies.querySelectorAll('button')].map(b => b.textContent ?? ''); }
 
   clear() { for (const b of this.bubbles.values()) b.remove(); this.bubbles.clear(); this.heads.clear(); this.hideReplies(); this.onTap = null; }
+  /** For good (its owner's being replaced): the bubbles, the replies box and the window listener go. */
+  destroy() { this.clear(); this.hold.clear(); this.replies.remove(); window.removeEventListener('pointerdown', this.tapped); }
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));

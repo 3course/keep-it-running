@@ -1,6 +1,7 @@
 // Builds the shed out of boxes: floor, walls with doorways, every object at its real height, plus
 // the things that come and go (vehicles, the mate, dust). Flat toon colours, warm palette.
 import * as THREE from 'three';
+import { shared } from './dispose.js';
 import { snapToPixels } from './pixelSnap.js';
 import {
   buildGrid, COLS, DECOR, DOORWAYS, isOutside, OBJECTS, ROLLER_TILES, ROWS, T, VEHICLE_BAY, objectById, type Decor, type Doorway, type ObjectId, type PlacedObject, type Rect,
@@ -30,6 +31,7 @@ export function toonRamp() {
     gradient.minFilter = gradient.magFilter = THREE.NearestFilter;
     gradient.generateMipmaps = false;
     gradient.needsUpdate = true;
+    shared(gradient);
   }
   return gradient;
 }
@@ -39,7 +41,7 @@ export function toon(colour: number, own = false, extra: THREE.MeshToonMaterialP
   const key = `${colour}`;
   if (!own && !Object.keys(extra).length && matCache.has(key)) return matCache.get(key)!;
   const m = new THREE.MeshToonMaterial({ color: colour, gradientMap: toonRamp(), ...extra });
-  if (!own && !Object.keys(extra).length) matCache.set(key, m);
+  if (!own && !Object.keys(extra).length) matCache.set(key, shared(m));
   return m;
 }
 

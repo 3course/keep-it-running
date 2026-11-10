@@ -4,11 +4,13 @@
 import * as THREE from 'three';
 import type { Expr } from '../people/dialogue/types.js';
 import { toon } from './build.js';
-import { snapToPixels } from './pixelSnap.js';
+import { removeAndDispose, shared } from './dispose.js';
+import { snapToPixels, unsnap } from './pixelSnap.js';
 
-const INK = new THREE.MeshBasicMaterial({ color: 0x1a1414 });
-const MOUTH_IN = new THREE.MeshBasicMaterial({ color: 0x5a1e1e });
-const TEAR = new THREE.MeshBasicMaterial({ color: 0x9fd8ff });
+// shared by every face (never disposed)
+const INK = shared(new THREE.MeshBasicMaterial({ color: 0x1a1414 }));
+const MOUTH_IN = shared(new THREE.MeshBasicMaterial({ color: 0x5a1e1e }));
+const TEAR = shared(new THREE.MeshBasicMaterial({ color: 0x9fd8ff }));
 
 export type Hair = 'bald' | 'buzz' | 'short' | 'cap' | 'beanie' | 'bun' | 'pony' | 'long' | 'mullet';
 export type Build = 'slim' | 'medium' | 'broad';
@@ -288,6 +290,15 @@ export class Figure {
     const lift = this.walking && !this.seated && (this.stepPose === 0 || this.stepPose === 2) ? STEP_LIFT : 0;
     this.body.position.y = (this.seated ? 0.42 : 0.62) + lift;
     this.legs.position.y = (this.seated ? 0.40 : 0.62) + lift;
+  }
+
+  /**
+   * Gone for good: off its parent, and its geometries and own materials given back (the shared ones stay: toon()'s
+   * cache, the ink). Don't use it after.
+   */
+  dispose() {
+    unsnap(this.root);
+    removeAndDispose(this.root);
   }
 
   /** Head height in world space, for speech bubbles. */

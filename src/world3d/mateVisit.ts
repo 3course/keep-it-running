@@ -283,7 +283,7 @@ export class MateVisit {
   /** What the visitor's labels should be while this has hold of him (the chat's replies are the UI). */
   get holding() { return !!this.chat; }
 
-  dispose() { for (const t of this.timers) window.clearTimeout(t); this.talk.clear(); }
+  dispose() { for (const t of this.timers) window.clearTimeout(t); this.talk.destroy(); }
 }
 
 /** The beer can in a visiting mate's hand (drawn while he's got one on the go). */
