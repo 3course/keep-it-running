@@ -78,6 +78,7 @@ import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
 import { perf } from './perf.js';
 import { applyTextures, Sawdust, type SheetLooks } from './detail.js';
+import { disposeChildren, disposeMaterial, disposeObject, removeAndDispose } from './dispose.js';
 import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
 import { getItem, getJson, isObject, KEYS, removeItem, setItem } from '../storage.js';
@@ -876,7 +877,7 @@ export class World3D {
     this.trail = new Trail(this.scene);
     this.gratitude = new Gratitude(this.scene, this.tier.detail.textures);
     this.trailPath = null; this.guideFor = null;
-    this.canMeshes.clear();
+    this.canMeshes.clear(); this.extMeshes.clear(); // (the old ones went with the old scene)
     this.labelSig = '';
   }
 
@@ -910,7 +911,7 @@ export class World3D {
     try {
       this.scene = new THREE.Scene();
       this.buildScene();
-      this.knockoff.talk.clear(); this.makeKnockOff();
+      this.makeKnockOff();
     } catch (e) { this.contextLost = false; this.fail(e); return; }
     this.contextLost = false;
     this.last = 0;
@@ -1194,9 +1195,14 @@ export class World3D {
   private shedMateId: string | null = null;
 
   private rebuildWorld() {
+    const old = this.scene, oldLooks = this.looks;
     this.scene = new THREE.Scene();
     this.buildScene();
-    this.knockoff.talk.clear(); this.makeKnockOff();
+    this.makeKnockOff();
+    // the old scene's GPU resources: everything still in it (what moved to the new scene is out of it by now), its
+    // sun's shadow map with it, and the sheet looks (some only go on a sheet now and then). Shared ones stay (dispose.ts).
+    disposeObject(old);
+    if (oldLooks) for (const m of [...Object.values(oldLooks.byType), oldLooks.scrap, oldLooks.plywood]) disposeMaterial(m);
     this.solid = solidCells();
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);
@@ -1221,6 +1227,7 @@ export class World3D {
   }
 
   private makeKnockOff() {
+    this.knockoff?.destroy();
     this.knockoff = new KnockOff({
       scene: this.scene, g: this.g, w: this.w, pointLights: this.tier.pointLights, talkParent: this.hud.labels.parentElement!,
       project: v => this.project(v), setHud: v => this.hud.setHudVisible(v), hidePlayer: () => {},
@@ -1242,7 +1249,7 @@ export class World3D {
       gather: on => this.knockoff.gather(on, m.group), sayAs: (who, text) => this.knockoff.sayAs(who, text), save: () => this.save(),
       thumb: d => this.reveal.thumbnail(this.renderer, d),
     });
-    this.layoutEditor?.exit();
+    this.layoutEditor?.exit(); this.layoutEditor?.destroy();
     this.layoutEditor = new LayoutEditor({
       scene: this.scene, camera: this.camera, canvas: this.renderer.domElement, parent: this.hud.labels.parentElement!,
       hide: on => { for (const id of STATION_IDS) { const v = this.built.objects.get(id as ObjectId); if (v) v.group.visible = !on; } },
@@ -1912,7 +1919,7 @@ export class World3D {
       this.built.mate.rotation.y = talking ? Math.atan2(-(this.pos.x - v.x), -(this.pos.z - v.z)) + Math.sin(this.time * 2) * 0.15 : v.facing;
       // each mate always looks the same: his own shirt, build, hair (src/world3d/looks.ts)
       if (this.shedMateId !== (mate.mate ?? '')) {
-        this.built.mate.clear();
+        this.shedMate?.dispose(); disposeChildren(this.built.mate);
         this.shedMate = new Figure(friendLook(mate.mate ?? 'eggby'), { snap: false });
         this.shedMate.setSeated(false);
         this.built.mate.add(this.shedMate.root);
@@ -1922,7 +1929,7 @@ export class World3D {
       f.walking = v.walking; f.can.visible = (mate.beers ?? 0) > 0;
       if (mate.engaged) f.talking = 1.2;
       f.update(this.paused ? 0 : dt);
-    }
+    } else if (this.shedMate) { this.shedMate.dispose(); this.shedMate = null; this.shedMateId = null; } // gone: made afresh when he's back
 
     // fire and smoke
     const fire = g.fire;
@@ -2166,7 +2173,7 @@ export class World3D {
   private updateExts() {
     const g = this.g, w = this.w;
     const down = new Map(HOOKS.map(x => [x.hook, extPlace(g, w, x.hook)] as const).filter(([, p]) => p.at === 'down') as [Hook, { at: 'down'; x: number; z: number }][]);
-    for (const [h, m] of this.extMeshes) if (!down.has(h)) { this.scene.remove(m); this.extMeshes.delete(h); }
+    for (const [h, m] of this.extMeshes) if (!down.has(h)) { removeAndDispose(m); this.extMeshes.delete(h); }
     for (const [h, p] of down) {
       let m = this.extMeshes.get(h);
       if (!m) {
@@ -2197,7 +2204,7 @@ export class World3D {
   private updateCans() {
     const g = this.g, w = this.w;
     const down = new Map(g.cans.filter(c => !c.held && w.canSpots?.[c.id]).map(c => [c.id, c]));
-    for (const [id, m] of this.canMeshes) if (!down.has(id)) { this.scene.remove(m); this.canMeshes.delete(id); }
+    for (const [id, m] of this.canMeshes) if (!down.has(id)) { removeAndDispose(m); this.canMeshes.delete(id); }
     for (const [id, c] of down) {
       let m = this.canMeshes.get(id);
       if (!m) {

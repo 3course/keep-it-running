@@ -4,6 +4,7 @@
 // the layout costs you — steps per job, the bag trip, a pickup, how long a duct fire takes to reach the machine — and
 // what's changed against the layout you started with. Moving things costs time at the start of the day, not money.
 import * as THREE from 'three';
+import { disposeChildren, removeAndDispose } from './dispose.js';
 import { CONFIG } from '../config.js';
 import { DEFAULT_PLAN, PRESETS, STATIONS, STATION_IDS, SWITCHBOARD, clonePlan, measure, moved, problems, rectOf, type LayoutMetrics, type Plan, type StationId } from '../world/layoutPlan.js';
 import { WORLD } from '../world/worldConfig.js';
@@ -124,8 +125,11 @@ export class LayoutEditor {
     this.d.closed();
   }
 
+  /** Replaced by a new one (a rebuilt world): its talk and what it drew. */
+  destroy() { if (this.active) this.exit(); this.talk.destroy(); removeAndDispose(this.group); }
+
   private build() {
-    this.group.clear(); this.blocks.clear();
+    disposeChildren(this.group); this.blocks.clear();
     // the grid, over the building
     const grid = new THREE.GridHelper(17, 34, 0x14110f, 0x6a6f74);
     (grid.material as THREE.Material).transparent = true; (grid.material as THREE.Material).opacity = 0.35;
