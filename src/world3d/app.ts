@@ -137,6 +137,8 @@ export class World3D {
   /** Every action done, for tests and debugging: what was tapped and what it said. */
   readonly actionLog: { label: string; said: string; t: number }[] = [];
   private objectHold = false;
+  /** The finger holding the spray (on the label or the exhaust): only it aims, only its lift lets go. */
+  private holdId: number | null = null;
   private thumb = { x: 0, y: 0 };       // where the last finger is (logical px): aims the extinguisher
   private sprayHeld = false;             // the trigger was down last frame
   private flareUntil = 0;                // the flames jump while a let-go fire flares back
@@ -483,7 +485,9 @@ export class World3D {
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
       const hit = this.pick(L.x, L.y);
-      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; return; }
+      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; this.holdId = e.pointerId; return; }
+      // the first finger down is the stick (or the tap): a second one doesn't take it over or tap
+      if (this.ptr) return;
       // a drag anywhere is the stick; a quick tap uses whatever's under it
       this.ptr = { id: e.pointerId, x0: L.x, y0: L.y, t0: performance.now(), stickable: true, active: false };
     });
@@ -506,7 +510,7 @@ export class World3D {
     const up = (e: PointerEvent) => {
       if (this.layoutEditor.active) this.layoutEditor.pointer('up', e);
       if (this.tracing.active) this.tracing.pointer('up', e);
-      this.objectHold = false;
+      if (this.holdId === null || e.pointerId === this.holdId) { this.objectHold = false; if (!this.labelHold) this.holdId = null; }
       if (this.uiBlocking) { this.dropPointer(); return; } // no tap-to-walk through a card
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
@@ -519,11 +523,16 @@ export class World3D {
     };
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
-    const track = (e: PointerEvent) => { this.thumb = this.hud.toLogical(e.clientX, e.clientY); };
+    // the stick's finger is gone without an up (the browser took it back): drop it, so the next touch is a fresh one
+    canvas.addEventListener('lostpointercapture', e => { if (this.ptr?.id === e.pointerId) this.dropPointer(); });
+    // the aim follows the spraying finger only, once one's holding
+    const track = (e: PointerEvent) => { if (this.holdId !== null && e.pointerId !== this.holdId) return; this.thumb = this.hud.toLogical(e.clientX, e.clientY); };
     window.addEventListener('pointerdown', track, true);
     window.addEventListener('pointermove', track, true);
-    const release = () => {
+    const release = (e: PointerEvent) => {
+      if (this.holdId !== null && e.pointerId !== this.holdId) return; // another finger lifting doesn't stop the spray
       this.labelHold = false;
+      if (!this.objectHold) this.holdId = null;
       if (this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
     };
     window.addEventListener('pointerup', release);
@@ -1645,7 +1654,7 @@ export class World3D {
           b.addEventListener('pointerdown', e => {
             e.preventDefault(); e.stopPropagation();
             this.labelPressed = true; this.labelPressedAt = this.time;
-            if (a.hold) { this.labelHold = true; return; }
+            if (a.hold) { this.labelHold = true; this.holdId = e.pointerId; return; }
             this.doAction(a, id);
             // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
             b.classList.add('tick');
@@ -2317,7 +2326,7 @@ export class World3D {
     this.paused = p;
     this.hud?.setPaused(p);
     this.acc = 0;
-    if (p) { this.labelHold = this.objectHold = false; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
+    if (p) { this.labelHold = this.objectHold = false; this.holdId = null; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
     this.labelSig = '';
     this.save();
   }
