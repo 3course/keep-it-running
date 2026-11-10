@@ -29,6 +29,19 @@ export const rectToBox = (r: Rect, cell: number): Box => ({ minX: r.x * cell, mi
 
 const overlaps = (x: number, z: number, r: number, b: Box) => x + r > b.minX && x - r < b.maxX && z + r > b.minZ && z - r < b.maxZ;
 
+/**
+ * Where something put down at (tx, tz) by someone standing at (x, z) can go: the target if a thing of radius `r` there
+ * touches no box and `floor` says its cell is walkable, otherwise the nearest clear point back along the line to where
+ * they stand (their own spot is always clear: they're bigger than anything they put down).
+ */
+export function dropSpot(x: number, z: number, tx: number, tz: number, r: number, boxes: Box[], floor: (x: number, z: number) => boolean) {
+  for (const t of [1, 0.75, 0.5, 0.25]) {
+    const px = x + (tx - x) * t, pz = z + (tz - z) * t;
+    if (floor(px, pz) && !boxes.some(b => overlaps(px, pz, r, b))) return { x: px, z: pz };
+  }
+  return { x, z };
+}
+
 /** Move (x, z) by (dx, dz), sliding along boxes. Returns the new position and which axes were blocked. */
 export function moveAndSlide(x: number, z: number, dx: number, dz: number, r: number, boxes: Box[]) {
   const eps = 1e-4;

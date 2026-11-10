@@ -9,7 +9,7 @@ after(() => server.close());
 const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { CONFIG } = await server.ssrLoadModule('/src/config.ts');
 const { kerrScreen } = await server.ssrLoadModule('/src/world/kerr.ts');
-const { newWorld } = await server.ssrLoadModule('/src/world/state.ts');
+const { newWorld, startNewDay } = await server.ssrLoadModule('/src/world/state.ts');
 const { newLease } = await server.ssrLoadModule('/src/world/lease.ts');
 
 const fresh = () => { const g = new Game(1, 3); const w = newWorld(g); w.tour = null; return { g, w }; };
@@ -55,5 +55,28 @@ describe('Kerr', () => {
     assert.equal(s.length, CONFIG.kerr.maxLines);
     assert.match(s[0], /late, \$2,000 docked/);
     assert.ok(!s.some(l => l.startsWith('Router idle')), 'the cheapest one drops off');
+  });
+
+  it("the extinguisher left off its bracket overnight: the council's fine, before an inspection costs it", () => {
+    const fine = CONFIG.rareEvent.events.find(e => e.id === 'council').penalty;
+    const said = (g, w) => kerrScreen(g, w).advice.find(l => /bracket/.test(l));
+    // off its bracket during the day (say, after a fire): nothing yet
+    const { g, w } = fresh();
+    w.hooks.wall = false; w.extAt = { wall: { x: 10, z: 15 } };
+    assert.equal(said(g, w), undefined, 'not on the day it came down');
+    // still down when the next day starts: Kerr says so, with the fine
+    startNewDay(w, g);
+    assert.equal(w.extOffOvernight, true);
+    assert.ok((said(g, w) ?? '').includes(`off its bracket overnight. Council fines that, $${fine}`), said(g, w));
+    // hung back up: quiet again
+    w.hooks.wall = true; delete w.extAt.wall;
+    assert.equal(said(g, w), undefined, 'back on the bracket');
+    // back on its bracket overnight: no flag the next day
+    startNewDay(w, g);
+    assert.equal(w.extOffOvernight, false);
+    // carried at knock-off counts too (it's put down where you stood)
+    w.hooks.wall = false; w.carrying = 'extinguisher'; w.extinguisherFrom = 'wall';
+    startNewDay(w, g);
+    assert.ok(said(g, w), 'carried home: off its bracket overnight');
   });
 });

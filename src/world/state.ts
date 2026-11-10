@@ -29,6 +29,8 @@ export interface WorldState {
   /** Extinguishers put down somewhere (off the hook, out of your hands): where, in metres. They stay there till picked up. */
   extAt?: Partial<Record<Hook, { x: number; z: number }>>;
   hooks: { wall: boolean; shed: boolean; exhaust?: boolean }; // extinguishers hanging up (exhaust: once bought)
+  /** The wall extinguisher was off its bracket when today started (Kerr mentions the council's rule). */
+  extOffOvernight?: boolean;
   /** The bed: empty → sheet placed → clamped → Game loads and cuts → done (or scrap) → unloaded. */
   bed: 'empty' | 'placed' | 'clamped' | 'running' | 'done' | 'scrap';
   bedJobId: number | null;
@@ -129,6 +131,7 @@ export function startNewDay(w: WorldState, g: Game) {
   w.tour = null;
   if (w.carrying === 'sheet' && w.bed === 'empty') w.bed = 'placed'; // left it on the bed
   w.carrying = null; w.extinguisherFrom = null; // (the hooks keep whatever's on them)
+  w.extOffOvernight = w.hooks.wall === false;
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
   w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it

@@ -82,4 +82,75 @@ describe('the extinguisher, carried', () => {
       assert.ok(!(await pointerKeys(game)).includes('ext'), 'in your hands: no pointer');
     } finally { await game.close(); }
   });
+
+  it('off the bracket with no fire: tapping it walks you there and offers it (no grab on arrival); grab, hang it back', async () => {
+    const game = await freshGame(env);
+    try {
+      await game.eval((g, w) => { w.tour = null; g.fire = null; });
+      // the way a tap on it goes (act: true): arriving doesn't take it, the label does
+      await game.eval((g, w, s) => { s.goTo('extinguisher', true); });
+      await game.page.waitForFunction(() => window.kirScene.inRange('extinguisher') && !window.kirScene.walking, null, { timeout: 30_000 });
+      await frames(game);
+      assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.wall]), [null, true], 'still on its bracket');
+      await waitForLabel(game, 'Grab extinguisher');
+      assert.equal((await tapLabel(game, 'Grab extinguisher')).said, 'Grabbed the extinguisher');
+      assert.deepEqual(await game.eval((g, w) => [w.carrying, w.extinguisherFrom, w.hooks.wall, !!g.fire]), ['extinguisher', 'wall', false, false]);
+      assert.equal(await chipText(game), 'Put the extinguisher down');
+      assert.equal((await tapLabel(game, 'Hang it up')).said, 'Extinguisher back on its hook');
+      assert.deepEqual(await game.eval((g, w) => [w.carrying, w.hooks.wall]), [null, true]);
+    } finally { await game.close(); }
+  });
+
+  it('in a fire, arriving at the bracket still grabs it', async () => {
+    const game = await freshGame(env);
+    try {
+      await game.eval((g, w) => { w.tour = null; });
+      await fire(game);
+      await game.eval((g, w, s) => { s.goTo('extinguisher', true); });
+      await game.page.waitForFunction(() => window.kirScene.w.carrying === 'extinguisher', null, { timeout: 30_000 });
+    } finally { await game.close(); }
+  });
+
+  /** Stand on a floor cell against the west wall, facing it, still. */
+  const faceWestWall = game => game.eval((g, w, s) => {
+    const C = 0.5;
+    let y = 14; while (y < 38 && !(s.walkable(6, y) && s.walkable(7, y) && s.walkable(6, y + 1) && s.walkable(6, y - 1))) y++;
+    s.stopWalking(); s.vel = { x: 0, z: 0 };
+    s.pos.x = 6 * C + 0.23; s.pos.z = (y + 0.5) * C; w.fx = -1; w.fy = 0; // the player's radius off the wall's face
+  });
+  /** Is a thing of radius r at p clear of every wall and machine, on a walkable cell? */
+  const clear = (game, p, r) => game.eval((g, w, s, [p, r]) => s.walkable(Math.floor(p.x / 0.5), Math.floor(p.z / 0.5))
+    && !s.boxes().some(b => p.x + r > b.minX && p.x - r < b.maxX && p.z + r > b.minZ && p.z - r < b.maxZ), [p, r]);
+
+  it('put down facing a wall: it lands on the floor in front of you, not in the wall; picked up from there', async () => {
+    const game = await freshGame(env);
+    try {
+      const { WORLD } = await env.load('/src/world/worldConfig.ts');
+      await game.eval((g, w) => { w.tour = null; w.hooks.wall = false; w.carrying = 'extinguisher'; w.extinguisherFrom = 'wall'; });
+      await faceWestWall(game);
+      await frames(game);
+      await tapChip(game);
+      const r = await game.eval((g, w, s) => ({ at: w.extAt.wall, you: { x: s.pos.x, z: s.pos.z } }));
+      assert.ok(r.at, 'down');
+      assert.ok(await clear(game, r.at, WORLD.dropRadius.extinguisher), `clear of the wall: ${JSON.stringify(r)}`);
+      assert.ok(r.at.x <= r.you.x + 1e-9 && Math.hypot(r.at.x - r.you.x, r.at.z - r.you.z) < 0.4, `between you and the wall: ${JSON.stringify(r)}`);
+      await game.eval((g, w, s) => { s.walkToPoint(w.extAt.wall.x, w.extAt.wall.z); s.pendingExt = 'wall'; });
+      await game.page.waitForFunction(() => window.kirScene.w.carrying === 'extinguisher', null, { timeout: 15_000 });
+    } finally { await game.close(); }
+  });
+
+  it('a can put down facing a wall lands clear of it too (the same drop code)', async () => {
+    const game = await freshGame(env);
+    try {
+      const { WORLD } = await env.load('/src/world/worldConfig.ts');
+      await game.eval((g, w) => { w.tour = null; g.minute = 16 * 60; });
+      assert.ok(await game.eval(g => g.buyBeer()), 'a can in hand');
+      await faceWestWall(game);
+      await frames(game);
+      await tapChip(game);
+      const r = await game.eval((g, w, s) => { const c = g.cans.find(x => !x.held && w.canSpots?.[x.id]); return c ? { at: w.canSpots[c.id], you: { x: s.pos.x, z: s.pos.z } } : null; });
+      assert.ok(r, 'down');
+      assert.ok(await clear(game, r.at, WORLD.dropRadius.can), `clear of the wall: ${JSON.stringify(r)}`);
+    } finally { await game.close(); }
+  });
 });
