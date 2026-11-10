@@ -3,7 +3,7 @@
 // the part-timer's arc to full time (kept across a reload), a customer's thank-you, and the safe tier's plain night.
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { startBrowser, freshGame, tapLabel, walkTo, frames } from './browser.mjs';
+import { frames, freshGame, startBrowser, steps, tapLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -145,7 +145,7 @@ describe('after hours', () => {
     await game.eval((g, w, s) => { s.knockoff.talk.hideReplies(); s.knockoff.night.beers = 3; s.knockoff.startCut('ah-coaster', s.knockoff.night.host); });
     await reply(game, 0); // an offcut
     await game.page.waitForFunction(() => window.kirScene.tracing.mode === 'trace');
-    await game.page.waitForTimeout(2500); // the camera settles over the bed
+    await steps(game, 50); // the camera settles over the bed (2.5 s of frames, not of real time)
     // a rough circle with real touches, lifted once and put back down
     const pts = await game.eval(async (g, w, s) => {
       const t = s.tracing, { toLocal } = await import(new URL('src/world3d/piece.ts', document.baseURI).href);
