@@ -4,7 +4,7 @@
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import type { DayStats } from '../sim/types.js';
-import { leaseDay, leaseLength } from './lease.js';
+import { leaseDay, leaseLength, projectedCash } from './lease.js';
 import type { WorldState } from './state.js';
 
 export interface KerrScreen {
@@ -84,7 +84,7 @@ function filler(g: Game, w: WorldState): string[] {
   const out: string[] = [];
   const l = w.lease;
   if (l) {
-    const left = leaseLength() - leaseDay(l, g), short = l.rentDue - g.cash;
+    const left = leaseLength() - leaseDay(l, g), short = l.rentDue - projectedCash(g); // (a Friday's overheads come off first, as at the reckoning)
     if (short > 0 && left > 0) out.push(`Rent pace: ${money(short / left)} a day for ${plural(left, 'day')}.`);
     else if (short <= 0) out.push('Rent is covered. Keep it that way.');
   }
@@ -99,7 +99,7 @@ export function kerrScreen(g: Game, w: WorldState): KerrScreen {
   const header: [string, string][] = [['TODAY SO FAR', pl(g.today)], ['YESTERDAY', g.lastDay ? pl(g.lastDay) : 'no record']];
   const l = w.lease;
   if (l) {
-    const of = leaseLength(), day = leaseDay(l, g), left = Math.max(0, of - day), short = l.rentDue - g.cash;
+    const of = leaseLength(), day = leaseDay(l, g), left = Math.max(0, of - day), short = l.rentDue - projectedCash(g); // (a Friday's overheads come off first, as at the reckoning)
     header.push(['RENT', `${money(l.rentDue)} due day ${of}. ${left ? `${plural(left, 'day')} left` : 'due today'}. ${short > 0 ? `${money(short)} short` : `covered (${money(-short)} spare)`}.`]);
   } else header.push(['RENT', 'none in the daily']);
   // the milestones (off the notepad: progress, not a to-do)
