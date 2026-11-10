@@ -47,6 +47,8 @@ export class CallCard {
   }
 
   get showing() { return this.callId !== null; }
+  /** Changes whenever the card's size can (a new call, the answers coming up): a cached rect is good till then. */
+  get layoutKey() { return `${this.callId}|${this.ready}`; }
   /** All told: the answers are up. */
   get ready() { return !!this.el.querySelector('.row.on'); }
 

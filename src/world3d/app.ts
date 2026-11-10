@@ -85,7 +85,15 @@ import { getItem, getJson, isObject, KEYS, removeItem, setItem } from '../storag
 const C = WORLD.cell;
 const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
-interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
+/**
+ * A label on screen. Its size (and its buttons' boxes inside it) is measured once when it's built, so placing it each
+ * frame never forces a layout; `x`/`y` are where it was last put (its bottom centre), `shown` whether it's showing.
+ */
+interface LabelEntry {
+  id: string; el: HTMLDivElement; anchor: THREE.Vector3;
+  w: number; h: number; btns: { x: number; y: number; w: number; h: number }[];
+  x: number; y: number; shown: boolean; css: string;
+}
 
 export class World3D {
   readonly renderer: THREE.WebGLRenderer;
@@ -353,6 +361,7 @@ export class World3D {
 
     this.fit();
     window.addEventListener('resize', () => this.fit());
+    document.fonts?.addEventListener?.('loadingdone', () => { this.labelSizesStale = true; this.mateBubbleSize.key = ''; });
     window.visualViewport?.addEventListener('resize', () => this.fit());
     screen.orientation?.addEventListener?.('change', () => this.fit());
     this.bindInput(canvas);
@@ -443,6 +452,7 @@ export class World3D {
     this.camera.updateProjectionMatrix();
     this.hud?.layout(aw, ah);
     this.coverLeft = -1; // re-apply the view offset next frame
+    this.labelSizesStale = true; // the type scales with the screen
   }
 
   /** In landscape the notepad sits pinned on the left: centre the view on the part of the screen that's left. */
@@ -1000,6 +1010,7 @@ export class World3D {
 
   /** The mate's line that's been tapped away (his answer buttons stay). */
   private mateBubbleAway: string | null = null;
+  private mateBubbleSize = { key: '', w: 0, h: 0 };
   /** A job card where it shows would cover a prompt (a label's buttons): it waits till they're clear. */
   private jobCardOverPrompt = false;
   /**
@@ -1007,12 +1018,37 @@ export class World3D {
    * call card is the prompt while you're on the phone, so any label it would cover is hidden till you've answered.
    */
   private keepCardsOffPrompts() {
-    const over = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-    const buttons = this.labelEls.flatMap(l => (l.el.style.display === 'none' ? [] : [...l.el.querySelectorAll('button')]));
-    const card = this.jobCard.rect();
-    this.jobCardOverPrompt = buttons.some(b => over(card, b.getBoundingClientRect()));
-    const call = this.callCard.showing ? this.callCard.el.getBoundingClientRect() : null;
-    for (const l of this.labelEls) l.el.style.visibility = call && over(call, l.el.getBoundingClientRect()) ? 'hidden' : '';
+    type R = { left: number; top: number; right: number; bottom: number };
+    const over = (a: R, b: R) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    // the cards are measured only when they (or the screen) change; the labels' boxes come from their cached sizes
+    const screen = `${this.vw}|${this.vh}|${this.hud.coverLeft}`;
+    const jobKey = `${this.jobCard.layoutKey}|${screen}`;
+    if (jobKey !== this.jobCardRect.key) this.jobCardRect = { key: jobKey, r: this.jobCard.rect() };
+    const callKey = this.callCard.showing ? `${this.callCard.layoutKey}|${screen}` : '';
+    if (callKey !== this.callCardRect.key) this.callCardRect = { key: callKey, r: callKey ? this.callCard.el.getBoundingClientRect() : null };
+    const card = this.jobCardRect.r, call = this.callCardRect.r;
+    const box = (l: LabelEntry) => ({ left: l.x - l.w / 2, top: l.y - l.h, right: l.x + l.w / 2, bottom: l.y });
+    this.jobCardOverPrompt = this.labelEls.some(l => l.shown && l.btns.some(b => {
+      const x = l.x - l.w / 2 + b.x, y = l.y - l.h + b.y;
+      return over(card, { left: x, top: y, right: x + b.w, bottom: y + b.h });
+    }));
+    for (const l of this.labelEls) {
+      const vis = call && l.shown && over(call, box(l)) ? 'hidden' : '';
+      if (l.el.style.visibility !== vis) l.el.style.visibility = vis;
+    }
+  }
+  private jobCardRect: { key: string; r: DOMRect } = { key: '', r: new DOMRect() };
+  private callCardRect: { key: string; r: DOMRect | null } = { key: '', r: null };
+  /** Labels need measuring again (the screen or the type size changed, a font came in, a button's text changed). */
+  private labelSizesStale = false;
+
+  /** Measure every label once, all reads together (one layout), with each one showing so it has a size. */
+  private measureLabels(ls: LabelEntry[]) {
+    for (const l of ls) { l.el.style.display = 'flex'; l.css = ''; } // (placed again, and hidden again if it was, after)
+    for (const l of ls) {
+      l.w = l.el.offsetWidth; l.h = l.el.offsetHeight;
+      l.btns = [...l.el.querySelectorAll('button')].map(b => ({ x: b.offsetLeft, y: b.offsetTop, w: b.offsetWidth, h: b.offsetHeight }));
+    }
   }
 
   /** The notepad's rent clock: "rent due in 17 days", "rent due today" (nothing in the daily). */
@@ -1659,23 +1695,34 @@ export class World3D {
             // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
             b.classList.add('tick');
             b.textContent = `✓ ${a.label}`;
+            this.labelSizesStale = true; // (its text changed: measured again once the labels move)
           });
           el.appendChild(b);
         }
         if (status) { const s = document.createElement('div'); s.className = 'status'; s.textContent = status; el.appendChild(s); }
         this.hud.labels.appendChild(el);
-        this.labelEls.push({ id, el, anchor });
+        this.labelEls.push({ id, el, anchor, w: 0, h: 0, btns: [], x: NaN, y: NaN, shown: false, css: '' });
       }
+      this.measureLabels(this.labelEls);
+      this.labelSizesStale = false;
     }
     // labels hold still under a finger (a lost pointerup can't freeze them for good)
     if (this.labelPressed && this.time - this.labelPressedAt < 2) return;
     this.labelPressed = false;
+    if (this.labelSizesStale) { this.measureLabels(this.labelEls); this.labelSizesStale = false; }
     for (const l of this.labelEls) {
       const p = this.project(l.anchor);
-      const half = l.el.offsetWidth / 2 + 4; // keep the whole label on screen, however long it is
-      l.el.style.left = `${Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x))}px`;
-      l.el.style.top = `${Math.max(l.el.offsetHeight + 8, 70, Math.min(this.vh - 10, p.y))}px`; // the whole stack on screen, short screens too
-      l.el.style.display = p.behind ? 'none' : 'flex';
+      const half = l.w / 2 + 4; // keep the whole label on screen, however long it is
+      l.x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x));
+      l.y = Math.max(l.h + 8, 70, Math.min(this.vh - 10, p.y)); // the whole stack on screen, short screens too
+      l.shown = !p.behind;
+    }
+    for (const l of this.labelEls) {
+      const css = l.shown ? `${l.x}|${l.y}` : 'none';
+      if (css === l.css) continue;
+      l.css = css;
+      l.el.style.display = l.shown ? 'flex' : 'none';
+      if (l.shown) { l.el.style.left = `${l.x}px`; l.el.style.top = `${l.y}px`; }
     }
     for (const d of this.debugLabels) { const p = this.project(d.at); d.el.style.left = `${p.x}px`; d.el.style.top = `${p.y}px`; }
   }
@@ -2173,16 +2220,20 @@ export class World3D {
     if (!text || this.paused || text === this.mateBubbleAway) { b.style.display = 'none'; return; }
     const p = this.project(this.built.mate.position.clone().setY(1.4));
     if (b.textContent !== text) b.textContent = text;
-    b.style.display = p.behind ? 'none' : 'block';
+    const display = p.behind ? 'none' : 'block';
+    if (b.style.display !== display) b.style.display = display;
+    // its size is measured when its words (or the screen) change, not every frame
+    const sz = this.mateBubbleSize, key = `${text}|${this.vw}|${this.vh}`;
+    if (!p.behind && sz.key !== key) { sz.key = key; sz.w = b.offsetWidth; sz.h = b.offsetHeight; }
     // keep the whole bubble on screen, even when the mate's at the edge (their pointer shows where)
-    const half = b.offsetWidth / 2 + 6;
+    const half = sz.w / 2 + 6;
     const x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x));
-    let y = Math.max(b.offsetHeight + 80, Math.min(this.vh - 20, p.y)); // (its bottom: the bubble hangs up from here)
+    let y = Math.max(sz.h + 80, Math.min(this.vh - 20, p.y)); // (its bottom: the bubble hangs up from here)
     // his answer buttons are up: the bubble clears the stack — above it, or under it if there's no room above
-    const lbl = this.labelEls.find(l => l.id === `visitor-${mate!.id}`)?.el;
-    if (lbl && lbl.style.display !== 'none' && lbl.querySelector('button')) {
-      const stackBottom = parseFloat(lbl.style.top), stackTop = stackBottom - lbl.offsetHeight;
-      y = stackTop - 8 >= b.offsetHeight + 80 ? Math.min(y, stackTop - 8) : Math.max(y, stackBottom + 8 + b.offsetHeight);
+    const lbl = this.labelEls.find(l => l.id === `visitor-${mate!.id}`);
+    if (lbl && lbl.shown && lbl.btns.length) {
+      const stackBottom = lbl.y, stackTop = stackBottom - lbl.h;
+      y = stackTop - 8 >= sz.h + 80 ? Math.min(y, stackTop - 8) : Math.max(y, stackBottom + 8 + sz.h);
     }
     b.style.left = `${x.toFixed(1)}px`; b.style.top = `${y.toFixed(1)}px`;
   }
