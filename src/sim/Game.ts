@@ -2342,12 +2342,15 @@ export class Game {
     return true;
   }
 
+  /** The week's overheads as Friday's nextDay takes them (Dennis's longer-lease bet, won, takes some off). */
+  get weeklyOverheadsDue(): number { return Math.round(CONFIG.economy.weeklyOverheads * (CONFIG.dennis.enabled ? dennisRentMult(this) : 1)); }
+
   nextDay() {
     if (this.phase !== 'daySummary') return;
     this.lastDay = this.today;
     this.week.push(this.today);
     if (this.day >= CONFIG.week.days) {
-      const rent = Math.round(CONFIG.economy.weeklyOverheads * (CONFIG.dennis.enabled ? dennisRentMult(this) : 1));
+      const rent = this.weeklyOverheadsDue;
       this.cash -= rent;
       this.weekOverheads = rent;
       const lease = CONFIG.dennis.enabled && rent < CONFIG.economy.weeklyOverheads ? this.dennis.bets.find(b => b.kind === 'longerLease' && b.status === 'won') : undefined;

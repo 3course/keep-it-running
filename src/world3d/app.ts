@@ -17,7 +17,7 @@ import { CallCard } from '../ui/callCard.js';
 import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
-import { writeSave, clearSave } from '../world/save.js';
+import { writeSave, clearSave, parseSave, saveText } from '../world/save.js';
 import { absMinute, extPlace, HOOKS, hookThere, logEvent, onHook, startNewDay, type Hook, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
@@ -1014,10 +1014,25 @@ export class World3D {
   }
 
   /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
+  /**
+   * Day 20's cash as the day will end. The reckoning's at 5pm, but endDay (after it) still settles the served walk-ins,
+   * the overdraft fee and Dennis's router day: so the ending's worked out on a copy of the game knocked off to the day
+   * summary — the cash the summary and the ending card then show (projectedCash: less the week's overheads).
+   */
+  private cashAtClose(): number {
+    const g = this.g;
+    if (g.phase !== 'endOfDayPrompt') return projectedCash(g);
+    const copy = parseSave(saveText(g, this.w))?.game;
+    if (!copy) return projectedCash(g);
+    copy.phase = g.phase; // (a save keeps the phase; this is to be sure the copy can knock off)
+    copy.knockOff();
+    return projectedCash(copy);
+  }
+
   reckoning(): Reckoning | null {
     const l = this.w.lease, g = this.g;
     if (!l || leaseDay(l, g) !== leaseLength()) return null;
-    const p = people(this.w), cash = projectedCash(g), ending = outcome(cash, l.rentDue), owed = owedAfter(cash, l.rentDue);
+    const p = people(this.w), cash = this.cashAtClose(), ending = outcome(cash, l.rentDue), owed = owedAfter(cash, l.rentDue);
     const f = { ...runFacts(l, g, p), landlord: LEASE_LINES.landlord, owed: `$${owed.toLocaleString('en-AU')}` };
     const E = LEASE_LINES.endings[ending], pick = (xs: string[], k: number) => fillRun(xs[(g.seed + k) % xs.length], f);
     const ride = owed > 0;

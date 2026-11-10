@@ -197,6 +197,33 @@ describe('the lease, in the shed', () => {
     assert.ok(await game.eval((g, w, s) => s.knockoff.figures.has('dennis')), 'Dennis is there');
     await game.close();
   });
+  it('day 20: the ending counts what lands after 5pm (a walk-in squaring up), the same cash the ending card shows', async () => {
+    const game = await freshGame(env);
+    const E = CONFIG.economy;
+    // $600 short at 5pm (scraped: $600 would ride to the next lease), but a walk-in you served comes back at close and
+    // squares up (the day's takings topped up to the floor): made it, nothing owed
+    await game.eval((g, w, s) => {
+      w.tour = null; s.jobCard.hide(); w.lease.letterRead = true; g.dayIndex = 20; g.day = 5; w.lease.startDayIndex = 1;
+      g.today.revenue = 0; g.walkIns = [{ id: 1, minute: 10 * 60, status: 'served', paid: 0 }];
+      g.cash = w.lease.rentDue + g.weeklyOverheadsDue - 600;
+      g.minute = 17 * 60; g.phase = 'endOfDayPrompt';
+    });
+    await game.page.waitForFunction(() => window.kirScene.knockoff.mode === 'reckoning');
+    const at5 = await game.eval(async (g, w) => {
+      const L = await import(new URL('src/world/lease.ts', document.baseURI).href);
+      return { ending: w.lease.ending, owed: w.lease.owed, projectedNow: L.projectedCash(g) - w.lease.rentDue };
+    });
+    assert.equal(at5.projectedNow, -600, 'at 5pm the bank alone is $600 short');
+    assert.deepEqual([at5.ending, at5.owed], ['made', 0], `the walk-in's $${E.walkInFloor} lands at close: made it, nothing owed`);
+    // knock off: the summary's cash is the cash the ending was decided on
+    await game.eval(g => { g.knockOff(); });
+    const after = await game.eval(async (g, w) => {
+      const L = await import(new URL('src/world/lease.ts', document.baseURI).href);
+      return { ending: L.outcome(L.projectedCash(g), w.lease.rentDue), spare: L.projectedCash(g) - w.lease.rentDue };
+    });
+    assert.deepEqual(after, { ending: 'made', spare: E.walkInFloor - 600 });
+    await game.close();
+  });
   it('a near miss: scraped it, and the rest rides into the next lease’s letter', async () => {
     const game = await freshGame(env);
     await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); w.lease.letterRead = true; g.dayIndex = 20; g.day = 5; w.lease.startDayIndex = 1; g.cash = w.lease.rentDue + 900 - 500; /* less the week's $900 overheads: $500 short */ g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; });
