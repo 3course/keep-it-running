@@ -44,9 +44,22 @@ monospace.
   cache, takes over at once (`skipWaiting` + `clientsClaim`) and deletes older precaches
   (`cleanupOutdatedCaches`). The page asks for an update on load and whenever the app comes back to the
   foreground (`src/serviceWorker.ts`). The game isn't reloaded mid-shift; the next launch runs the new build.
-- **Kill switch:** deploy a file at `/sw-kill.txt` (any content). Every worker that sees it, and every page that
-  loads, deletes all caches, unregisters the worker and reloads once from the network. Remove the file to bring
-  the worker back. The worker's half is `public/sw-kill.js`; the page's half is `src/serviceWorker.ts`.
+- **Kill switch:** deploy a file at `/sw-kill.txt` (any content). Only the worker looks for it
+  (`public/sw-kill.js`), and there's no timer. It checks:
+  - when a new worker activates, and
+  - on page loads and reloads anywhere on the site (`/panel/` included), at most once a minute per running worker.
+    Browsers stop idle workers after about 30 seconds, so in practice nearly every launch checks.
+
+  When the file is there, the worker deletes every cache and unregisters itself. A worker that was serving the page
+  also reloads its open tabs once, so they come from the network. A worker that finds the file as it activates
+  doesn't reload anything, which is what prevents a reload loop. While the file stays deployed, each visit installs
+  the worker and it removes itself straight away, so the precache download happens on every visit; it's for
+  emergencies. Remove the file and the next visit brings the worker back.
+- The page never requests `sw-kill.txt` itself. The file is normally missing, and the browser would log the 404 as
+  a console error on every load.
+- `tests/sw.test.mjs` (world) builds the production site, serves it from `127.0.0.1` so the service worker really
+  runs, and checks that `/`, `?safe=1` and `?safe=2` load with no console errors or CSP violations, that the cache
+  is named for the build's commit, and that the kill switch works without a reload loop.
 
 **Saved data** (`world` only; the panel stores nothing)
 - Every key is under `kir:` (`src/storage.ts`). The old `kir-…` keys are moved across on the first load, so
