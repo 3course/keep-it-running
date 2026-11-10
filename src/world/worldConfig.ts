@@ -53,6 +53,7 @@ export const WORLD = {
   inspectorStayClose: 3.0,             // m: the walk-round only counts while you're this close to them
   inspectorLinger: 14,                 // s they spend looking at each stop on the round
   interactRange: 0.7,                  // m from the player's centre to an object's footprint
+  labelGap: 6,                         // px kept between two action labels that would overlap (the upper one moves up)
   offerSwapBelow: 0.6,                 // swap labels (bit, bag, spoilboard) only show once the part is this worn
   rollerOpenMinutes: 4,                // game minutes the roller door stays up after a pickup or delivery
   offcutsPerSheet: 0.25,               // offcut bin fill per sheet cut (1 = full)

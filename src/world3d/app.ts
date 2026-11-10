@@ -1051,6 +1051,26 @@ export class World3D {
     }
   }
 
+  /**
+   * Nearby labels never sit on each other: from the bottom of the screen up, a label that overlaps one already placed
+   * goes up above it (`WORLD.labelGap` between), or under it when there's no room above. Same inputs, same result, so
+   * nothing jitters frame to frame.
+   */
+  private spreadLabels(ls: LabelEntry[]) {
+    const gap = WORLD.labelGap, placed: LabelEntry[] = [];
+    const order = ls.map((l, i) => ({ l, i })).sort((a, b) => b.l.y - a.l.y || a.i - b.i).map(o => o.l);
+    for (const l of order) {
+      const minY = Math.max(l.h + 8, 70), maxY = this.vh - 10;
+      for (let tries = 0; tries <= placed.length; tries++) {
+        const hit = placed.find(q => Math.abs(l.x - q.x) < (l.w + q.w) / 2 && l.y > q.y - q.h - gap && l.y - l.h - gap < q.y);
+        if (!hit) break;
+        const up = hit.y - hit.h - gap;
+        l.y = up >= minY ? up : Math.min(maxY, hit.y + gap + l.h);
+      }
+      placed.push(l);
+    }
+  }
+
   /** The notepad's rent clock: "rent due in 17 days", "rent due today" (nothing in the daily). */
   rentClock(): string { return rentClockText(this.g, this.w.lease); }
 
@@ -1717,6 +1737,7 @@ export class World3D {
       l.y = Math.max(l.h + 8, 70, Math.min(this.vh - 10, p.y)); // the whole stack on screen, short screens too
       l.shown = !p.behind;
     }
+    this.spreadLabels(this.labelEls.filter(l => l.shown));
     for (const l of this.labelEls) {
       const css = l.shown ? `${l.x}|${l.y}` : 'none';
       if (css === l.css) continue;

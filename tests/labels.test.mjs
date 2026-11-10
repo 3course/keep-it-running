@@ -1,7 +1,8 @@
-// Action labels: the per-frame placement doesn't force a layout (sizes are measured when a label is built, not every frame).
+// Action labels: nearby ones are spread apart so neither hides the other, and the per-frame placement doesn't force a
+// layout (sizes are measured when a label is built, not every frame).
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { startBrowser, freshGame, walkTo, waitForLabel, steps, stepUntil } from './browser.mjs';
+import { startBrowser, freshGame, tapLabel, walkTo, waitForLabel, steps, stepUntil } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -39,6 +40,24 @@ const rects = game => game.page.evaluate(() => [...document.querySelectorAll('#k
 }));
 
 describe('labels', () => {
+  it('the extinguisher bracket and the fridge: both labels show, apart, and both can be tapped', async () => {
+    let game = await freshGame(env);
+    try {
+      await atBracketAndFridge(game);
+      const r = await rects(game);
+      const a = r.find(x => x.text === 'Grab extinguisher'), b = r.find(x => x.text === BEER);
+      assert.ok(a && b, JSON.stringify(r));
+      const overlap = a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      assert.ok(!overlap, `labels overlap: ${JSON.stringify([a, b])}`);
+      assert.equal((await tapLabel(game, 'Grab extinguisher')).said, 'Grabbed the extinguisher');
+    } finally { await game.close(); }
+    game = await freshGame(env);
+    try {
+      await atBracketAndFridge(game);
+      assert.equal((await tapLabel(game, BEER)).label, BEER);
+    } finally { await game.close(); }
+  });
+
   it('an unchanged set of labels is placed every frame without measuring the page', async () => {
     const game = await freshGame(env);
     try {
