@@ -1,5 +1,5 @@
 // The morning after a group night: empties where they ended up. Most on the floor round the crates; some in silly
-// places — the router bed (clear it before the first cut), on top of the extractor, in the toilet. You carry them
+// places — the router bed (clear it before the first cut), on top of the extractor, the fridge. You carry them
 // (a few at a time) to the "Cans for refund" bag by the roller door; each full bag is the container deposit back.
 import { PEOPLE } from '../people/config.js';
 import type { MorningCan, PeopleState } from '../people/state.js';
@@ -16,7 +16,8 @@ const top = (id: ObjectId, dx = 0, dz = 0) => {
 const SILLY: { spot: string; at: () => { x: number; y: number; z: number } }[] = [
   { spot: 'bed', at: () => ({ ...top('machine', 0.3, -0.1), y: objectById('machine').height * 0.8 + 0.09 }) },
   { spot: 'extractor', at: () => top('extractor', 0.2, 0) },
-  { spot: 'toilet', at: () => ({ ...top('toilet', 0, 0.05), y: 0.36 }) },
+  // (not the toilet while it's walled off, playtest 1: a can there could only be reached by tapping blind through the
+  // office wall, and tapping it can't walk you there)
   { spot: 'fridge', at: () => top('fridge', 0, 0.2) },
   { spot: 'pallet', at: () => top('finishedPallet', -0.2, 0.1) },
   { spot: 'desk', at: () => top('desk', 0.5, 0) },

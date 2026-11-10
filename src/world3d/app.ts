@@ -510,7 +510,8 @@ export class World3D {
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
       const L = this.hud.toLogical(e.clientX, e.clientY);
-      if (!p.active && performance.now() - p.t0 < WORLD.tapMaxMs && Math.hypot(L.x - p.x0, L.y - p.y0) < WORLD.tapMaxMove) this.tap(L.x, L.y);
+      // a lift is a tap; a cancel (the system took the touch: a swipe from the edge, a call coming in) is not
+      if (e.type === 'pointerup' && !p.active && performance.now() - p.t0 < WORLD.tapMaxMs && Math.hypot(L.x - p.x0, L.y - p.y0) < WORLD.tapMaxMove) this.tap(L.x, L.y);
       this.ptr = null;
       this.stickVec = { x: 0, y: 0 };
       this.hud.hideStick();

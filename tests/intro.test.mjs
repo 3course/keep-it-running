@@ -118,25 +118,38 @@ describe('the first morning, at the cafe', () => {
     const { page, context } = await open('?seed=4');
     try {
       const sample = () => page.evaluate(() => { const c = window.kirScene.cafe; return { t: c.t, speaking: c.talk.speaking, up: c.sparrows.map(b => b.root.position.y > 0.001), pecking: c.sparrows.map(b => b.head.rotation.z !== 0), visible: c.sparrows.map(b => b.root.visible) }; });
-      // someone's talking: pecking only
-      for (let k = 0; k < 20; k++) { const r = await sample(); if (r.speaking) assert.ok(!r.up.some(Boolean), 'no hops while a bubble is up'); await page.waitForTimeout(100); }
-      // quiet (bubbles held off): they hop, one at a time, each at most every few seconds; and they peck
-      await page.evaluate(() => { window.__hush = setInterval(() => window.kirScene.cafe.talk.hush(), 16); });
-      const hopsAt = [[], [], []], was = [false, false, false]; let pecked = false;
-      for (let k = 0; k < 320 && (hopsAt.flat().length < 2 || k < 120); k++) { // (keep watching till two hops: slow frames under a full run)
-        const r = await sample();
-        assert.ok(r.up.filter(Boolean).length <= 1, 'never two hopping at once');
-        r.up.forEach((u, i) => { if (u && !was[i]) hopsAt[i].push(r.t); was[i] = u; });
-        if (r.pecking.some(Boolean)) pecked = true;
-        await page.waitForTimeout(80);
+      // Every frame of the birds, recorded in the page (not sampled on a wall clock): what's checked is the scene's own
+      // game time, so slow frames under a full run mean a longer wait, never a different answer.
+      await page.evaluate(() => {
+        const c = window.kirScene.cafe, step = c.updateSparrows.bind(c);
+        window.__birds = [];
+        c.updateSparrows = dt => { step(dt); window.__birds.push({ t: c.t, speaking: c.talk.speaking, up: c.sparrows.map(b => b.root.position.y > 0.001), pecking: c.sparrows.some(b => b.head.rotation.z !== 0) }); };
+      });
+      const frames = () => page.evaluate(() => window.__birds.splice(0));
+      // someone's talking: pecking only (a couple of game seconds of it)
+      await page.waitForFunction(() => window.__birds.length && window.__birds.at(-1).t - window.__birds[0].t >= 2, null, { timeout: 120_000, polling: 100 });
+      for (const f of await frames()) if (f.speaking) assert.ok(!f.up.some(Boolean), 'no hops while a bubble is up');
+      // quiet (bubbles held off) for 20 game seconds: every bird is due a hop at least every 8 s plus the 1.5 s spacing,
+      // so that's two or more hops whatever the frame rate. One at a time, each bird at most every few seconds; they peck.
+      await page.evaluate(() => { window.__hush = setInterval(() => window.kirScene.cafe.talk.hush(), 16); window.__birds.length = 0; });
+      await page.waitForFunction(() => window.__birds.length && window.__birds.at(-1).t - window.__birds[0].t >= 20, null, { timeout: 120_000, polling: 100 });
+      const quiet = await frames();
+      const hopsAt = [[], [], []], was = [false, false, false];
+      for (const f of quiet) {
+        assert.ok(f.up.filter(Boolean).length <= 1, 'never two hopping at once');
+        f.up.forEach((u, i) => { if (u && !was[i]) hopsAt[i].push(f.t); was[i] = u; });
       }
       const all = hopsAt.flat();
-      assert.ok(all.length >= 2, `they hop now and then (${all.length})`);
+      assert.ok(all.length >= 2, `they hop now and then (${all.length} in 20 s)`);
       for (const h of hopsAt) for (let i = 1; i < h.length; i++) assert.ok(h[i] - h[i - 1] >= 3.5, `a bird hops at most every 4-8 s (${(h[i] - h[i - 1]).toFixed(1)} s)`);
-      assert.ok(pecked, 'heads down, pecking');
-      // you walk up: off they go, and they don't come back
-      await page.evaluate(() => { const c = window.kirScene.cafe, you = c.figs.get('you'); you.walking = true; you.root.position.copy(c.sparrows[1].root.position).add({ x: 0.5, y: 0, z: 0 }); });
-      await page.waitForFunction(() => window.kirScene.cafe.sparrows.every(b => !b.root.visible), null, { timeout: 60_000 }); // (slow frames under a full run: dt is capped, so a crawl takes game-seconds slowly)
+      assert.ok(quiet.some(f => f.pecking), 'heads down, pecking');
+      // you walk up to each bird in turn (they hop about at random, so one spot isn't near all three): off each one goes,
+      // and they don't come back
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(i => { const c = window.kirScene.cafe, you = c.figs.get('you'), b = c.sparrows[i]; if (b.state === 'gone' || b.state === 'flee') return; you.walking = true; you.root.position.copy(b.root.position).add({ x: 0.5, y: 0, z: 0 }); }, i);
+        await page.waitForFunction(i => ['flee', 'gone'].includes(window.kirScene.cafe.sparrows[i].state), i, { timeout: 30_000 });
+      }
+      await page.waitForFunction(() => window.kirScene.cafe.sparrows.every(b => !b.root.visible), null, { timeout: 120_000 }); // (1.4 game seconds of flying off)
       await page.waitForTimeout(500);
       assert.ok((await sample()).visible.every(v => !v), 'gone for the scene');
     } finally { await page.evaluate(() => clearInterval(window.__hush)).catch(() => {}); await context.close(); }

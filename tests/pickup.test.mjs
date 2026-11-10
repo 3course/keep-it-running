@@ -93,7 +93,7 @@ describe('customer pickup', () => {
     assert.ok(slipped / n > 0.03 && slipped / n < 0.2, `${slipped}/${n}`);
   });
 
-  it('the finished pallet holds six: full, the bed can’t be cleared, and the next sheet waits', () => {
+  it(`the finished pallet holds ${P.palletCapacity}: full, the bed can’t be cleared, and the next sheet waits`, () => {
     const g = calm(1, 9);
     g.servesPickups = true; // nobody hands over
     g.pallet = P.palletCapacity - 1; g.bedPile = 3;

@@ -117,7 +117,7 @@ function dayVerdict(d: DayStats): string {
   if (d.wrongCalls >= 3) return 'Guessing at faults costs minutes. Minutes cost sheets.';
   if (d.beers >= 3) return 'The fridge won today.';
   if (m >= 0.3) return 'Tidy. Keep running it like that.';
-  if (m >= 0.15) return 'Solid day. Overheads still want $900 at the end of the week.';
+  if (m >= 0.15) return `Solid day. Overheads still want ${money(CONFIG.economy.weeklyOverheads)} at the end of the week.`;
   if (m >= 0) return 'Barely. Look at where the time went.';
   return 'Lost money today. Something has to change.';
 }
