@@ -642,9 +642,28 @@ export class World3D {
     perf.reset();
   }
 
+  /**
+   * Tests only: with `manualFrames` on, the view stops stepping itself and `stepFrames` drives it, a fixed `dt` of game
+   * time a frame, so a test waits a number of frames, not a number of real seconds (slow frames under a loaded run
+   * can't change what happens).
+   */
+  manualFrames = false;
+  stepFrames(n: number, dt = 0.05) {
+    let t = this.last || performance.now();
+    for (let i = 0; i < n; i++) {
+      this.skipDraw = i < n - 1; // draw the last one only
+      t += dt * 1000;
+      this.step(t);
+    }
+    this.skipDraw = false;
+    this.last = 0; // the next real frame starts afresh (16 ms), not from this made-up clock
+  }
+  private skipDraw = false;
+
   private frame(now: number) {
     if (this.failed) return; // the failure card is up: stop
     requestAnimationFrame(t => this.frame(t));
+    if (this.manualFrames) { this.last = 0; return; }
     this.holdFrameRate(now);
     if (this.contextLost) { this.last = now; return; } // clock stopped until the view's back
     try {
@@ -665,7 +684,7 @@ export class World3D {
   private step(now: number) {
     const dtMs = this.last ? now - this.last : 16;
     this.last = now;
-    const dt = Math.min(0.05, dtMs / 1000);
+    const dt = Math.max(0, Math.min(0.05, dtMs / 1000));
     this.time += dt;
     const g = this.g, w = this.w;
 
@@ -779,6 +798,7 @@ export class World3D {
       const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
       this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? hint : null);
     }
+    if (this.skipDraw) return;
     // people on whole render pixels for this frame (and back after: nothing else sees the rounding)
     const unsnap = snapAll(this.scene, this.camera, this.renderer);
     if (this.outline) this.outline.render(this.renderer, this.scene, this.camera);
