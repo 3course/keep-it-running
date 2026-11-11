@@ -69,7 +69,7 @@ export function dayHeading(g: Game, l: LeaseState | undefined): string {
 
 export const leaseOver = (l: LeaseState, g: Game) => leaseDay(l, g) > leaseLength();
 /** What'll be in the bank at the end of today, once the week's overheads are out on a Friday. */
-export const projectedCash = (g: Game) => g.cash - (g.day >= CONFIG.week.days ? CONFIG.economy.weeklyOverheads : 0);
+export const projectedCash = (g: Game) => g.cash - (g.day >= CONFIG.week.days ? g.weeklyOverheadsDue : 0);
 
 export { outcome, owedAfter } from './leaseEnding.js';
 

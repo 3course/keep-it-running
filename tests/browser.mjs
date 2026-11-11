@@ -63,8 +63,43 @@ export async function freshGame(env, seed = 1) {
 export async function walkTo(game, id) {
   const ok = await game.eval((g, w, scene, id) => { scene.goTo(id, false); return scene.inRange(id) || scene.walking; }, id);
   assert.ok(ok, `no path to ${id}`);
-  await game.page.waitForFunction(id => window.kirScene.inRange(id) && !window.kirScene.walking, id, { timeout: 30_000 });
+  // frames, not real seconds: the walk takes as many frames as it takes, however slow they are under a full run
+  await stepUntil(game, (g, w, s, id) => s.inRange(id) && !s.walking, id, { what: `walking to ${id}` });
 }
+
+/**
+ * Drive the view by hand (World3D.manualFrames), `dt` game seconds a frame, until `cond(g, w, scene, arg)` is true:
+ * what happens depends on the number of frames, never on how long they take in real time. Fails after `frames`
+ * (default 2400: two minutes of game time). Returns the frames it took.
+ */
+export async function stepUntil(game, cond, arg, { frames: max = 2400, dt = 0.05, what = 'a condition' } = {}) {
+  // in short batches: one long synchronous evaluate leaves Playwright's next waitForFunction stuck (seen: even
+  // waitForFunction(() => true) timed out after one), so no call runs more than `CHUNK` frames
+  const CHUNK = 40;
+  let n = 0;
+  for (;;) {
+    const r = await game.page.evaluate(([src, a, left, dt, chunk]) => {
+      const s = window.kirScene, cond = new Function('g', 'w', 'scene', 'arg', `return (${src})(g, w, scene, arg);`);
+      const ok = () => cond(window.kir, s.w, s, a);
+      s.manualFrames = true;
+      try {
+        let k = 0;
+        while (!ok()) { if (k >= left || k >= chunk) return { ok: false, k }; s.stepFrames(1, dt); k++; }
+        s.stepFrames(1, dt); // and draw the frame it's true on
+        return { ok: true, k };
+      } finally { s.manualFrames = false; }
+    }, [cond.toString(), arg ?? null, max - n, dt, CHUNK]);
+    n += r.k;
+    if (r.ok) return n;
+    assert.ok(n < max, `${what}: not done after ${n} frames`);
+  }
+}
+
+/** Step the view exactly `n` frames of `dt` game seconds (World3D.stepFrames), the way a real-clock wait never could. */
+export const steps = (game, n, dt = 0.05) => game.page.evaluate(([n, dt]) => {
+  const s = window.kirScene; s.manualFrames = true;
+  try { s.stepFrames(n, dt); } finally { s.manualFrames = false; }
+}, [n, dt]);
 
 /** The label buttons on screen right now. */
 export const labels = game => game.page.evaluate(() => window.kirScene.labelScreens().map(l => l.text));

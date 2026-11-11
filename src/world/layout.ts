@@ -101,7 +101,7 @@ export const OBJECTS: PlacedObject[] = [
 ];
 
 /** Workshop clutter: no actions, just there. Solid only if it's big enough to walk into. */
-export type DecorKind = 'offcutStack' | 'pallet' | 'bench' | 'broom' | 'bin' | 'trolley' | 'hose' | 'drums' | 'panels' | 'cable';
+export type DecorKind = 'offcutStack' | 'bench' | 'broom' | 'bin' | 'trolley' | 'hose' | 'drums' | 'cable';
 export interface Decor { kind: DecorKind; rect: Rect; solid: boolean }
 
 // (playtest 1: no clutter that looks like somewhere to stack — the half-empty pallet by the raw sheets and the stack of

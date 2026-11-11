@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, describe, it } from 'node:test';
-import { advance, answerCard, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, answerCard, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, stepUntil, steps, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 const LAYOUT = await env.load('/src/world/layout.ts');
@@ -155,14 +155,15 @@ const CASES = {
     assert.ok(await game.eval((g, w, s) => s.built.inspector.visible), 'they\'re in the shed');
     assert.equal((await tapLabel(game, 'Show them round')).said, 'Machine off; walking the inspector round');
     assert.equal(await game.eval(g => g.inspectorTouring), true);
-    // the walk-round only counts while you're with them, and they wait when you fall behind
-    await game.page.waitForTimeout(1500);
+    // the walk-round only counts while you're with them, and they wait when you fall behind (1.5 s of frames, not of
+    // real time: what's counted is the view's own time)
+    await steps(game, 30);
     const near = await game.eval(g => g.rare.escortSec);
-    assert.ok(near > 0.5, `counted while beside them (${near.toFixed(1)} s)`);
+    assert.ok(near > 1, `counted while beside them (${near.toFixed(2)} s of 1.5)`);
     const where = await game.eval((g, w, s) => { s.pos = { x: 4.75, z: 21.75 }; return [s.inspector.x, s.inspector.z]; }); // off in the office
     await frames(game, 3);
     const before = await game.eval(g => g.rare.escortSec);
-    await game.page.waitForTimeout(1500);
+    await steps(game, 30);
     assert.equal(await game.eval(g => g.rare.escortSec), before, 'not counted while you\'re away');
     const now = await game.eval((g, w, s) => [s.inspector.x, s.inspector.z]);
     assert.ok(Math.hypot(now[0] - where[0], now[1] - where[1]) < 0.6, 'and they waited for you');
@@ -286,8 +287,8 @@ describe('a visiting mate in the shed', () => {
     await game.eval(g => { const d = g.distractions.find(x => x.kind === 'friend'); d.ask = null; d.cooldown = 999; });
     return game;
   }
-  // (he walks in real time: slow frames under a full run slow him down)
-  const settled = game => game.page.waitForFunction(() => !window.kirScene.visitor.walking, null, { timeout: 60_000 });
+  // (his walking is driven frame by frame: a budget of frames, not of real seconds, however slow they run)
+  const settled = game => stepUntil(game, (g, w, s) => !s.visitor.walking, null, { frames: 1200, what: 'the mate settling' });
   const where = game => game.eval((g, w, s) => {
     const v = s.visitor, c = v.cell;
     return { x: v.x, z: v.z, cell: c, keepClear: v.onKeepClear, door: s.built.grid[c.y][c.x] === 8 /* T.DOOR */ };
@@ -301,8 +302,7 @@ describe('a visiting mate in the shed', () => {
         await settled(game);
         await game.eval((g, w, s, c) => s.visitor.placeAt(c.x, c.y), cell);
         assert.ok((await where(game)).keepClear, `${cell.x},${cell.y} is somewhere to keep clear`);
-        await game.page.waitForFunction(() => !window.kirScene.visitor.onKeepClear, null, { timeout: 5_000 })
-          .catch(() => assert.fail(`still standing at ${cell.x},${cell.y}`));
+        await stepUntil(game, (g, w, s) => !s.visitor.onKeepClear, null, { frames: 100, what: `stepping off ${cell.x},${cell.y}` });
         await settled(game);
         const now = await where(game);
         assert.ok(!now.keepClear && !now.door, `stepped off ${cell.x},${cell.y} to ${now.cell.x},${now.cell.y}`);
@@ -317,16 +317,13 @@ describe('a visiting mate in the shed', () => {
       // stood on the dock between you (by the roller door) and the finished pallet
       await game.eval((g, w, s) => s.visitor.placeAt(24, 30));
       const before = await where(game);
-      const walk = await game.page.evaluate(() => new Promise(res => {
-        const s = window.kirScene, t0 = performance.now();
-        s.goTo('finishedPallet', false);
-        let min = Infinity;
-        const f = () => {
-          min = Math.min(min, Math.hypot(s.visitor.x - s.playerPos.x, s.visitor.z - s.playerPos.z));
-          if (s.walking && performance.now() - t0 < 15_000) requestAnimationFrame(f); else res({ min, arrived: s.inRange('finishedPallet') });
-        };
-        requestAnimationFrame(f);
-      }));
+      // every frame of the walk, how close they came (checked before each frame is stepped)
+      await game.eval((g, w, s) => { s.goTo('finishedPallet', false); window.__closest = Infinity; });
+      await stepUntil(game, (g, w, s) => {
+        window.__closest = Math.min(window.__closest, Math.hypot(s.visitor.x - s.playerPos.x, s.visitor.z - s.playerPos.z));
+        return !s.walking;
+      }, null, { frames: 600, what: 'walking to the finished pallet' });
+      const walk = await game.eval((g, w, s) => ({ min: window.__closest, arrived: s.inRange('finishedPallet') }));
       const after = await where(game);
       assert.ok(walk.arrived, 'you got where you were going');
       assert.ok(Math.hypot(after.x - before.x, after.z - before.z) > 0.4, 'they moved');

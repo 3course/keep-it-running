@@ -44,6 +44,9 @@ export class JobCard {
   /** The job on the card now, and one put away while a full scene was up (shown again after). */
   private shownId: number | null = null;
   private held: number | null = null;
+  private shows = 0;
+  /** Changes whenever the card's content (so its size) does: a cached rect() is good till then. */
+  get layoutKey() { return this.shows; }
 
   quiet(ms = 1500) { this.quietUntil = performance.now() + ms; }
 
@@ -79,6 +82,7 @@ export class JobCard {
       ${more > 0 ? `<div class="ft"><span>+ ${more} more sheet${more > 1 ? 's' : ''} on the board</span></div>` : ''}`;
     this.el.dataset.design = d.id;
     this.shownId = j.id;
+    this.shows++;
     this.el.classList.add('show');
     window.clearTimeout(this.timer);
     this.timer = window.setTimeout(() => this.hide(), this.showMs);

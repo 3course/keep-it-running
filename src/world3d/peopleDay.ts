@@ -168,7 +168,7 @@ export class PeopleDay {
   }
 
   private removeJess() {
-    if (this.jess) this.d.scene.remove(this.jess.fig.root);
+    this.jess?.fig.dispose();
     this.jess = null; this.carrying = 0;
     this.talk.hush('jess'); this.talk.hideReplies(); this.asked = null; this.askingLines = [];
   }
@@ -304,6 +304,7 @@ export class PeopleDay {
       const fig = new Figure(friendLook(id));
       fig.setSeated(false); fig.can.visible = false;
       const at = centre({ x: 24, y: 40 });
+      this.cakeMate?.fig.dispose();
       this.cakeMate = { fig, x: at.x, z: at.z, path: [], speed: 1.4, leaveAt: g.minute + 40 };
       fig.root.position.set(at.x, 0, at.z); fig.setExpr('laughing');
       this.d.scene.add(fig.root);
@@ -317,7 +318,7 @@ export class PeopleDay {
     }
     if (this.cakeMate) {
       this.cakeMate.fig.update(dt);
-      if (g.minute >= this.cakeMate.leaveAt || g.phase !== 'day') { this.d.scene.remove(this.cakeMate.fig.root); this.cakeMate = null; this.talk.hush('mate'); }
+      if (g.minute >= this.cakeMate.leaveAt || g.phase !== 'day') { this.cakeMate.fig.dispose(); this.cakeMate = null; this.talk.hush('mate'); }
     }
   }
 
@@ -426,7 +427,7 @@ export class PeopleDay {
   private endWalkIn(secs: number) { if (this.walkIn) this.walkIn.leaveIn = secs; }
   private removeWalkIn() {
     if (this.walkInAsking) { this.talk.hideReplies(); this.walkInAsking = false; }
-    if (this.walkIn) this.d.scene.remove(this.walkIn.fig.root);
+    this.walkIn?.fig.dispose();
     this.walkIn = null; this.talk.hush('walkin');
   }
 
@@ -455,7 +456,7 @@ export class PeopleDay {
     }
     if (this.visitor) {
       this.visitor.fig.update(dt);
-      if (g.minute >= this.visitor.leaveAt || g.phase !== 'day') { this.d.scene.remove(this.visitor.fig.root); this.visitor = null; this.talk.hush('cust'); }
+      if (g.minute >= this.visitor.leaveAt || g.phase !== 'day') { this.visitor.fig.dispose(); this.visitor = null; this.talk.hush('cust'); }
     }
   }
 
@@ -498,10 +499,10 @@ export class PeopleDay {
 
   dispose() {
     this.removeJess();
-    if (this.visitor) this.d.scene.remove(this.visitor.fig.root);
-    if (this.cakeMate) this.d.scene.remove(this.cakeMate.fig.root);
+    this.visitor?.fig.dispose(); this.visitor = null;
+    this.cakeMate?.fig.dispose(); this.cakeMate = null;
     this.removeWalkIn();
-    this.talk.clear();
+    this.talk.destroy();
   }
 }
 

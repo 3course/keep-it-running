@@ -14,6 +14,7 @@ import { WORLD } from '../world/worldConfig.js';
 import { logEvent, type WorldState } from '../world/state.js';
 import { objectById } from '../world/layout.js';
 import { boxAt, toon } from './build.js';
+import { removeAndDispose } from './dispose.js';
 import { Figure } from './figures.js';
 import { NAMED } from './looks.js';
 
@@ -125,7 +126,7 @@ export class DennisView {
       this.coffee.fig.update(dt);
       const p = this.d.project(this.coffee.fig.headWorld(new THREE.Vector3()));
       this.talk.place('dennisVisit', p.x, p.y, !p.behind);
-      if (g.minute >= this.coffee.until || g.phase !== 'day') { this.props.remove(this.coffee.fig.root); this.coffee = null; this.talk.hush('dennisVisit'); }
+      if (g.minute >= this.coffee.until || g.phase !== 'day') { this.coffee.fig.dispose(); this.coffee = null; this.talk.hush('dennisVisit'); }
     }
     this.buildProps();
   }
@@ -154,7 +155,7 @@ export class DennisView {
       live('secondRouter'), live('footy'), live('extractorService'), L.bets.filter(b => b.status === 'won' || b.status === 'lost').map(b => b.status[0]).join('')]);
     if (sig === this.sig) return;
     this.sig = sig;
-    for (const c of [...this.props.children]) if (!this.coffee || c !== this.coffee.fig.root) this.props.remove(c);
+    for (const c of [...this.props.children]) if (!this.coffee || c !== this.coffee.fig.root) removeAndDispose(c);
     const [prebuy, bander, router, footy, service, record] = JSON.parse(sig) as [boolean, boolean, boolean, boolean, boolean, string];
     const r = (id: Parameters<typeof objectById>[0]) => objectById(id).rect;
     if (prebuy) { // a second pallet of formply beside the first
@@ -196,5 +197,5 @@ export class DennisView {
     void secs;
   }
 
-  dispose() { this.talk.clear(); this.card?.remove(); this.d.scene.remove(this.props); }
+  dispose() { this.talk.destroy(); this.card?.remove(); this.coffee?.fig.dispose(); this.coffee = null; removeAndDispose(this.props); }
 }

@@ -17,6 +17,7 @@ import { people } from '../people/state.js';
 import { scatterCans } from '../world/cans.js';
 import { absMinute, logEvent, type WorldState } from '../world/state.js';
 import { Talk } from '../ui/talk.js';
+import { disposeChildren, removeAndDispose } from './dispose.js';
 import { Figure, type FigureLook } from './figures.js';
 import type { ShedLighting } from './lighting.js';
 import type { Sfx } from './sfx.js';
@@ -394,9 +395,9 @@ export class KnockOff {
     if (this.lsg.active) this.lsg.abort();
     this.restoreLight();
     this.talk.clear();
-    for (const f of this.figures.values()) this.set.remove(f.root);
+    for (const f of this.figures.values()) f.dispose();
     this.figures.clear();
-    this.empties.clear();
+    disposeChildren(this.empties);
     this.set.visible = false;
     this.night = null; this.walkIn = null;
     this.weight = 0; this.weightTo = 0;
@@ -485,6 +486,16 @@ export class KnockOff {
     this.talk.say(who, friendById(who).name, n ? slur(text, n.beers, `${n.turn}|${text.length}`) : text);
     const f = this.figures.get(who);
     if (f) { f.talking = 1.3; f.setExpr(/wonk|wobbl|champ/i.test(text) ? 'laughing' : 'animated'); }
+  }
+
+  /** Replaced by a new one (a rebuilt world): its bubbles and tap listener, its people, the set and the fridge light. */
+  destroy() {
+    if (this.lsg.active) this.lsg.abort();
+    this.talk.destroy();
+    for (const f of this.figures.values()) f.dispose();
+    this.figures.clear();
+    removeAndDispose(this.set);
+    if (this.fridgeLight) removeAndDispose(this.fridgeLight);
   }
 
   // ---------- bits ----------

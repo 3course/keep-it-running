@@ -4,7 +4,7 @@
 // went by fast.
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { frames, freshGame, startBrowser, walkTo } from './browser.mjs';
+import { frames, freshGame, startBrowser, stepUntil, steps, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -66,12 +66,15 @@ describe('the time scale, in the shed', () => {
         g.jobs = []; g.orderCalls = []; g.distractions = []; g.deliveries = []; g.mateVisits = []; g.lateDropToday = false; g.minute = 9 * 60;
       });
       await walkTo(game, 'compressor');
-      await game.page.waitForFunction(fast => window.kir.timeScale === fast, C.fastScale, { timeout: 20_000 }); // (slow frames under a full test run)
+      // frames, not real seconds: standing still long enough is a number of frames, however slow they run
+      await stepUntil(game, (g, w, s, fast) => g.timeScale === fast, C.fastScale, { frames: 400, what: 'the clock going fast' });
       assert.match(await game.page.evaluate(() => document.querySelector('#kir-hud .clock').textContent), /waiting…/);
       assert.match(await game.eval((g, w, s) => s.hud.pad.querySelector('h2').textContent), /waiting…/);
+      // 1.5 s of frames at the fast scale: a game minute every realMsPerGameMinute / fastScale
       const t0 = await game.eval(g => g.minute);
-      await game.page.waitForTimeout(1500);
-      assert.ok(await game.eval(g => g.minute) - t0 >= 3, 'the clock runs faster');
+      await steps(game, 30);
+      const ran = await game.eval(g => g.minute) - t0, expect = Math.floor(1500 / (C.realMsPerGameMinute / C.fastScale));
+      assert.ok(ran >= expect - 1 && ran <= expect + 1, `the clock runs faster: ${ran} game minutes in 1.5 s (about ${expect})`);
       // something fires: straight back to 1x, and the pointers hold a beat
       await game.eval(g => { g.spawnDistraction('phone'); });
       await frames(game, 2);

@@ -133,7 +133,9 @@ export function startNewDay(w: WorldState, g: Game) {
   w.carrying = null; w.extinguisherFrom = null; // (the hooks keep whatever's on them)
   w.extOffOvernight = w.hooks.wall === false;
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
-  w.watchingSwap = null; w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
+  // (watchingSwap stays: a swap still going at knock-off carries on in the morning (Game.replacing), and the view puts
+  // the old bag out when it's done, as it does in the day)
+  w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
   if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it
   // a sheet cutting at knock-off was scrapped by Game; it's still lying on the bed
   if (w.bed === 'running') w.bed = 'scrap';

@@ -11,6 +11,7 @@ import { PEOPLE } from '../people/config.js';
 import type { Gift, Keepsake, PeopleState } from '../people/state.js';
 import { BAG_SPOT } from '../world/cans.js';
 import { boxAt, toon } from './build.js';
+import { disposeChildren } from './dispose.js';
 import { buildPiece } from './piece.js';
 import { DEFAULT_PLAN, shift, type Plan } from '../world/layoutPlan.js';
 import { pastLeases, wall, type PastLease } from '../world/lease.js';
@@ -103,7 +104,7 @@ export class Gratitude {
   private clear() {
     for (const d of this.disposers) d();
     this.disposers = [];
-    this.group.clear();
+    disposeChildren(this.group); // every geometry, the sack's and the hitboxes' own materials (toon()'s shared ones stay)
     this.targets.length = 0;
   }
 

@@ -5,7 +5,7 @@
 // the ply docket and the pickup out to the ute. Money and the sim are untouched: Game's fault steps run as before.
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { advance, answerCard, doGesture, frames, freshGame, gestureNow, holdLabel, labels, startBrowser, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, answerCard, doGesture, frames, freshGame, gestureNow, holdLabel, labels, startBrowser, steps, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -281,6 +281,26 @@ describe('the rest, by hand', () => {
       assert.equal(await game.eval(g => g.cash), before + 600, 'paid on the one tap');
       await game.page.waitForFunction(() => !window.kirScene.w.utePresent);
       assert.deepEqual(await game.eval((g, w) => [w.finishedStack, w.carrying, g.pallet, g.pickupsHere.length]), [0, null, 0, 0]);
+    } finally { await game.close(); }
+  });
+});
+
+describe('a bag swap still going at knock-off', () => {
+  it('carries on in the morning, and the old bag turns up when it\'s done', async () => {
+    const game = await freshGame(env);
+    try {
+      // the swap's on (Game.replacing) and the shed's watching it, then the day ends and a new one starts
+      const kept = await game.eval(async (g, w) => {
+        const { startNewDay } = await import(new URL('src/world/state.ts', document.baseURI).href);
+        w.tour = null; g.replacing = { key: 'filter', remaining: 20 }; w.watchingSwap = 'filter'; w.oldBagWaiting = false;
+        startNewDay(w, g);
+        return [w.watchingSwap, w.oldBagWaiting];
+      });
+      assert.deepEqual(kept, ['filter', false], 'still watching overnight; no old bag yet');
+      // it finishes in the morning: the old bag's out for the skip
+      await game.eval(g => { g.wear.filter = 1; g.replacing = null; });
+      await steps(game, 3);
+      assert.deepEqual(await game.eval((g, w) => [w.watchingSwap, w.oldBagWaiting]), [null, true]);
     } finally { await game.close(); }
   });
 });

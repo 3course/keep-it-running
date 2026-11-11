@@ -17,7 +17,7 @@ import { CallCard } from '../ui/callCard.js';
 import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
-import { writeSave, clearSave } from '../world/save.js';
+import { writeSave, clearSave, parseSave, saveText } from '../world/save.js';
 import { absMinute, extPlace, HOOKS, hookThere, logEvent, onHook, startNewDay, type Hook, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
 import { mateById } from '../data/mates.js';
@@ -78,6 +78,7 @@ import { RingSound, ringOn } from './ring.js';
 import { describeGpu, TIERS, type GpuInfo, type TierSettings } from './gpu.js';
 import { perf } from './perf.js';
 import { applyTextures, Sawdust, type SheetLooks } from './detail.js';
+import { disposeChildren, disposeMaterial, disposeObject, removeAndDispose } from './dispose.js';
 import { hideOverlay, showRendererFailure, showRestarting } from '../ui/failure.js';
 import { Trail } from './trail.js';
 import { getItem, getJson, isObject, KEYS, removeItem, setItem } from '../storage.js';
@@ -85,7 +86,15 @@ import { getItem, getJson, isObject, KEYS, removeItem, setItem } from '../storag
 const C = WORLD.cell;
 const angleDiff = (a: number, b: number) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
 
-interface LabelEntry { id: string; el: HTMLDivElement; anchor: THREE.Vector3 }
+/**
+ * A label on screen. Its size (and its buttons' boxes inside it) is measured once when it's built, so placing it each
+ * frame never forces a layout; `x`/`y` are where it was last put (its bottom centre), `shown` whether it's showing.
+ */
+interface LabelEntry {
+  id: string; el: HTMLDivElement; anchor: THREE.Vector3;
+  w: number; h: number; btns: { x: number; y: number; w: number; h: number }[];
+  x: number; y: number; shown: boolean; css: string;
+}
 
 export class World3D {
   readonly renderer: THREE.WebGLRenderer;
@@ -137,6 +146,8 @@ export class World3D {
   /** Every action done, for tests and debugging: what was tapped and what it said. */
   readonly actionLog: { label: string; said: string; t: number }[] = [];
   private objectHold = false;
+  /** The finger holding the spray (on the label or the exhaust): only it aims, only its lift lets go. */
+  private holdId: number | null = null;
   private thumb = { x: 0, y: 0 };       // where the last finger is (logical px): aims the extinguisher
   private sprayHeld = false;             // the trigger was down last frame
   private flareUntil = 0;                // the flames jump while a let-go fire flares back
@@ -279,6 +290,7 @@ export class World3D {
     this.hud = new Hud(canvas, {
       goTo: (targets, key) => {
         this.hints.mark('notepad');
+        this.hints.mark('drag'); // a walk's a walk: the notepad got you there
         // a fire with the extinguisher not in your hands: go to the nearest one, wherever it is (a hook or the floor)
         if (key === 'fire' && this.w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e?.down) { this.walkToPoint(e.x, e.z); this.pendingExt = e.h; return; } }
         this.goToNearest(targets, key);
@@ -350,6 +362,7 @@ export class World3D {
 
     this.fit();
     window.addEventListener('resize', () => this.fit());
+    document.fonts?.addEventListener?.('loadingdone', () => { this.labelSizesStale = true; this.mateBubbleSize.key = ''; });
     window.visualViewport?.addEventListener('resize', () => this.fit());
     screen.orientation?.addEventListener?.('change', () => this.fit());
     this.bindInput(canvas);
@@ -440,6 +453,7 @@ export class World3D {
     this.camera.updateProjectionMatrix();
     this.hud?.layout(aw, ah);
     this.coverLeft = -1; // re-apply the view offset next frame
+    this.labelSizesStale = true; // the type scales with the screen
   }
 
   /** In landscape the notepad sits pinned on the left: centre the view on the part of the screen that's left. */
@@ -482,7 +496,9 @@ export class World3D {
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
       const hit = this.pick(L.x, L.y);
-      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; return; }
+      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; this.holdId = e.pointerId; return; }
+      // the first finger down is the stick (or the tap): a second one doesn't take it over or tap
+      if (this.ptr) return;
       // a drag anywhere is the stick; a quick tap uses whatever's under it
       this.ptr = { id: e.pointerId, x0: L.x, y0: L.y, t0: performance.now(), stickable: true, active: false };
     });
@@ -505,7 +521,7 @@ export class World3D {
     const up = (e: PointerEvent) => {
       if (this.layoutEditor.active) this.layoutEditor.pointer('up', e);
       if (this.tracing.active) this.tracing.pointer('up', e);
-      this.objectHold = false;
+      if (this.holdId === null || e.pointerId === this.holdId) { this.objectHold = false; if (!this.labelHold) this.holdId = null; }
       if (this.uiBlocking) { this.dropPointer(); return; } // no tap-to-walk through a card
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
@@ -518,11 +534,16 @@ export class World3D {
     };
     canvas.addEventListener('pointerup', up);
     canvas.addEventListener('pointercancel', up);
-    const track = (e: PointerEvent) => { this.thumb = this.hud.toLogical(e.clientX, e.clientY); };
+    // the stick's finger is gone without an up (the browser took it back): drop it, so the next touch is a fresh one
+    canvas.addEventListener('lostpointercapture', e => { if (this.ptr?.id === e.pointerId) this.dropPointer(); });
+    // the aim follows the spraying finger only, once one's holding
+    const track = (e: PointerEvent) => { if (this.holdId !== null && e.pointerId !== this.holdId) return; this.thumb = this.hud.toLogical(e.clientX, e.clientY); };
     window.addEventListener('pointerdown', track, true);
     window.addEventListener('pointermove', track, true);
-    const release = () => {
+    const release = (e: PointerEvent) => {
+      if (this.holdId !== null && e.pointerId !== this.holdId) return; // another finger lifting doesn't stop the spray
       this.labelHold = false;
+      if (!this.objectHold) this.holdId = null;
       if (this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
     };
     window.addEventListener('pointerup', release);
@@ -570,6 +591,9 @@ export class World3D {
   }
 
   private tap(lx: number, ly: number) {
+    // tapping gets you about too: "Drag anywhere to walk" is learnt either way (left unmarked, it held back every hint
+    // after it, the fault and gesture ones included, for anyone who only ever tapped)
+    this.hints.mark('drag');
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
     const morning = this.gratitude.hit(this.raycaster);
     if (morning) {
@@ -642,9 +666,28 @@ export class World3D {
     perf.reset();
   }
 
+  /**
+   * Tests only: with `manualFrames` on, the view stops stepping itself and `stepFrames` drives it, a fixed `dt` of game
+   * time a frame, so a test waits a number of frames, not a number of real seconds (slow frames under a loaded run
+   * can't change what happens).
+   */
+  manualFrames = false;
+  stepFrames(n: number, dt = 0.05) {
+    let t = this.last || performance.now();
+    for (let i = 0; i < n; i++) {
+      this.skipDraw = i < n - 1; // draw the last one only
+      t += dt * 1000;
+      this.step(t);
+    }
+    this.skipDraw = false;
+    this.last = 0; // the next real frame starts afresh (16 ms), not from this made-up clock
+  }
+  private skipDraw = false;
+
   private frame(now: number) {
     if (this.failed) return; // the failure card is up: stop
     requestAnimationFrame(t => this.frame(t));
+    if (this.manualFrames) { this.last = 0; return; }
     this.holdFrameRate(now);
     if (this.contextLost) { this.last = now; return; } // clock stopped until the view's back
     try {
@@ -665,7 +708,7 @@ export class World3D {
   private step(now: number) {
     const dtMs = this.last ? now - this.last : 16;
     this.last = now;
-    const dt = Math.min(0.05, dtMs / 1000);
+    const dt = Math.max(0, Math.min(0.05, dtMs / 1000));
     this.time += dt;
     const g = this.g, w = this.w;
 
@@ -779,6 +822,7 @@ export class World3D {
       const hint = this.hints.current ?? (this.gesture.active ? this.hints.when('gesture') : g.fault ? this.hints.when('fault') : null);
       this.hud.showHint(g.phase === 'day' && !this.paused && !this.hud.isOpen ? hint : null);
     }
+    if (this.skipDraw) return;
     // people on whole render pixels for this frame (and back after: nothing else sees the rounding)
     const unsnap = snapAll(this.scene, this.camera, this.renderer);
     if (this.outline) this.outline.render(this.renderer, this.scene, this.camera);
@@ -833,7 +877,7 @@ export class World3D {
     this.trail = new Trail(this.scene);
     this.gratitude = new Gratitude(this.scene, this.tier.detail.textures);
     this.trailPath = null; this.guideFor = null;
-    this.canMeshes.clear();
+    this.canMeshes.clear(); this.extMeshes.clear(); // (the old ones went with the old scene)
     this.labelSig = '';
   }
 
@@ -867,7 +911,7 @@ export class World3D {
     try {
       this.scene = new THREE.Scene();
       this.buildScene();
-      this.knockoff.talk.clear(); this.makeKnockOff();
+      this.makeKnockOff();
     } catch (e) { this.contextLost = false; this.fail(e); return; }
     this.contextLost = false;
     this.last = 0;
@@ -967,6 +1011,7 @@ export class World3D {
 
   /** The mate's line that's been tapped away (his answer buttons stay). */
   private mateBubbleAway: string | null = null;
+  private mateBubbleSize = { key: '', w: 0, h: 0 };
   /** A job card where it shows would cover a prompt (a label's buttons): it waits till they're clear. */
   private jobCardOverPrompt = false;
   /**
@@ -974,12 +1019,57 @@ export class World3D {
    * call card is the prompt while you're on the phone, so any label it would cover is hidden till you've answered.
    */
   private keepCardsOffPrompts() {
-    const over = (a: DOMRect, b: DOMRect) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-    const buttons = this.labelEls.flatMap(l => (l.el.style.display === 'none' ? [] : [...l.el.querySelectorAll('button')]));
-    const card = this.jobCard.rect();
-    this.jobCardOverPrompt = buttons.some(b => over(card, b.getBoundingClientRect()));
-    const call = this.callCard.showing ? this.callCard.el.getBoundingClientRect() : null;
-    for (const l of this.labelEls) l.el.style.visibility = call && over(call, l.el.getBoundingClientRect()) ? 'hidden' : '';
+    type R = { left: number; top: number; right: number; bottom: number };
+    const over = (a: R, b: R) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+    // the cards are measured only when they (or the screen) change; the labels' boxes come from their cached sizes
+    const screen = `${this.vw}|${this.vh}|${this.hud.coverLeft}`;
+    const jobKey = `${this.jobCard.layoutKey}|${screen}`;
+    if (jobKey !== this.jobCardRect.key) this.jobCardRect = { key: jobKey, r: this.jobCard.rect() };
+    const callKey = this.callCard.showing ? `${this.callCard.layoutKey}|${screen}` : '';
+    if (callKey !== this.callCardRect.key) this.callCardRect = { key: callKey, r: callKey ? this.callCard.el.getBoundingClientRect() : null };
+    const card = this.jobCardRect.r, call = this.callCardRect.r;
+    const box = (l: LabelEntry) => ({ left: l.x - l.w / 2, top: l.y - l.h, right: l.x + l.w / 2, bottom: l.y });
+    this.jobCardOverPrompt = this.labelEls.some(l => l.shown && l.btns.some(b => {
+      const x = l.x - l.w / 2 + b.x, y = l.y - l.h + b.y;
+      return over(card, { left: x, top: y, right: x + b.w, bottom: y + b.h });
+    }));
+    for (const l of this.labelEls) {
+      const vis = call && l.shown && over(call, box(l)) ? 'hidden' : '';
+      if (l.el.style.visibility !== vis) l.el.style.visibility = vis;
+    }
+  }
+  private jobCardRect: { key: string; r: DOMRect } = { key: '', r: new DOMRect() };
+  private callCardRect: { key: string; r: DOMRect | null } = { key: '', r: null };
+  /** Labels need measuring again (the screen or the type size changed, a font came in, a button's text changed). */
+  private labelSizesStale = false;
+
+  /** Measure every label once, all reads together (one layout), with each one showing so it has a size. */
+  private measureLabels(ls: LabelEntry[]) {
+    for (const l of ls) { l.el.style.display = 'flex'; l.css = ''; } // (placed again, and hidden again if it was, after)
+    for (const l of ls) {
+      l.w = l.el.offsetWidth; l.h = l.el.offsetHeight;
+      l.btns = [...l.el.querySelectorAll('button')].map(b => ({ x: b.offsetLeft, y: b.offsetTop, w: b.offsetWidth, h: b.offsetHeight }));
+    }
+  }
+
+  /**
+   * Nearby labels never sit on each other: from the bottom of the screen up, a label that overlaps one already placed
+   * goes up above it (`WORLD.labelGap` between), or under it when there's no room above. Same inputs, same result, so
+   * nothing jitters frame to frame.
+   */
+  private spreadLabels(ls: LabelEntry[]) {
+    const gap = WORLD.labelGap, placed: LabelEntry[] = [];
+    const order = ls.map((l, i) => ({ l, i })).sort((a, b) => b.l.y - a.l.y || a.i - b.i).map(o => o.l);
+    for (const l of order) {
+      const minY = Math.max(l.h + 8, 70), maxY = this.vh - 10;
+      for (let tries = 0; tries <= placed.length; tries++) {
+        const hit = placed.find(q => Math.abs(l.x - q.x) < (l.w + q.w) / 2 && l.y > q.y - q.h - gap && l.y - l.h - gap < q.y);
+        if (!hit) break;
+        const up = hit.y - hit.h - gap;
+        l.y = up >= minY ? up : Math.min(maxY, hit.y + gap + l.h);
+      }
+      placed.push(l);
+    }
   }
 
   /** The notepad's rent clock: "rent due in 17 days", "rent due today" (nothing in the daily). */
@@ -994,10 +1084,25 @@ export class World3D {
   }
 
   /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
+  /**
+   * Day 20's cash as the day will end. The reckoning's at 5pm, but endDay (after it) still settles the served walk-ins,
+   * the overdraft fee and Dennis's router day: so the ending's worked out on a copy of the game knocked off to the day
+   * summary — the cash the summary and the ending card then show (projectedCash: less the week's overheads).
+   */
+  private cashAtClose(): number {
+    const g = this.g;
+    if (g.phase !== 'endOfDayPrompt') return projectedCash(g);
+    const copy = parseSave(saveText(g, this.w))?.game;
+    if (!copy) return projectedCash(g);
+    copy.phase = g.phase; // (a save keeps the phase; this is to be sure the copy can knock off)
+    copy.knockOff();
+    return projectedCash(copy);
+  }
+
   reckoning(): Reckoning | null {
     const l = this.w.lease, g = this.g;
     if (!l || leaseDay(l, g) !== leaseLength()) return null;
-    const p = people(this.w), cash = projectedCash(g), ending = outcome(cash, l.rentDue), owed = owedAfter(cash, l.rentDue);
+    const p = people(this.w), cash = this.cashAtClose(), ending = outcome(cash, l.rentDue), owed = owedAfter(cash, l.rentDue);
     const f = { ...runFacts(l, g, p), landlord: LEASE_LINES.landlord, owed: `$${owed.toLocaleString('en-AU')}` };
     const E = LEASE_LINES.endings[ending], pick = (xs: string[], k: number) => fillRun(xs[(g.seed + k) % xs.length], f);
     const ride = owed > 0;
@@ -1090,9 +1195,14 @@ export class World3D {
   private shedMateId: string | null = null;
 
   private rebuildWorld() {
+    const old = this.scene, oldLooks = this.looks;
     this.scene = new THREE.Scene();
     this.buildScene();
-    this.knockoff.talk.clear(); this.makeKnockOff();
+    this.makeKnockOff();
+    // the old scene's GPU resources: everything still in it (what moved to the new scene is out of it by now), its
+    // sun's shadow map with it, and the sheet looks (some only go on a sheet now and then). Shared ones stay (dispose.ts).
+    disposeObject(old);
+    if (oldLooks) for (const m of [...Object.values(oldLooks.byType), oldLooks.scrap, oldLooks.plywood]) disposeMaterial(m);
     this.solid = solidCells();
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);
@@ -1117,6 +1227,7 @@ export class World3D {
   }
 
   private makeKnockOff() {
+    this.knockoff?.destroy();
     this.knockoff = new KnockOff({
       scene: this.scene, g: this.g, w: this.w, pointLights: this.tier.pointLights, talkParent: this.hud.labels.parentElement!,
       project: v => this.project(v), setHud: v => this.hud.setHudVisible(v), hidePlayer: () => {},
@@ -1138,7 +1249,7 @@ export class World3D {
       gather: on => this.knockoff.gather(on, m.group), sayAs: (who, text) => this.knockoff.sayAs(who, text), save: () => this.save(),
       thumb: d => this.reveal.thumbnail(this.renderer, d),
     });
-    this.layoutEditor?.exit();
+    this.layoutEditor?.exit(); this.layoutEditor?.destroy();
     this.layoutEditor = new LayoutEditor({
       scene: this.scene, camera: this.camera, canvas: this.renderer.domElement, parent: this.hud.labels.parentElement!,
       hide: on => { for (const id of STATION_IDS) { const v = this.built.objects.get(id as ObjectId); if (v) v.group.visible = !on; } },
@@ -1606,28 +1717,40 @@ export class World3D {
           b.addEventListener('pointerdown', e => {
             e.preventDefault(); e.stopPropagation();
             this.labelPressed = true; this.labelPressedAt = this.time;
-            if (a.hold) { this.labelHold = true; return; }
+            if (a.hold) { this.labelHold = true; this.holdId = e.pointerId; return; }
             this.doAction(a, id);
             // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
             b.classList.add('tick');
             b.textContent = `✓ ${a.label}`;
+            this.labelSizesStale = true; // (its text changed: measured again once the labels move)
           });
           el.appendChild(b);
         }
         if (status) { const s = document.createElement('div'); s.className = 'status'; s.textContent = status; el.appendChild(s); }
         this.hud.labels.appendChild(el);
-        this.labelEls.push({ id, el, anchor });
+        this.labelEls.push({ id, el, anchor, w: 0, h: 0, btns: [], x: NaN, y: NaN, shown: false, css: '' });
       }
+      this.measureLabels(this.labelEls);
+      this.labelSizesStale = false;
     }
     // labels hold still under a finger (a lost pointerup can't freeze them for good)
     if (this.labelPressed && this.time - this.labelPressedAt < 2) return;
     this.labelPressed = false;
+    if (this.labelSizesStale) { this.measureLabels(this.labelEls); this.labelSizesStale = false; }
     for (const l of this.labelEls) {
       const p = this.project(l.anchor);
-      const half = l.el.offsetWidth / 2 + 4; // keep the whole label on screen, however long it is
-      l.el.style.left = `${Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x))}px`;
-      l.el.style.top = `${Math.max(l.el.offsetHeight + 8, 70, Math.min(this.vh - 10, p.y))}px`; // the whole stack on screen, short screens too
-      l.el.style.display = p.behind ? 'none' : 'flex';
+      const half = l.w / 2 + 4; // keep the whole label on screen, however long it is
+      l.x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x));
+      l.y = Math.max(l.h + 8, 70, Math.min(this.vh - 10, p.y)); // the whole stack on screen, short screens too
+      l.shown = !p.behind;
+    }
+    this.spreadLabels(this.labelEls.filter(l => l.shown));
+    for (const l of this.labelEls) {
+      const css = l.shown ? `${l.x}|${l.y}` : 'none';
+      if (css === l.css) continue;
+      l.css = css;
+      l.el.style.display = l.shown ? 'flex' : 'none';
+      if (l.shown) { l.el.style.left = `${l.x}px`; l.el.style.top = `${l.y}px`; }
     }
     for (const d of this.debugLabels) { const p = this.project(d.at); d.el.style.left = `${p.x}px`; d.el.style.top = `${p.y}px`; }
   }
@@ -1796,7 +1919,7 @@ export class World3D {
       this.built.mate.rotation.y = talking ? Math.atan2(-(this.pos.x - v.x), -(this.pos.z - v.z)) + Math.sin(this.time * 2) * 0.15 : v.facing;
       // each mate always looks the same: his own shirt, build, hair (src/world3d/looks.ts)
       if (this.shedMateId !== (mate.mate ?? '')) {
-        this.built.mate.clear();
+        this.shedMate?.dispose(); disposeChildren(this.built.mate);
         this.shedMate = new Figure(friendLook(mate.mate ?? 'eggby'), { snap: false });
         this.shedMate.setSeated(false);
         this.built.mate.add(this.shedMate.root);
@@ -1806,7 +1929,7 @@ export class World3D {
       f.walking = v.walking; f.can.visible = (mate.beers ?? 0) > 0;
       if (mate.engaged) f.talking = 1.2;
       f.update(this.paused ? 0 : dt);
-    }
+    } else if (this.shedMate) { this.shedMate.dispose(); this.shedMate = null; this.shedMateId = null; } // gone: made afresh when he's back
 
     // fire and smoke
     const fire = g.fire;
@@ -2050,7 +2173,7 @@ export class World3D {
   private updateExts() {
     const g = this.g, w = this.w;
     const down = new Map(HOOKS.map(x => [x.hook, extPlace(g, w, x.hook)] as const).filter(([, p]) => p.at === 'down') as [Hook, { at: 'down'; x: number; z: number }][]);
-    for (const [h, m] of this.extMeshes) if (!down.has(h)) { this.scene.remove(m); this.extMeshes.delete(h); }
+    for (const [h, m] of this.extMeshes) if (!down.has(h)) { removeAndDispose(m); this.extMeshes.delete(h); }
     for (const [h, p] of down) {
       let m = this.extMeshes.get(h);
       if (!m) {
@@ -2081,7 +2204,7 @@ export class World3D {
   private updateCans() {
     const g = this.g, w = this.w;
     const down = new Map(g.cans.filter(c => !c.held && w.canSpots?.[c.id]).map(c => [c.id, c]));
-    for (const [id, m] of this.canMeshes) if (!down.has(id)) { this.scene.remove(m); this.canMeshes.delete(id); }
+    for (const [id, m] of this.canMeshes) if (!down.has(id)) { removeAndDispose(m); this.canMeshes.delete(id); }
     for (const [id, c] of down) {
       let m = this.canMeshes.get(id);
       if (!m) {
@@ -2125,16 +2248,20 @@ export class World3D {
     if (!text || this.paused || text === this.mateBubbleAway) { b.style.display = 'none'; return; }
     const p = this.project(this.built.mate.position.clone().setY(1.4));
     if (b.textContent !== text) b.textContent = text;
-    b.style.display = p.behind ? 'none' : 'block';
+    const display = p.behind ? 'none' : 'block';
+    if (b.style.display !== display) b.style.display = display;
+    // its size is measured when its words (or the screen) change, not every frame
+    const sz = this.mateBubbleSize, key = `${text}|${this.vw}|${this.vh}`;
+    if (!p.behind && sz.key !== key) { sz.key = key; sz.w = b.offsetWidth; sz.h = b.offsetHeight; }
     // keep the whole bubble on screen, even when the mate's at the edge (their pointer shows where)
-    const half = b.offsetWidth / 2 + 6;
+    const half = sz.w / 2 + 6;
     const x = Math.max(this.coverLeft + half, Math.min(this.vw - half, p.x));
-    let y = Math.max(b.offsetHeight + 80, Math.min(this.vh - 20, p.y)); // (its bottom: the bubble hangs up from here)
+    let y = Math.max(sz.h + 80, Math.min(this.vh - 20, p.y)); // (its bottom: the bubble hangs up from here)
     // his answer buttons are up: the bubble clears the stack — above it, or under it if there's no room above
-    const lbl = this.labelEls.find(l => l.id === `visitor-${mate!.id}`)?.el;
-    if (lbl && lbl.style.display !== 'none' && lbl.querySelector('button')) {
-      const stackBottom = parseFloat(lbl.style.top), stackTop = stackBottom - lbl.offsetHeight;
-      y = stackTop - 8 >= b.offsetHeight + 80 ? Math.min(y, stackTop - 8) : Math.max(y, stackBottom + 8 + b.offsetHeight);
+    const lbl = this.labelEls.find(l => l.id === `visitor-${mate!.id}`);
+    if (lbl && lbl.shown && lbl.btns.length) {
+      const stackBottom = lbl.y, stackTop = stackBottom - lbl.h;
+      y = stackTop - 8 >= sz.h + 80 ? Math.min(y, stackTop - 8) : Math.max(y, stackBottom + 8 + sz.h);
     }
     b.style.left = `${x.toFixed(1)}px`; b.style.top = `${y.toFixed(1)}px`;
   }
@@ -2278,7 +2405,7 @@ export class World3D {
     this.paused = p;
     this.hud?.setPaused(p);
     this.acc = 0;
-    if (p) { this.labelHold = this.objectHold = false; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
+    if (p) { this.labelHold = this.objectHold = false; this.holdId = null; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
     this.labelSig = '';
     this.save();
   }

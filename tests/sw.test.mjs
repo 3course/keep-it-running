@@ -107,6 +107,10 @@ describe('the production build and its service worker', () => {
       await page.waitForTimeout(6000);
       page.off('load', count);
       assert.equal(loads, 0, 'no reload loop while sw-kill.txt is deployed');
+      // the reloaded page registers the worker again, and it removes itself when it activates (sw-kill.js): under a
+      // loaded run that install can still be going after the wait above, so wait for it to settle, not a fixed time
+      await page.waitForFunction(async () => (await navigator.serviceWorker.getRegistrations()).length === 0 && (await caches.keys()).length === 0, null, { timeout: 30_000, polling: 250 })
+        .catch(() => {});
       s = await swState(page);
       assert.deepEqual([s.regs, s.caches], [0, []], 'killed: no worker, no caches');
 
