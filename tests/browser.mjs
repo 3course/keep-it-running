@@ -106,9 +106,11 @@ export const labels = game => game.page.evaluate(() => window.kirScene.labelScre
 
 /** Wait for a label to show (exact text). */
 export async function waitForLabel(game, text, timeout = 5_000) {
-  await game.page.waitForFunction(text => window.kirScene.labelScreens().some(l => l.text === text), text, { timeout }).catch(async () => {
-    assert.fail(`no label ${text}; showing: ${JSON.stringify(await labels(game))}`);
-  });
+  if (await game.page.evaluate(t => window.kirScene.labelScreens().some(l => l.text === t), text)) return;
+  // frames, not real seconds: `timeout` is read as that much of the view's own time (World3D.stepFrames, 20 a second),
+  // so a loaded run can't make a label late
+  await stepUntil(game, (g, w, s, t) => s.labelScreens().some(l => l.text === t), text, { frames: Math.ceil(timeout / 50), what: `label ${text}` })
+    .catch(async () => assert.fail(`no label ${text}; showing: ${JSON.stringify(await labels(game))}`));
 }
 
 /** Where a label button is, and whether it's the thing a finger at its centre would actually hit. */
@@ -169,9 +171,17 @@ export async function doGesture(game, { choice = 0, early = false } = {}) {
   };
   const p = gst.parts;
   if (gst.kind === 'hold') {
+    // the hold is timed in real seconds by the game (src/ui/gesture.ts): keep the finger down until the ring says it's
+    // full, not for a fixed stretch of real time (a loaded run could lift it a frame early). `early`: lift at 40%.
     const secs = await game.page.evaluate(() => window.kirScene.gesture.active.seconds);
     await touch('touchStart', p[0].x, p[0].y);
-    await game.page.waitForTimeout((early ? secs * 400 : secs * 1000 + 400));
+    if (early) await game.page.waitForTimeout(secs * 400);
+    else {
+      await game.page.waitForFunction(() => {
+        const ring = document.querySelector('#kir-hud .gesture .ring');
+        return !ring || parseFloat(ring.style.getPropertyValue('--p') || '0') >= 1;
+      }, null, { timeout: secs * 1000 + 60_000, polling: 50 });
+    }
     await touch('touchEnd');
   } else if (gst.kind === 'taps') {
     for (const t of p.filter(x => !x.done)) await game.page.touchscreen.tap(t.x, t.y);
