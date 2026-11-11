@@ -286,21 +286,23 @@ describe('the rest, by hand', () => {
 });
 
 describe('a bag swap still going at knock-off', () => {
-  it('carries on in the morning, and the old bag turns up when it\'s done', async () => {
+  it('is finished before you go home: a new bag in for the morning, and the old one out for the skip', async () => {
     const game = await freshGame(env);
     try {
-      // the swap's on (Game.replacing) and the shed's watching it, then the day ends and a new one starts
-      const kept = await game.eval(async (g, w) => {
+      // a bag swap on (Game.replacing), the shed watching it, and 5pm: knock off, a new day
+      const r = await game.eval(async (g, w, s) => {
         const { startNewDay } = await import(new URL('src/world/state.ts', document.baseURI).href);
-        w.tour = null; g.replacing = { key: 'filter', remaining: 20 }; w.watchingSwap = 'filter'; w.oldBagWaiting = false;
-        startNewDay(w, g);
-        return [w.watchingSwap, w.oldBagWaiting];
+        w.tour = null; w.oldBagWaiting = false;
+        g.wear.filter = 0.2; g.replacing = { key: 'filter', remaining: 20 }; w.watchingSwap = 'filter';
+        g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; g.knockOff();
+        const atClose = { replacing: g.replacing, filter: g.wear.filter, said: g.log.some(l => /Stayed back to finish: new filter fitted/.test(l.text)) };
+        g.nextDay(); startNewDay(w, g);
+        return atClose;
       });
-      assert.deepEqual(kept, ['filter', false], 'still watching overnight; no old bag yet');
-      // it finishes in the morning: the old bag's out for the skip
-      await game.eval(g => { g.wear.filter = 1; g.replacing = null; });
+      assert.deepEqual(r, { replacing: null, filter: 1, said: true }, 'finished at close, and the day log says so');
+      // next morning the view sees it's done: the old bag's waiting for the skip
       await steps(game, 3);
-      assert.deepEqual(await game.eval((g, w) => [w.watchingSwap, w.oldBagWaiting]), [null, true]);
+      assert.deepEqual(await game.eval((g, w) => [w.watchingSwap, w.oldBagWaiting, g.replacing]), [null, true, null]);
     } finally { await game.close(); }
   });
 });

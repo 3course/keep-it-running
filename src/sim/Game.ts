@@ -2330,6 +2330,12 @@ export class Game {
       }
       this.dennis.ringing = null; this.dennis.call = null; this.dennis.pitched = null;
     }
+    // a swap still going at knock-off: you stay back and finish it (the part's paid for), so it's in for the morning
+    if (this.replacing) {
+      this.wear[this.replacing.key] = 1;
+      this.say(`Stayed back to finish: new ${this.replacing.key} fitted.`, 'good');
+      this.replacing = null;
+    }
     this.updateMilestones();
     this.story = this.storyOfTheDay();
     this.fault = null; this.current = null; this.machine = 'idle'; this.busy = null; this.distractions = []; this.powerTripped = false;

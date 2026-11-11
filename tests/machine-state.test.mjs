@@ -44,3 +44,17 @@ describe('the machine after a fire is put out', () => {
     assert.equal(g.machine, 'cutting', 'back on after the tour');
   });
 });
+
+describe('a part swap still going at knock-off', () => {
+  it('is finished at close: the part is in, nothing carries into the morning', () => {
+    const g = new Game(1, 5);
+    g.wear.bit = 0.3;
+    g.replacing = { key: 'bit', remaining: 25 };
+    g.minute = 17 * 60; g.phase = 'endOfDayPrompt';
+    g.knockOff();
+    assert.equal(g.replacing, null);
+    assert.equal(g.wear.bit, 1, 'the new bit is in');
+    g.nextDay();
+    assert.equal(g.replacing, null, 'no swap left over in the morning');
+  });
+});

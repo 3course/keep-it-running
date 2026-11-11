@@ -309,7 +309,7 @@ export const CONFIG = {
   lease: {
     weeks: 4,
     dueDay: 20,                 // the rent's due at close on this day of the lease (weeks × days should cover it); the notepad and Kerr count down to it
-    rentDue: 8000,              // the rent: the landlord's letter. $8,000: competent makes it ~86%, sloppy ~13% (npm run sim -- --lease 200; playtest 1 balance report)
+    rentDue: 8000,              // the rent: the landlord's letter. $8,000: competent makes it ~84%, sloppy ~10% (npm run sim -- --lease 200, 11 Nov 2026; set in the playtest 1 balance pass)
     // the endings, by the spare at day 20 (cash less the rent): src/world/leaseEnding.ts
     endings: {
       graceShort: 1500,        // short by up to this: "scraped it" — the landlord takes what's there, the rest rides to the next lease
