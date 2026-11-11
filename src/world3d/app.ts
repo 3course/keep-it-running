@@ -673,7 +673,9 @@ export class World3D {
    */
   manualFrames = false;
   stepFrames(n: number, dt = 0.05) {
-    let t = this.last || performance.now();
+    // every frame exactly `dt`, the first one included (step() takes 16 ms when `last` is 0, as after the last call)
+    let t = performance.now();
+    this.last = t;
     for (let i = 0; i < n; i++) {
       this.skipDraw = i < n - 1; // draw the last one only
       t += dt * 1000;

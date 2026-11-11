@@ -110,7 +110,7 @@ export async function waitForLabel(game, text, timeout = 5_000) {
   // frames, not real seconds: `timeout` is read as that much of the view's own time (World3D.stepFrames, 20 a second),
   // so a loaded run can't make a label late
   await stepUntil(game, (g, w, s, t) => s.labelScreens().some(l => l.text === t), text, { frames: Math.ceil(timeout / 50), what: `label ${text}` })
-    .catch(async () => assert.fail(`no label ${text}; showing: ${JSON.stringify(await labels(game))}`));
+    .catch(async e => assert.fail(`no label ${text}; showing: ${JSON.stringify(await labels(game))} (${String(e?.message ?? e).split('\n')[0].slice(0, 200)})`));
 }
 
 /** Where a label button is, and whether it's the thing a finger at its centre would actually hit. */
