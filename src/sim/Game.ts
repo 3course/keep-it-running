@@ -128,7 +128,8 @@ export class Game {
   fireResponse: FireResponse | null = null;
   spraying = false;            // E held (or the spray button) — set by the UI / sim each frame
   machineDown = false;         // extractor fire: nothing more cuts today
-  extinguisherUsesToday = 0;
+  /** Fires put out with the extinguisher, ever (over the lease: a new game starts at 0): every refillEveryUses-th is a refill. */
+  extinguisherUses = 0;
   /** How fast the clock runs (CONFIG.clock): set each frame by the view from scaleFor(); the sim leaves it at 1. */
   timeScale = 1;
   /** Yesterday's numbers (Kerr shows them; the week's list resets on Monday). */
@@ -449,7 +450,6 @@ export class Game {
     this.fireResponse = null;
     this.spraying = false;
     this.machineDown = false;
-    this.extinguisherUsesToday = 0;
     // unfinished work carries over; delivered, scrapped and lost jobs drop off the board
     const carried = this.jobs.filter(j => j.status === 'queued');
     // the morning: its own stream per day, so yesterday's play can't change what today's board and calls are
@@ -583,6 +583,8 @@ export class Game {
   /** Advance one game minute. No-op outside the working day. */
   /** The player's pen is moving on a signature pad right now (the view sets it): whoever's waiting for it waits. */
   signing = false;
+  /** You're beside the inspector on the walk-round (set by the view each frame): each game minute counts toward it. The sim calls escort() itself. */
+  escorting = false;
 
   tick() {
     if (this.phase !== 'day') return;
@@ -594,6 +596,8 @@ export class Game {
 
     // competence recovery
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.recoveryPerMinute);
+
+    if (this.escorting) this.escort(1);
 
     this.tickBeer();
     this.tickWalkIns();
@@ -888,9 +892,9 @@ export class Game {
     const c = CONFIG.fire;
     this.fire = null;
     this.spraying = false;
-    this.extinguisherUsesToday += 1;
+    this.extinguisherUses += 1;
     this.say('Fire out.', 'good');
-    if (this.extinguisherUsesToday % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
+    if (this.extinguisherUses % c.refillEveryUses === 0) this.spend(c.refillCost, 'fixes', 'extinguisher refill');
     this.fireResponse = { step: 'returning', remaining: this.fireWalk(c.walkBackMinutes) };
     this.settleMachine();
   }
@@ -1916,7 +1920,7 @@ export class Game {
   private landRare(r: RareEventState, def: RareEvent) {
     r.phase = 'live';
     if (r.id === 'council') {
-      r.waitLeft = def.waitMinutes; r.escortSec = 0; r.touring = false;
+      r.waitLeft = def.waitMinutes; r.escortMinutes = 0; r.touring = false;
       this.say("The council's here: an inspector with a clipboard at the roller door. Stop the machine and walk them round.", 'bad');
     } else if (r.id === 'bigJob') {
       const rr = this.at('bigJob');
@@ -1960,18 +1964,21 @@ export class Game {
   showCouncilRound(): boolean {
     const r = this.rare;
     if (!this.inspectorWaiting || !r || this.phase !== 'day' || !this.canAct) return false;
-    r.touring = true; r.escortSec = 0;
+    r.touring = true; r.escortMinutes = 0;
     if (this.machine === 'cutting') { this.machine = 'paused'; r.pausedCut = true; }
     this.say('Machine off. Walking the inspector round.');
     return true;
   }
 
-  /** Time spent with the inspector on the walk-round (the view: while you're beside them; the sim: a minute a tick). */
-  escort(seconds: number) {
+  /**
+   * Game minutes spent with the inspector on the walk-round. The view sets `escorting` while you're beside them and each
+   * tick counts a minute; the sim calls this once a tick. Done at `tourMinutes`.
+   */
+  escort(minutes: number) {
     const r = this.rare;
     if (!this.inspectorTouring || !r) return;
-    r.escortSec = (r.escortSec ?? 0) + seconds;
-    if (r.escortSec >= this.rareDef('council').tourSeconds!) this.finishCouncil(true);
+    r.escortMinutes = (r.escortMinutes ?? 0) + minutes;
+    if (r.escortMinutes >= this.rareDef('council').tourMinutes!) this.finishCouncil(true);
   }
 
   private finishCouncil(walked: boolean) {

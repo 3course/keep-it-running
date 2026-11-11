@@ -17,7 +17,7 @@ export interface RareEvent {
   replacesInterruption: boolean;
   // per event
   waitMinutes?: number;         // council: how long they'll wait to be shown round before writing you up anyway
-  tourSeconds?: number;         // council: the walk-round, staying with them
+  tourMinutes?: number;         // council: game minutes of walk-round, staying with them (the clock runs; the cut's stopped)
   passRapport?: number;         // council: rapport for a clean inspection
   sheets?: number;              // big job: sheets in the order
   dueDays?: number;             // big job: working days to deliver it all
@@ -30,9 +30,9 @@ const RARE_EVENTS: RareEvent[] = [
   {
     id: 'council', name: 'Council inspection', weight: 3, earliestHour: 9,
     tell: { seconds: 20, cue: 'A council car pulls up out the front; a car door, then a knock on the roller door' },
-    steps: ['Meet them at the roller door', 'Stop the machine', 'Walk them round for 90 s, staying with them'],
+    steps: ['Meet them at the roller door', 'Stop the machine', 'Walk them round for half an hour, staying with them'],
     payoff: 0, penalty: 300, replacesInterruption: true,
-    waitMinutes: 20, tourSeconds: 90, passRapport: 5,
+    waitMinutes: 20, tourMinutes: 30, passRapport: 5,
   },
   {
     id: 'bigJob', name: 'Big job', weight: 3, earliestHour: 8.5,
@@ -154,8 +154,8 @@ export const CONFIG = {
     walkToDuctMinutes: 6,
     walkBackMinutes: 5,
     sprayMinutes: { spot: 3, duct: 6 }, // hold E at the duct this long
-    refillEveryUses: 2,           // the extinguisher is good for this many fires…
-    refillCost: 60,               // …then it's a refill
+    refillEveryUses: 2,           // the extinguisher is good for this many fires (counted across days, not reset overnight)…
+    refillCost: 60,               // …then it's a refill (on the books as a fix)
     // Escalation (spot → duct → extractor) runs at the day's breakdown rate (difficulty, below): a spot fire on a grace day never spreads.
     // The lesson: one scripted spot fire on `day`, the first minute a sheet's cutting from `fromHour`, to teach the extinguisher
     // walk before fires matter. It glows straight away and escalates at escalationMult of the day's rate.

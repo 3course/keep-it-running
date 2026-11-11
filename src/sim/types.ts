@@ -190,7 +190,7 @@ export interface RareEventState {
   // council
   waitLeft?: number;      // minutes they'll still wait to be shown round
   touring?: boolean;      // you're walking them round
-  escortSec?: number;     // seconds of the walk-round done, staying with them
+  escortMinutes?: number; // game minutes of the walk-round done, staying with them
   pausedCut?: boolean;    // the sheet that was cutting when you stopped the machine for them
   // ute
   tripsLeft?: number;     // loads of slats still to go to the skip; the dock's blocked until 0

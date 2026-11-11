@@ -40,7 +40,7 @@ function gameToJson(g: Game): Loose {
 /** Keys that must never be copied onto an object from parsed JSON (they'd reach the prototype). */
 const UNSAFE = new Set(['__proto__', 'constructor', 'prototype']);
 /** Sanity bounds for loaded numbers: far past anything a real game reaches, short of anything that breaks the maths. */
-const LIMIT = { money: 1e9, dayIndex: 100_000 };
+const LIMIT = { money: 1e9, dayIndex: 100_000, count: 1e6 };
 
 const isObject = (v: unknown): v is Loose => typeof v === 'object' && v !== null && !Array.isArray(v);
 const isPlain = (v: unknown): v is Loose => isObject(v) && Object.getPrototypeOf(v) === Object.prototype;
@@ -117,6 +117,17 @@ function gameFromJson(raw: Loose): Game {
   g.deliveries = g.deliveries.filter(d => isObject(d) && Array.isArray(d.lines));
   for (const d of g.deliveries) d.lines = d.lines.filter(l => isObject(l) && CONFIG.jobs.types.some(t => t.id === l.type));
   if (g.fire !== null && !isObject(g.fire)) g.fire = null;
+  if (g.rare != null && !isObject(g.rare)) g.rare = null;
+  if (g.rare) {
+    // a save from before the walk-round ran in game minutes (escortSec, real seconds): the round starts over
+    const r = g.rare as unknown as Loose;
+    delete r.escortSec;
+    if (r.id === 'council' && (typeof r.escortMinutes !== 'number' || !Number.isFinite(r.escortMinutes) || r.escortMinutes < 0)) r.escortMinutes = 0;
+  }
+  g.escorting = false; // the view sets it each frame from where you are
+  // a save from before refills counted across days: the old daily count isn't carried (the lifetime count starts at 0)
+  delete (g as unknown as Loose).extinguisherUsesToday;
+  target.extinguisherUses = clamp(Math.floor(g.extinguisherUses), 0, LIMIT.count);
   // a save from before stock was valued: what's on the pallet is worth what it costs to buy
   if (!('stockValue' in data)) for (const t of CONFIG.jobs.types) g.stockValue[t.id] = g.stock[t.id] * t.boardCost;
   for (const d of g.deliveries) {
