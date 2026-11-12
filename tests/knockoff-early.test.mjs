@@ -51,5 +51,18 @@ describe('knock off early', () => {
     g.pickups[0].dueAt = close + 15 * 60;
     assert.equal(g.canKnockOffEarly(), true, 'tomorrow\'s ute doesn\'t keep you');
   });
-});
 
+  it("is a time-skip, not a saving: the day's labour is the same as standing there till 5", () => {
+    const idle = CONFIG.ui.knockOffEarlyIdleMinutes;
+    // two identical days with nothing left to cut: one knocks off early, one waits it out
+    const early = deadAir(), late = deadAir();
+    for (let i = 0; i < idle; i++) { early.tick(); late.tick(); }
+    assert.equal(early.knockOffEarly(), true);
+    while (late.phase === 'day') late.tick();
+    assert.equal(late.phase, 'endOfDayPrompt');
+    assert.ok(Math.abs(early.today.labour - late.today.labour) < 1e-6, `labour ${early.today.labour.toFixed(2)} vs ${late.today.labour.toFixed(2)}`);
+    assert.ok(early.today.labour > idle * CONFIG.labour.hourlyRate / 60, 'the skipped afternoon was charged');
+    assert.equal(early.minute, CONFIG.clock.endHour * 60, 'the clock jumps to 5');
+    assert.equal(early.minute, late.minute);
+  });
+});

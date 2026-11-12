@@ -2111,12 +2111,24 @@ export class Game {
     return true;
   }
 
+  /**
+   * A time-skip, not a saving: the clock jumps to 5 and your wage runs to 5 as if you'd stood there (labour for the
+   * skipped minutes at the ordinary rate, in the same bucket tick() uses). What the afternoon would have brought — a
+   * 3pm walk-in, a late inspection, a mate — just doesn't come.
+   */
   knockOffEarly(): boolean {
     if (!this.canKnockOffEarly()) return false;
+    const from = this.formatTime(), end = CONFIG.clock.endHour * 60;
     this.flushIdle();
     this.logFastForward();
+    // exactly what the ticks to 5 would have charged, minute by minute (tick() rates a minute by the clock after it
+    // moves on, so the one that lands on 5:00 is at the overtime rate: kept, so both ways cost the same)
+    let wage = 0;
+    for (let m = this.minute + 1; m <= end; m++) wage += CONFIG.labour.hourlyRate / 60 * (m >= end ? CONFIG.labour.overtimeMultiplier : 1);
+    this.spend(wage, 'labour');
+    this.minute = end;
     this.phase = 'endOfDayPrompt';
-    this.say(`Knocking off early at ${this.formatTime()}. Nothing left to cut.`);
+    this.say(`Knocked off early at ${from}: nothing left to cut. The day's paid to 5 either way.`);
     return true;
   }
 
