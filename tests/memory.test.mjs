@@ -141,21 +141,27 @@ async function day(game) {
   await steps(game, 5);
 }
 
+/** How many roots the pixel-snap registry holds (it must not keep old scenes alive across rebuilds). */
+const snapped = game => game.page.evaluate(async () => (await import(new URL('src/world3d/pixelSnap.ts', document.baseURI).href)).snappedCount());
+
 describe('GPU memory', () => {
   it('several days and layout changes: nothing the renderer holds is left behind', async () => {
     const game = await freshGame(env);
     await track(game);
     await day(game);                    // warm-up: everything made once (the cafe set, the caches) is made
     const before = await orphans(game);
-    console.log('  after the warm-up:', JSON.stringify(before.n), 'renderer', JSON.stringify(before.info));
+    const snapsBefore = await snapped(game);
+    console.log('  after the warm-up:', JSON.stringify(before.n), 'renderer', JSON.stringify(before.info), 'snapped', snapsBefore);
     let end = before;
     for (let d = 0; d < 3; d++) {
       await day(game);
       end = await orphans(game);
-      console.log(`  day ${d + 2}:`, JSON.stringify(end.n), 'renderer', JSON.stringify(end.info));
+      console.log(`  day ${d + 2}:`, JSON.stringify(end.n), 'renderer', JSON.stringify(end.info), 'snapped', await snapped(game));
     }
     const what = Object.fromEntries(['materials', 'geometries', 'textures'].map(k => [k, diff(before.kinds[k], end.kinds[k])]));
     assert.deepEqual(end.n, before.n, `orphans piled up: ${JSON.stringify(what)}`);
+    const snapsEnd = await snapped(game);
+    assert.ok(snapsEnd <= snapsBefore, `the pixel-snap registry grew (${snapsBefore} → ${snapsEnd}): old scene graphs are being kept alive`);
     await game.close();
   });
 });

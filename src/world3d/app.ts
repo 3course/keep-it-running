@@ -58,7 +58,7 @@ import { showSettings } from '../ui/settingsCard.js';
 import { SETTINGS } from '../settings.js';
 import { BUILD_TAG } from '../ui/clipboard.js';
 import { holdSeconds } from '../ui/talk.js';
-import { snapAll } from './pixelSnap.js';
+import { pruneSnapped, snapAll } from './pixelSnap.js';
 import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
@@ -918,6 +918,7 @@ export class World3D {
       this.scene = new THREE.Scene();
       this.buildScene();
       this.makeKnockOff();
+      pruneSnapped(this.scene); // the lost scene's figures would otherwise stay registered (and reachable) forever
     } catch (e) { this.contextLost = false; this.fail(e); return; }
     this.contextLost = false;
     this.last = 0;
@@ -1209,6 +1210,7 @@ export class World3D {
     // sun's shadow map with it, and the sheet looks (some only go on a sheet now and then). Shared ones stay (dispose.ts).
     disposeObject(old);
     if (oldLooks) for (const m of [...Object.values(oldLooks.byType), oldLooks.scrap, oldLooks.plywood]) disposeMaterial(m);
+    pruneSnapped(this.scene); // drop the old scene's figure roots from the snap registry, or the whole old graph stays reachable
     this.solid = solidCells();
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);

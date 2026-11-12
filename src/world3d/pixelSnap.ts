@@ -11,6 +11,15 @@ export function snapToPixels(o: THREE.Object3D) { roots.add(o); }
 /** Stop snapping it (it's gone). */
 export function unsnap(o: THREE.Object3D) { roots.delete(o); }
 
+/** After a scene rebuild: forget every root that isn't under the new scene, so the old scene graph can be collected.
+ * (The `!o.parent` check in snapAll never catches these — a replaced root keeps its parent chain up to the old scene.) */
+export function pruneSnapped(scene: THREE.Scene) {
+  for (const o of roots) { let p: THREE.Object3D | null = o; while (p && p !== scene) p = p.parent; if (p !== scene) roots.delete(o); }
+}
+
+/** For tests: how many roots are registered. */
+export function snappedCount() { return roots.size; }
+
 const v = new THREE.Vector3(), a = new THREE.Vector3(), b = new THREE.Vector3(), size = new THREE.Vector2();
 
 function inScene(o: THREE.Object3D, scene: THREE.Scene): boolean {
