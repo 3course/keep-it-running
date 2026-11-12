@@ -72,6 +72,20 @@ describe('walk-ins, on Game', () => {
     assert.equal(h.today.walkIns, 0);
   });
 
+  it("the overdraft fee looks at the till after they square up: a day they pull out of the red pays no fee", () => {
+    const g = quiet();
+    runTo(g, CONFIG.clock.endHour);
+    g.cash = -10; // overdrawn right up until the walk-ins pay the floor at close
+    g.knockOff();
+    assert.equal(g.today.overdraftFees, 0, 'no fee: the day ended in the black');
+    assert.ok(g.cash > 0);
+    const h = quiet();
+    runTo(h, CONFIG.clock.endHour);
+    h.cash = -(E.walkInFloor + 100); // too deep for the floor to cover
+    h.knockOff();
+    assert.equal(h.today.overdraftFees, E.overdraftFeePerDay, 'still overdrawn at close: fee charged');
+  });
+
   it("walk-ins don't count toward the best-day milestone", () => {
     const g = quiet();
     close(g);

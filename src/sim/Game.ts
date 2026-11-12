@@ -329,7 +329,7 @@ export class Game {
     this.powerTripped = false;
     if (!walked && !this.sparkyFavour) this.busy = { label: 'resetting the breaker', remaining: Math.max(1, Math.round(this.layout.switchboardMinutes)) };
     if (this.sparkyFavour) { this.sparkyFavour = false; this.say('The sparky you shouted came over and reset it. Cheers.'); }
-    if (this.machine === 'paused' && this.current && !this.fault && !this.replacing) this.machine = 'cutting';
+    if (this.machine === 'paused') this.settleMachine(); // not back to cutting mid walk-round, swap, etc.
     this.say('Breaker back on.');
     return true;
   }
@@ -619,7 +619,7 @@ export class Game {
         this.wear[this.replacing.key] = 1;
         this.say(`New ${this.replacing.key} fitted.`, 'good');
         this.replacing = null;
-        if (this.machine === 'paused' && this.current && !this.powerTripped) this.machine = 'cutting';
+        if (this.machine === 'paused') this.settleMachine(); // not back to cutting mid walk-round or with the power off
       }
     }
 
@@ -2305,7 +2305,6 @@ export class Game {
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     for (const c of [...this.callbacks]) this.loseCallback(c); // nobody rings back after knock-off
-    if (this.cash < 0) { this.spend(CONFIG.economy.overdraftFeePerDay, 'overdraftFees', 'overdraft fee'); }
     const truck = this.truckOnApron;
     if (truck?.stage === 'waiting') this.driverLeaves(truck);
     else if (truck?.stage === 'unloading') {
@@ -2330,6 +2329,8 @@ export class Game {
       }
       this.dennis.ringing = null; this.dennis.call = null; this.dennis.pitched = null;
     }
+    // the bank looks at the till once everyone's squared up: the fee is for a day that *ends* overdrawn
+    if (this.cash < 0) { this.spend(CONFIG.economy.overdraftFeePerDay, 'overdraftFees', 'overdraft fee'); }
     // a swap still going at knock-off: you stay back and finish it (the part's paid for), so it's in for the morning
     if (this.replacing) {
       this.wear[this.replacing.key] = 1;

@@ -45,6 +45,39 @@ describe('the machine after a fire is put out', () => {
   });
 });
 
+describe("the breaker and a part swap during the inspector's walk-round", () => {
+  /** A game mid-cut with the council inspector touring (the tour didn't pause the cut — something else did). */
+  function touringPaused() {
+    const g = new Game(1, 5);
+    const j = g.jobs.find(x => x.status === 'queued');
+    j.status = 'cutting'; g.current = j; g.machine = 'paused';
+    g.rare = { id: 'council', phase: 'live', touring: true, escortMinutes: 0, pausedCut: false };
+    return g;
+  }
+
+  it("resetting the breaker mid-tour doesn't start the cut; the inspector leaving does", () => {
+    const g = touringPaused();
+    g.powerTripped = true;
+    assert.equal(g.resetPower(true), true);
+    assert.equal(g.machine, 'paused', 'not cutting mid-tour');
+    g.finishCouncil(true);
+    assert.equal(g.machine, 'cutting', 'back on after the tour');
+  });
+
+  it("a part swap finishing mid-tour doesn't start the cut either", () => {
+    const g = touringPaused();
+    g.maybeDistraction = () => {}; g.maybeFault = () => {}; g.maybeFire = () => {};
+    g.fumbled = () => false;
+    g.minute = 10 * 60;
+    g.replacing = { key: 'bit', remaining: 1 };
+    g.tick();
+    assert.equal(g.replacing, null, 'the swap finished');
+    assert.equal(g.machine, 'paused', 'not cutting mid-tour');
+    g.finishCouncil(true);
+    assert.equal(g.machine, 'cutting', 'back on after the tour');
+  });
+});
+
 describe('a part swap still going at knock-off', () => {
   it('is finished at close: the part is in, nothing carries into the morning', () => {
     const g = new Game(1, 5);
