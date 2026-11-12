@@ -28,7 +28,7 @@ export const JESS = {
     'Is there anything to do? I can sweep again. I have swept. I can sweep better.',
     "It's so quiet. Should I sort the offcuts by size? By colour? By vibe?",
     "Phone hasn't rung all morning. Is it broken? I'll check. ...It's not broken.",
-    'Quiet week, huh. Want me to oil the roller door? Graham said she sticks.',
+    'Quiet week, huh. Want me to oil the roller door? Marco said she sticks.',
     'Can you show me something on the machine? Since we have, like, all the time.',
   ],
   chat: [

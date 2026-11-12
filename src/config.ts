@@ -488,6 +488,32 @@ export const CONFIG = {
   },
 
   startingMarginHint: 0.15,
+
+  // Next-door deals (src/sim/neighbours.ts): favours, not free money. Day 1: quiet; Sal day 2, Mick day 3, Priya day 5.
+  neighbours: {
+    enabled: true,
+    /** Random phones and Mick nagging in the 3D view; headless uses `neighbourPolicy` only. */
+    simEvents: false,
+    fromDay: { sal: 2, mick: 3, priya: 5 } as const,
+    walkMinutes: { sal: [15, 22], mick: [18, 26], priya: [22, 30] } as const,
+    favourFloor: -3,
+    favourCeil: 3,
+    burnDays: 3,
+    sal: {
+      borrowSheets: 2,
+      borrowMarkup: 1.35,
+      overflowMargin: 0.8,
+    },
+    mick: {
+      bagAbove: 0.82,
+      complaintMinutes: 90,
+      councilLeadMinutes: 45,
+    },
+    priya: {
+      offcutPay: 14,
+    },
+    phoneWindow: 10,
+  },
 } as const;
 
 export type UpgradeId = (typeof CONFIG.upgrades)[number]['id'];

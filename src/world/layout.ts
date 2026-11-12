@@ -40,7 +40,8 @@ export interface Zone { name: string; rect: Rect; yawDeg: number; outside?: bool
 export type ObjectId =
   | 'machine' | 'plyPallet' | 'finishedPallet' | 'offcutBin' | 'bitRack' | 'extractor' | 'compressor'
   | 'exhaust' | 'duct' | 'extinguisher' | 'rollerDoor' | 'smoko' | 'desk' | 'phone' | 'fridge'
-  | 'toilet' | 'racks' | 'spareExtinguisher' | 'exhaustExtinguisher' | 'bags' | 'skip' | 'switchboard';
+  | 'toilet' | 'racks' | 'spareExtinguisher' | 'exhaustExtinguisher' | 'bags' | 'skip' | 'switchboard'
+  | 'neighbourSal' | 'neighbourMick' | 'neighbourPriya';
 
 export interface PlacedObject {
   id: ObjectId;
@@ -98,6 +99,10 @@ export const OBJECTS: PlacedObject[] = [
   { id: 'spareExtinguisher', name: 'Spare extinguisher', rect: { x: 2, y: 2, w: 1, h: 1 }, height: 0.6, colour: 0xc0281e, solid: true },
   { id: 'bags', name: 'Spare bags', rect: { x: 23, y: 22, w: 2, h: 1 }, height: 0.4, colour: 0xd0c8a8, solid: true }, // the dock's north-west corner (was the back shed)
   { id: 'skip', name: 'Skip', rect: { x: 10, y: 2, w: 3, h: 3 }, height: 1.1, colour: 0xc7782a, solid: true },
+  // neighbours (walk over from the yard / street; not solid)
+  { id: 'neighbourSal', name: 'Fletcher Joinery', rect: { x: 0, y: 18, w: 3, h: 4 }, height: 3.2, colour: 0x8a5a3a, solid: false },
+  { id: 'neighbourMick', name: 'O\'Reilly Fabrication', rect: { x: 14, y: 1, w: 4, h: 3 }, height: 3.5, colour: 0x5a6068, solid: false },
+  { id: 'neighbourPriya', name: 'Northside Signs', rect: { x: 39, y: 27, w: 2, h: 4 }, height: 3, colour: 0x6a4a8a, solid: false },
 ];
 
 /** Workshop clutter: no actions, just there. Solid only if it's big enough to walk into. */
@@ -219,6 +224,10 @@ export function buildGrid(): number[][] {
   // g[21][25] = g[21][26] = T.DOOR;   // storage, off the dock
   fill(g, { x: 23, y: 38, w: 6, h: 1 }, T.WALL); // the smoko corner, walled off from the dock
   g[16][5] = g[17][5] = T.DOOR;     // side door out to the yard
+  // paths to the neighbours (cheap gravel strips)
+  for (let y = 17; y <= 21; y++) { g[y][4] = T.GROUND; g[y][3] = T.GROUND; }
+  for (let x = 6; x <= 16; x++) g[12][x] = T.GROUND;
+  for (let y = 26; y <= 32; y++) { g[y][37] = T.GROUND; g[y][36] = T.GROUND; }
   for (const t of ROLLER_TILES) g[t.y][t.x] = T.ROLLER;
 
   // back shed in the rear yard

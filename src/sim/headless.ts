@@ -20,6 +20,7 @@ import { NEUTRAL_LAYOUT } from './Game.js';
 import { PRESETS, effectsOf, measure } from '../world/layoutPlan.js';
 import { simOnly, type BetKind } from './dennis.js';
 import { Rng } from './rng.js';
+import { neighbourPolicy } from './neighbours.js';
 
 type Policy = (g: Game) => void;
 
@@ -192,6 +193,7 @@ function resetsPower(g: Game, chance: number): boolean {
 
 const competent: Policy = (g) => {
   answersDennis(g);
+  if (neighbourPolicy(g, false, false)) return;
   if (g.powerTripped && resetsPower(g, 1)) return;
   // a fire beats everything: drop what you're doing and go
   if (g.fire && !g.fireResponse) g.fightFire();
@@ -242,6 +244,7 @@ const sloppyIgnores = new WeakMap<Game, Map<number, boolean>>();
 
 const sloppy: Policy = (g) => {
   answersDennis(g);
+  if (neighbourPolicy(g, true, false)) return;
   if (g.powerTripped && resetsPower(g, 0.3)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (sloppyRare(g)) return;
@@ -334,6 +337,7 @@ function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
  */
 const average: Policy = (g) => {
   answersDennis(g);
+  if (neighbourPolicy(g, false, true)) return;
   if (g.powerTripped && resetsPower(g, 0.6)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (g.fire && averageReacts(g, `fire-${g.fire.id}`, 20, 60) && g.fightFire()) return;

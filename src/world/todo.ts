@@ -1,6 +1,8 @@
 // The notepad: what needs doing now, what can wait, and today's sheets.
 import { CONFIG } from '../config.js';
 import type { Game } from '../sim/Game.js';
+import { favourText, neighboursActive } from '../sim/neighbours.js';
+import type { NeighbourId } from '../sim/types.js';
 import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
@@ -145,6 +147,17 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, 'desk'); // on the computer
 
   // (milestones are on Kerr's screen: progress, not a to-do)
+
+  // favour ledger with the neighbours (one line each)
+  if (CONFIG.neighbours.enabled) {
+    for (const id of ['sal', 'mick', 'priya'] as NeighbourId[]) {
+      if (neighboursActive(g, id)) add(false, `nb-${id}`, favourText(id, g.neighbours[id].favour), `neighbour${id[0].toUpperCase()}${id.slice(1)}` as ObjectId);
+    }
+    if (g.mickComplaintUntil) add(true, 'mick-dust', 'Mick\'s on about the dust — empty the bag or go see him', ['extractor', 'neighbourMick']);
+    for (const d of g.distractions) {
+      if (d.neighbour) add(true, `nbphone-${d.id}`, `${d.title}: ${d.line}`, 'phone');
+    }
+  }
 
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({

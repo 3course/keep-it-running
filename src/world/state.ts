@@ -72,6 +72,10 @@ export interface WorldState {
   dennisCoffeeDay?: number[];
   /** Metres walked today, for the summary. */
   walkedToday?: number;
+  /** Next door (for pointers home while you're away). */
+  atNeighbour?: import('../sim/types.js').NeighbourId | null;
+  /** First visit hint per neighbour (dismiss-by-doing). */
+  neighbourHints?: Partial<Record<import('../sim/types.js').NeighbourId, boolean>>;
   /** The people side (src/people/state.ts): the part-timer, knock-off nights, gifts, keepsakes, the morning's cans. */
   people?: PeopleState;
 }
