@@ -485,6 +485,8 @@ export const CONFIG = {
   ui: {
     swapHintBelow: 0.3,   // the to-do list says "Swap the …" once a consumable's health drops below this
     idleLogAboveMinutes: 2, // the day log notes every stretch the machine sat idle longer than this (game minutes)
+    knockOffEarlyFromHour: 14, // no "knock off early" before this (2pm)
+    knockOffEarlyIdleMinutes: 2, // offer it after the machine's sat idle this long with nothing on the board
   },
 
 } as const;

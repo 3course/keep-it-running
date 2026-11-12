@@ -10,7 +10,6 @@ import type { Game } from '../sim/Game.js';
 import { Hints } from '../ui/hints.js';
 import { GesturePad } from '../ui/gesture.js';
 import { Hud } from '../ui/hud.js';
-import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { track } from '../analytics.js';
 import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, uteActions, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
 import { CallCard } from '../ui/callCard.js';
@@ -62,8 +61,6 @@ import { pruneSnapped, snapAll } from './pixelSnap.js';
 import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
-import { renderDailyCard } from '../ui/dailyCard.js';
-import { renderWeekend } from '../ui/weekend.js';
 import { startOver } from '../world/save.js';
 import type { Reckoning } from './knockoff.js';
 import { DEFAULT_PLAN, applyPlan, clonePlan, effectsOf, fullPlan, measure, STATION_IDS, type Plan } from '../world/layoutPlan.js';
@@ -294,6 +291,7 @@ export class World3D {
       goTo: (targets, key) => {
         this.hints.mark('notepad');
         this.hints.mark('drag'); // a walk's a walk: the notepad got you there
+        if (key === 'knock-early' && this.g.knockOffEarly()) { this.save(); return; }
         // a fire with the extinguisher not in your hands: go to the nearest one, wherever it is (a hook or the floor)
         if (key === 'fire' && this.w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e?.down) { this.walkToPoint(e.x, e.z); this.pendingExt = e.h; return; } }
         this.goToNearest(targets, key);
@@ -927,7 +925,9 @@ export class World3D {
 
   private lastTracked = '';
 
-  private showSummary() {
+  private showSummary() { void this.showSummaryAsync(); }
+
+  private async showSummaryAsync() {
     this.save();
     const gt = this.g, key = `${gt.dayIndex}-${gt.phase}`;
     if (key !== this.lastTracked) { // the summary can re-render (purchases, resume); count each day/week once per page load
@@ -942,14 +942,17 @@ export class World3D {
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
     const l = this.w.lease;
     if (l && gt.phase === 'daySummary') recordDay(l, g);
-    const weekend = l && !leaseOver(l, g) && leaseDay(l, g) < leaseLength() ? (next: () => void) => renderWeekend(this.hud.showSummary(), {
-      week: Math.ceil(leaseDay(l, g) / CONFIG.week.days), pieces: () => people(this.w).keepsakes,
-      sell: (k, price) => { const p = people(this.w); p.keepsakes = p.keepsakes.filter(x => x !== k); g.marketSale(price); l.sold.push({ name: k.design.name, price, dayIndex: g.dayIndex }); this.save(); },
-      fill: t => fillRun(t, { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord }), monday: () => { next(); },
-    }) : undefined;
+    const { renderDaySummary, renderWeekSummary } = await import('../ui/summary.js');
+    const weekend = l && !leaseOver(l, g) && leaseDay(l, g) < leaseLength()
+      ? (next: () => void) => { void import('../ui/weekend.js').then(({ renderWeekend }) => renderWeekend(this.hud.showSummary(), {
+          week: Math.ceil(leaseDay(l, g) / CONFIG.week.days), pieces: () => people(this.w).keepsakes,
+          sell: (k, price) => { const p = people(this.w); p.keepsakes = p.keepsakes.filter(x => x !== k); g.marketSale(price); l.sold.push({ name: k.design.name, price, dayIndex: g.dayIndex }); this.save(); },
+          fill: t => fillRun(t, { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord }), monday: () => { next(); },
+        })); }
+      : undefined;
     const week = () => renderWeekSummary(this.hud.showSummary(), g, done, weekend, l ? 'Friday. Payday.' : 'Week closed');
     if (g.phase === 'weekSummary') { week(); return; }
-    if (this.mode === 'daily') { renderDailyCard(this.hud.showSummary(), recordDaily(g, this.w)); return; }
+    if (this.mode === 'daily') { const { renderDailyCard } = await import('../ui/dailyCard.js'); renderDailyCard(this.hud.showSummary(), recordDaily(g, this.w)); return; }
     renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday(), this.dayPeople());
   }
 

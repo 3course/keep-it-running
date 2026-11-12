@@ -145,6 +145,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
 
   // (milestones are on Kerr's screen: progress, not a to-do)
 
+  // last order call handled, board clear, nothing to do till 5
+  if (g.canKnockOffEarly()) add(false, 'knock-early', `Knock off early (${g.formatTime()})`, 'rollerDoor');
+
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({
     key: `callback-${c.id}`, text: `Call back ${c.customer} (${Math.max(0, c.expiresMinute - g.minute)}m)`, targets: ['phone'], urgent: false,

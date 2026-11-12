@@ -231,6 +231,7 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
       if (w.utePresent && w.finishedStack > 0 && !truck && !doorUp) a.push({ label: 'Open the roller door', key: 'pickup', done: 'Roller door up', run: () => {
         w.rollerUpUntil = absMinute(g) + WORLD.rollerOpenMinutes;
       } });
+      if (g.canKnockOffEarly()) a.push({ label: 'Knock off early', key: 'knock-early', done: 'Knocked off early', run: () => { g.knockOffEarly(); } });
       return a;
     }
     case 'phone': {

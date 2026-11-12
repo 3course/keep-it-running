@@ -2084,6 +2084,39 @@ export class Game {
     return CONFIG.clock.fastScale;
   }
 
+  /** Every order call for today has rung (dead air till 5 if the board's clear). Voicemails can still wait. */
+  get callsDone(): boolean {
+    return this.orderCalls.length === 0 && !this.distractions.some(d => d.kind === 'phone' && d.order);
+  }
+
+  /**
+   * The board's clear, the last order call's handled, nothing's on — but it's still before 5. Knock off early and the
+   * mate's at the roller door now (same as a normal close).
+   */
+  canKnockOffEarly(): boolean {
+    if (this.phase !== 'day' || this.overtime || this.machineDown) return false;
+    const end = CONFIG.clock.endHour * 60;
+    if (this.minute >= end || this.minute < CONFIG.ui.knockOffEarlyFromHour * 60) return false;
+    if (!this.callsDone) return false;
+    if (this.queued.length || this.current) return false;
+    if (this.machine !== 'idle' || this.replacing !== null || this.fault || this.fire || this.fireResponse !== null) return false;
+    if (this.busy !== null || this.dennisRinging) return false;
+    if (this.truckOnApron || this.pickupsHere.length || (this.rare?.phase === 'live')) return false;
+    if (this.walkIns.some(w => w.status === 'waiting')) return false;
+    if (this.distractions.length) return false;
+    if (this.idleRun < CONFIG.ui.knockOffEarlyIdleMinutes || this.idleWhy !== 'nothing on the board') return false;
+    return true;
+  }
+
+  knockOffEarly(): boolean {
+    if (!this.canKnockOffEarly()) return false;
+    this.flushIdle();
+    this.logFastForward();
+    this.phase = 'endOfDayPrompt';
+    this.say(`Knocking off early at ${this.formatTime()}. Nothing left to cut.`);
+    return true;
+  }
+
   /** Nothing left on the board after a sheet: ring today's next order call now (CONFIG.pickup.ringNextCallWhenEmpty). */
   private keepWorkComing() {
     if (!CONFIG.pickup.ringNextCallWhenEmpty || this.queued.length || !this.orderCalls.length) return;
