@@ -71,4 +71,47 @@ describe('two fingers', () => {
       assert.equal(await game.eval((g, w, s) => s.labelHold), false, 'its own lift lets go');
     } finally { await game.close(); }
   });
+
+  it('one finger on the exhaust, one on the label: each lift lets go of its own hold only', async () => {
+    const game = await freshGame(env);
+    try {
+      const touch = await setUp(game);
+      await game.eval((g, w) => { g.fire = { id: 1, stage: 'spot', minutes: 0, sprayed: 0, heat: 0 }; w.hooks.wall = false; w.carrying = 'extinguisher'; w.extinguisherFrom = 'wall'; });
+      await walkTo(game, 'exhaust');
+      await waitForLabel(game, 'Hold to spray');
+      // a point on the exhaust's duct (project its world position; the unit's base sits behind the extractor), and the label's button
+      const mesh = await game.eval((g, w, s) => {
+        const o = s.built.objects.get('exhaust'), V = s.camera.position.constructor;
+        const v = new V(); o.group.getWorldPosition(v); v.y += 1.2;
+        const p = v.project(s.camera), r = s.renderer.domElement.getBoundingClientRect();
+        return { x: r.left + (p.x + 1) / 2 * r.width, y: r.top + (1 - p.y) / 2 * r.height };
+      });
+      const lbl = await game.page.evaluate(() => { const b = [...document.querySelectorAll('#kir-hud .lbl button')].find(x => x.textContent === 'Hold to spray'); const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      const a = { ...mesh, id: 1 }, b = { ...lbl, id: 2 };
+      await touch('touchStart', a);
+      await game.page.waitForTimeout(100);
+      assert.equal(await game.eval((g, w, s) => s.objectHold), true, 'the mesh finger holds');
+      await touch('touchStart', a, b);
+      await game.page.waitForTimeout(100);
+      assert.equal(await game.eval((g, w, s) => s.labelHold), true, 'the label finger holds too');
+      await touch('touchEnd', a); // the mesh finger lifts first
+      await game.page.waitForTimeout(100);
+      assert.deepEqual(await game.eval((g, w, s) => [s.objectHold, s.labelHold]), [false, true], "its lift drops only its own hold; the label's still sprays");
+      await touch('touchEnd', b);
+      await game.page.waitForTimeout(100);
+      assert.deepEqual(await game.eval((g, w, s) => [s.objectHold, s.labelHold, s.holdId]), [false, false, null], 'everything let go with no finger down');
+    } finally { await game.close(); }
+  });
+
+  it('held keys are dropped when the window loses focus (the keyups will never come)', async () => {
+    const game = await freshGame(env);
+    try {
+      await game.page.keyboard.down('w');
+      await game.page.waitForTimeout(50);
+      assert.equal(await game.eval((g, w, s) => s.keys.has('w')), true, 'walking on W');
+      await game.page.evaluate(() => window.dispatchEvent(new Event('blur')));
+      assert.equal(await game.eval((g, w, s) => s.keys.size), 0, 'nothing held after the window blurs');
+      await game.page.keyboard.up('w');
+    } finally { await game.close(); }
+  });
 });

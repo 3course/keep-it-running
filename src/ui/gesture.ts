@@ -158,8 +158,14 @@ export class GesturePad {
           this.raf = requestAnimationFrame(tick);
         };
         this.reset = () => { this.holdStart = null; ring.style.setProperty('--p', '0'); };
-        ring.addEventListener('pointerdown', e => { e.preventDefault(); ring.setPointerCapture?.(e.pointerId); this.holdStart = performance.now(); });
-        const lift = () => { this.holdStart = null; }; // early: the ring empties
+        let holdPtr: number | null = null; // one finger holds; a second touching doesn't restart or empty the ring
+        ring.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (holdPtr !== null) return;
+          try { ring.setPointerCapture?.(e.pointerId); } catch { /* fine: the pointer's already gone */ }
+          holdPtr = e.pointerId; this.holdStart = performance.now();
+        });
+        const lift = (e: PointerEvent) => { if (e.pointerId !== holdPtr) return; holdPtr = null; this.holdStart = null; }; // early: the ring empties
         ring.addEventListener('pointerup', lift); ring.addEventListener('pointercancel', lift);
         this.raf = requestAnimationFrame(tick);
         break;
@@ -204,18 +210,23 @@ export class GesturePad {
         const place = (e: HTMLElement, k: number) => { if (horiz) { e.style.left = at(k); e.style.top = '50%'; } else { e.style.top = at(k); e.style.left = '50%'; } };
         place(goal, 1); place(handle, 0); place(ghost, 0);
         area.append(track, goal, ghost, handle);
-        let k = 0, down: { x: number; y: number; k: number } | null = null;
+        let k = 0, down: { id: number; x: number; y: number; k: number } | null = null; // keyed to one finger: a second can't warp or drop the drag
         this.reset = () => { k = 0; place(handle, 0); };
         const span = () => (horiz ? area.clientWidth : area.clientHeight) * 0.7;
-        handle.addEventListener('pointerdown', e => { e.preventDefault(); handle.setPointerCapture?.(e.pointerId); down = { x: e.clientX, y: e.clientY, k }; });
+        handle.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          if (down) return;
+          try { handle.setPointerCapture?.(e.pointerId); } catch { /* fine: the pointer's already gone */ }
+          down = { id: e.pointerId, x: e.clientX, y: e.clientY, k };
+        });
         handle.addEventListener('pointermove', e => {
-          if (!down) return;
+          if (!down || e.pointerId !== down.id) return;
           const d = (horiz ? e.clientX - down.x : e.clientY - down.y) * sign;
           k = Math.max(0, Math.min(1, down.k + d / span()));
           place(handle, k);
           if (k >= 0.92) { down = null; this.complete(); }
         });
-        const lift = () => { if (down) { down = null; k = 0; place(handle, 0); } }; // short: back it goes
+        const lift = (e: PointerEvent) => { if (down && e.pointerId === down.id) { down = null; k = 0; place(handle, 0); } }; // short: back it goes
         handle.addEventListener('pointerup', lift); handle.addEventListener('pointercancel', lift);
         const t0 = performance.now();
         const tick = (now: number) => {

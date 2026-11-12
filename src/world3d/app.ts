@@ -139,14 +139,17 @@ export class World3D {
   private ePressed = false;
   private ptr: { id: number; x0: number; y0: number; t0: number; stickable: boolean; active: boolean } | null = null;
   private stickVec = { x: 0, y: 0 };
-  private labelHold = false;
   private labelPressed = false;  // a finger is down on a label: don't move or rebuild them under it
   private labelPressedAt = 0;
   /** Every action done, for tests and debugging: what was tapped and what it said. */
   readonly actionLog: { label: string; said: string; t: number }[] = [];
-  private objectHold = false;
-  /** The finger holding the spray (on the label or the exhaust): only it aims, only its lift lets go. */
-  private holdId: number | null = null;
+  // The spray can be held two ways at once (the label and the exhaust mesh); each hold is keyed to its own
+  // finger so one lifting never leaks the other's flag. Only the holding finger aims, only its lift lets go.
+  private labelHoldId: number | null = null;
+  private objectHoldId: number | null = null;
+  private get labelHold() { return this.labelHoldId !== null; }
+  private get objectHold() { return this.objectHoldId !== null; }
+  private get holdId(): number | null { return this.labelHoldId ?? this.objectHoldId; }
   private thumb = { x: 0, y: 0 };       // where the last finger is (logical px): aims the extinguisher
   private sprayHeld = false;             // the trigger was down last frame
   private flareUntil = 0;                // the flames jump while a let-go fire flares back
@@ -495,7 +498,7 @@ export class World3D {
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
       const hit = this.pick(L.x, L.y);
-      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; this.holdId = e.pointerId; return; }
+      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHoldId = e.pointerId; return; }
       // the first finger down is the stick (or the tap): a second one doesn't take it over or tap
       if (this.ptr) return;
       // a drag anywhere is the stick; a quick tap uses whatever's under it
@@ -520,7 +523,7 @@ export class World3D {
     const up = (e: PointerEvent) => {
       if (this.layoutEditor.active) this.layoutEditor.pointer('up', e);
       if (this.tracing.active) this.tracing.pointer('up', e);
-      if (this.holdId === null || e.pointerId === this.holdId) { this.objectHold = false; if (!this.labelHold) this.holdId = null; }
+      if (this.objectHoldId === e.pointerId) this.objectHoldId = null;
       if (this.uiBlocking) { this.dropPointer(); return; } // no tap-to-walk through a card
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
@@ -540,10 +543,10 @@ export class World3D {
     window.addEventListener('pointerdown', track, true);
     window.addEventListener('pointermove', track, true);
     const release = (e: PointerEvent) => {
-      if (this.holdId !== null && e.pointerId !== this.holdId) return; // another finger lifting doesn't stop the spray
-      this.labelHold = false;
-      if (!this.objectHold) this.holdId = null;
-      if (this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
+      // each hold lets go only on its own finger's lift; another finger lifting doesn't stop the spray
+      if (this.labelHoldId === e.pointerId) this.labelHoldId = null;
+      if (this.objectHoldId === e.pointerId) this.objectHoldId = null;
+      if (this.holdId === null && this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
     };
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
@@ -552,12 +555,14 @@ export class World3D {
       const k = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) this.hints.mark('drag');
       if (k === '`') { this.debug.visible = !this.debug.visible; this.debugLabels.forEach(d => { d.el.style.display = this.debug.visible ? 'block' : 'none'; }); }
-      if (k === ' ') { this.setPaused(!this.paused); e.preventDefault(); }
+      if (k === ' ' && !this.title) { this.setPaused(!this.paused); e.preventDefault(); } // not behind the title: its clock's stopped for real
       if (this.reveal.active && (k === 'escape' || k === 'enter' || k === 'e')) { this.reveal.skip(); this.skipEl.style.display = 'none'; return; }
       if (k === 'e' && !e.repeat) this.ePressed = true;
       this.keys.add(k);
     });
     window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
+    // focus gone (Alt-Tab, another window): the keyups will never come, so let go of everything held
+    window.addEventListener('blur', () => { this.keys.clear(); this.ePressed = false; });
   }
 
   private ndc(lx: number, ly: number) { return new THREE.Vector2(lx / this.vw * 2 - 1, -(ly / this.vh * 2 - 1)); }
@@ -1718,7 +1723,7 @@ export class World3D {
           b.addEventListener('pointerdown', e => {
             e.preventDefault(); e.stopPropagation();
             this.labelPressed = true; this.labelPressedAt = this.time;
-            if (a.hold) { this.labelHold = true; this.holdId = e.pointerId; return; }
+            if (a.hold) { this.labelHoldId = e.pointerId; return; }
             this.doAction(a, id);
             // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
             b.classList.add('tick');
@@ -2406,7 +2411,7 @@ export class World3D {
     this.paused = p;
     this.hud?.setPaused(p);
     this.acc = 0;
-    if (p) { this.labelHold = this.objectHold = false; this.holdId = null; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
+    if (p) { this.labelHoldId = this.objectHoldId = null; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
     this.labelSig = '';
     this.save();
   }
