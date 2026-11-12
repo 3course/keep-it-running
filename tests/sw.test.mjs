@@ -7,7 +7,7 @@
 //     console error on every load).
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join, normalize } from 'node:path';
 import { after, before, describe, it } from 'node:test';
@@ -82,6 +82,31 @@ describe('the production build and its service worker', () => {
       } finally { await context.close(); }
     });
   }
+
+  it('the end-of-day screens load when they show, not at boot (and the worker still caches them for offline)', async () => {
+    const assets = readdirSync(join(dir, 'assets')), html = readFileSync(join(dir, 'index.html'), 'utf8');
+    const lazy = ['summary', 'weekend', 'dailyCard'];
+    for (const name of lazy) {
+      assert.ok(assets.some(f => f.startsWith(`${name}-`) && f.endsWith('.js')), `a ${name} chunk of its own`);
+      assert.ok(!new RegExp(`assets/${name}-[\\w-]+\\.js`).test(html), `${name} isn't preloaded by index.html`);
+    }
+    const context = await browser.newContext();
+    const { page, problems, requested } = await open(context);
+    try {
+      await page.goto(`${origin}/?seed=3&intro=0&title=0`);
+      await page.waitForFunction(() => window.kirScene?.started, null, { timeout: 30_000 });
+      const boot = [...requested];
+      assert.ok(!boot.some(p => /\/assets\/summary-/.test(p)), 'no summary chunk at boot');
+      await page.evaluate(() => { window.kirScene.w.tour = null; window.kir.phase = 'daySummary'; });
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('#kir-hud .summary')).display === 'block', null, { timeout: 30_000 });
+      assert.ok(requested.some(p => /\/assets\/summary-/.test(p)), 'fetched when the day summary shows');
+      // the worker's precache has them too, so the end of the day works offline
+      await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 30_000 });
+      const cached = await page.evaluate(async () => { const c = await caches.open((await caches.keys())[0]); return (await c.keys()).map(r => new URL(r.url).pathname); });
+      for (const name of lazy) assert.ok(cached.some(p => p.startsWith(`/assets/${name}-`)), `${name} is in the precache`);
+      assert.deepEqual(problems, [], 'no console or page errors');
+    } finally { await context.close(); }
+  });
 
   it('kill switch: sw-kill.txt clears the caches and unregisters; removing it brings the worker back', async () => {
     const kill = join(dir, 'sw-kill.txt');
