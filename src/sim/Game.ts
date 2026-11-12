@@ -2102,6 +2102,9 @@ export class Game {
     if (this.machine !== 'idle' || this.replacing !== null || this.fault || this.fire || this.fireResponse !== null) return false;
     if (this.busy !== null || this.dennisRinging) return false;
     if (this.truckOnApron || this.pickupsHere.length || (this.rare?.phase === 'live')) return false;
+    // a ute still due today (texted earlier, not here yet): close now and it comes tomorrow, its pay a day late — and on
+    // day 20 after the reckoning, so it never counts toward the rent
+    if (this.pickups.some(p => p.status === 'waiting' && p.dueAt < this.dayIndex * 1440 + end)) return false;
     if (this.walkIns.some(w => w.status === 'waiting')) return false;
     if (this.distractions.length) return false;
     if (this.idleRun < CONFIG.ui.knockOffEarlyIdleMinutes || this.idleWhy !== 'nothing on the board') return false;

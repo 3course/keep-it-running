@@ -39,4 +39,17 @@ describe('knock off early', () => {
     for (let i = 0; i < CONFIG.ui.knockOffEarlyIdleMinutes + 1; i++) g.tick();
     assert.equal(g.canKnockOffEarly(), false);
   });
+
+  it("waits for a ute still due today: its pay lands today (on day 20, in the reckoning), not tomorrow", () => {
+    const g = deadAir();
+    const close = g.dayIndex * 1440 + CONFIG.clock.endHour * 60;
+    // a stack texted earlier: the customer's ute is due at 3:30 this afternoon, with $400
+    g.pickups = [{ id: 901, order: 'Test order', jobs: [901], pay: 400, textedAt: g.dayIndex * 1440 + 13 * 60, dueAt: close - 90, slipped: false, status: 'waiting' }];
+    for (let i = 0; i < CONFIG.ui.knockOffEarlyIdleMinutes + 1; i++) g.tick();
+    assert.equal(g.canKnockOffEarly(), false, 'not with a ute still to come today');
+    // a ute due tomorrow morning (a late text) doesn't hold today up
+    g.pickups[0].dueAt = close + 15 * 60;
+    assert.equal(g.canKnockOffEarly(), true, 'tomorrow\'s ute doesn\'t keep you');
+  });
 });
+
