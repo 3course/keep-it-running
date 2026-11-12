@@ -434,6 +434,7 @@ export class Game {
     this.overtime = false;
     this.today = emptyStats(this.day);
     this.beersToday = 0;
+    this.coffeeUntil = 0; // yesterday's large wore off overnight (it's a minute-of-day, and every morning starts before 11)
     this.cans = []; this.alcohol = 0; this.alcoholAtLastSip = 0; this.looSince = null; this.beersAtLoo = 0; // slept it off; the shed got tidied
     this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
@@ -1167,7 +1168,8 @@ export class Game {
   }
 
   private tickCallbacks() {
-    for (const c of this.callbacks.filter(x => this.minute >= x.expiresMinute)) this.loseCallback(c);
+    // strictly past: the voicemail says "ring back by 11:30", so at 11:30 on the dot it still counts
+    for (const c of this.callbacks.filter(x => this.minute > x.expiresMinute)) this.loseCallback(c);
   }
 
   private loseCallback(c: Callback) {
