@@ -11,7 +11,10 @@ import { createServer } from 'vite';
 /** The reference phone the HUD is tuned for (WORLD.view). */
 export const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 };
 
-/** Playwright waits: GitHub Actions runners are slower than a local machine. */
+/**
+ * Real-time Playwright waits only (GitHub Actions runners are slower than a local machine). Never for frame budgets:
+ * a frame count doesn't depend on how fast the machine is, so scaling one only loosens the test.
+ */
 export const waitTimeout = (ms) => (process.env.CI ? Math.round(ms * 2.5) : ms);
 
 /**
@@ -75,7 +78,7 @@ export async function walkTo(game, id) {
  * what happens depends on the number of frames, never on how long they take in real time. Fails after `frames`
  * (default 2400: two minutes of game time). Returns the frames it took.
  */
-export async function stepUntil(game, cond, arg, { frames: max = waitTimeout(2400), dt = 0.05, what = 'a condition' } = {}) {
+export async function stepUntil(game, cond, arg, { frames: max = 2400, dt = 0.05, what = 'a condition' } = {}) {
   // in short batches: one long synchronous evaluate leaves Playwright's next waitForFunction stuck (seen: even
   // waitForFunction(() => true) timed out after one), so no call runs more than `CHUNK` frames
   const CHUNK = 40;
