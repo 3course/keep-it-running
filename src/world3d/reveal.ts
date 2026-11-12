@@ -206,6 +206,8 @@ export class Reveal {
       ctx.putImageData(img, 0, 0);
       const url = canvas.toDataURL('image/png');
       this.thumbs.set(d.id, url);
+      // after-hours keepsakes get a unique id each, so the cache would grow a PNG per piece all run
+      if (this.thumbs.size > 40) for (const k of this.thumbs.keys()) { if (this.thumbs.size <= 40) break; this.thumbs.delete(k); }
       return url;
     } catch (e) {
       console.warn('[Keep It Running] gallery thumbnail failed', e);

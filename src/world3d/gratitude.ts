@@ -38,6 +38,7 @@ export class Gratitude {
   /** Tap targets: morning cans (userData.morningCan = id) and the refund bag (userData.refundBag). */
   readonly targets: THREE.Object3D[] = [];
   private sig = '';
+  private quickSig = '';
   private bag!: THREE.Group;
   private bagFill!: THREE.Mesh;
   private disposers: (() => void)[] = [];
@@ -51,12 +52,17 @@ export class Gratitude {
   /** Bring the shed in line with the people state (and the layout: the corkboard, fridge and bench move). */
   update(p: PeopleState, dayIndex: number, plan: Plan = DEFAULT_PLAN) {
     if (plan !== this.plan) {
-      this.plan = plan; this.sig = '';
+      this.plan = plan; this.sig = ''; this.quickSig = '';
       const c = shift(plan, 'corkboard'), f = shift(plan, 'fridge');
       CORK = { ...CORK_BUILT, x: CORK_BUILT.x + c.x, z: CORK_BUILT.z + c.z };
       FRIDGE_SIDE = { ...FRIDGE_BUILT, x0: FRIDGE_BUILT.x0 + f.x, z: FRIDGE_BUILT.z + f.z };
       SLABS = { x: SLABS_BUILT.x + f.x, z: SLABS_BUILT.z + f.z };
     }
+    // gifts and keepsakes grow all run, so the full stringify below scales with the save; this cheap gate
+    // (counts only) skips it on the every-frame call — anything that changes the look changes a count or the day
+    const quick = `${p.gifts.length}|${p.keepsakes.length}|${p.cans.length}|${p.fridgeGifted}|${p.bagged}|${p.oddObject ?? ''}|${wall.version}|${dayIndex}`;
+    if (quick === this.quickSig) return;
+    this.quickSig = quick;
     const sig = JSON.stringify([p.gifts.map(g => [g.kind, g.slot, g.dayIndex === dayIndex || isKeep(g)]), p.keepsakes.map(k => k.design.id), p.cans.map(c => c.id),
       Math.ceil(p.fridgeGifted / PEOPLE.gifts.slab), Math.floor(p.bagged / 2), p.oddObject ?? '', wall.version]);
     if (sig === this.sig) return;

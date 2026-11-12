@@ -228,8 +228,10 @@ export class Hud {
   private vh = 844;
   /** HUD scale: 1 on a phone, bigger on big screens. CSS px per reference px. */
   get unit() { return this.s; }
-  /** CSS px on the left covered by the pinned notepad column (landscape), so the view can centre on the rest. */
-  get coverLeft() { return this.land && this.pinned ? Math.max(0, Math.round(this.pad.getBoundingClientRect().right)) : 0; }
+  /** CSS px on the left covered by the pinned notepad column (landscape), so the view can centre on the rest.
+   * Cached in placeTab(): it's read every frame, and getBoundingClientRect there would force a layout every frame. */
+  get coverLeft() { return this.land && this.pinned ? this.cover : 0; }
+  private cover = 0;
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
   readonly mateBubble: HTMLDivElement; // what the mate at the door is saying
@@ -354,6 +356,7 @@ export class Hud {
     const padw = this.stage.style.getPropertyValue('--padw') || '0px';
     this.tab.style.left = this.land && this.pinned ? `calc(${padw} + env(safe-area-inset-left, 0px))` : '';
     this.stage.style.setProperty('--cover', this.land && this.pinned ? padw : '0px');
+    this.cover = this.land && this.pinned ? Math.max(0, Math.round(this.pad.getBoundingClientRect().right)) : 0;
   }
 
   open() {

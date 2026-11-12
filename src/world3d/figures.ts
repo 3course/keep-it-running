@@ -301,8 +301,8 @@ export class Figure {
     removeAndDispose(this.root);
   }
 
-  /** Head height in world space, for speech bubbles. */
-  headWorld(out: THREE.Vector3) { return this.head.getWorldPosition(out).add(new THREE.Vector3(0, 0.26, 0)); }
+  /** Head height in world space, for speech bubbles. (Writes into `out`: called per figure per frame, so no allocating.) */
+  headWorld(out: THREE.Vector3) { this.head.getWorldPosition(out); out.y += 0.26; return out; }
 }
 
 

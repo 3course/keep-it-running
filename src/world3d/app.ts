@@ -159,6 +159,7 @@ export class World3D {
   // camera
   private camYaw = 0;
   private camLook = new THREE.Vector3();
+  private camTarget = new THREE.Vector3(); // scratch for updateCamera (per frame: no allocating)
   private lead = { x: 0, z: 0 };
   private camScale = 1; // pulls back a little outside
 
@@ -972,6 +973,8 @@ export class World3D {
    * their reply, and a ute left waiting at the roller door honks. Names come off the job's design, kept in the save. */
   private pickupNews() {
     const g = this.g, w = this.w, names = (w.pickupNames ??= {});
+    // the map rides in the save, so names whose pickups Game has already dropped (3 days of done) go too
+    for (const id of Object.keys(names)) if (!g.pickups.some(p => p.id === Number(id))) delete names[Number(id)];
     for (const p of g.pickups) {
       if (names[p.id]) continue;
       const j = g.jobs.find(x => x.id === p.jobs[0]);
@@ -982,7 +985,10 @@ export class World3D {
     for (const p of g.pickupsHere) {
       const waited = now - (p.hereAt ?? now);
       const last = this.honked.get(p.id);
-      if (waited >= CONFIG.pickup.honkAfterMinutes && (last === undefined || now - last >= 10)) { this.honked.set(p.id, now); this.sfx.honk(); this.say('🛻 Beep beep!'); }
+      if (waited >= CONFIG.pickup.honkAfterMinutes && (last === undefined || now - last >= 10)) {
+        this.honked.set(p.id, now); this.sfx.honk(); this.say('🛻 Beep beep!');
+        if (this.honked.size > 40) for (const k of this.honked.keys()) { if (this.honked.size <= 40) break; this.honked.delete(k); } // long-gone utes
+      }
     }
   }
   private honked = new Map<number, number>(); // pickup → when it last honked (absolute minute): again every ten
@@ -1251,6 +1257,7 @@ export class World3D {
     });
     const m = this.built.objects.get('machine')!, sheet = m.parts.sheet as THREE.Mesh;
     const sp = (sheet.geometry as THREE.BoxGeometry).parameters;
+    this.tracing?.dispose();
     this.tracing = new Tracing({
       g: this.g, w: this.w, camera: this.camera, canvas: this.renderer.domElement, scene: this.scene, sheet,
       bed: { w: sp.width, d: sp.depth, top: sp.height / 2 }, cutView: this.cutView, reveal: this.reveal, talk: this.knockoff.talk,
@@ -1645,6 +1652,7 @@ export class World3D {
     this.player.hop();
     this.hints.mark('interact');
     this.actionLog.push({ label: a.label, said, t: this.time });
+    if (this.actionLog.length > 400) this.actionLog.splice(0, this.actionLog.length - 400); // tests/debug read the tail; it rides along on real sessions
     const after = new Set(todoItems(this.g, this.w).map(i => i.key));
     // a line that vanished because of this action is done — except "grab the next sheet", which just hides while your hands are full
     let crossed = 0;
@@ -1773,8 +1781,8 @@ export class World3D {
     const kl = Math.min(1, 2 * dt);
     this.lead.x += (this.vel.x / WORLD.maxSpeed * WORLD.camLead - this.lead.x) * kl;
     this.lead.z += (this.vel.z / WORLD.maxSpeed * WORLD.camLead - this.lead.z) * kl;
-    const target = new THREE.Vector3(this.pos.x + this.lead.x, 0.6, this.pos.z + this.lead.z);
-    this.camLook.lerp(target, Math.min(1, WORLD.camLerp * dt));
+    this.camTarget.set(this.pos.x + this.lead.x, 0.6, this.pos.z + this.lead.z);
+    this.camLook.lerp(this.camTarget, Math.min(1, WORLD.camLerp * dt));
     // outside reads bigger than inside: pull back a touch in the yard
     this.camScale += ((zone?.outside ? WORLD.camYardPullback : 1) - this.camScale) * Math.min(1, 1.5 * dt);
     const pitch = THREE.MathUtils.degToRad(WORLD.camPitchDeg), dist = WORLD.camDistance * this.camScale;
@@ -2131,6 +2139,16 @@ export class World3D {
     w.carrying = null; w.extinguisherFrom = null;
   }
 
+  // updatePointers asks for the nearest extinguisher every frame of a fire; the answer only moves when you do
+  // (or an extinguisher does), and each ask is a pathfind per hook — cached on (your cell, where the extinguishers are).
+  private extCache: { key: string; val: { h: Hook; x: number; z: number; down: boolean } | null } | null = null;
+  private nearestExtCached() {
+    const c = this.cell();
+    const key = `${c.x},${c.y}|${JSON.stringify(this.w.extAt ?? {})}|${JSON.stringify(this.w.hooks)}`;
+    if (this.extCache?.key !== key) this.extCache = { key, val: this.nearestExt() };
+    return this.extCache.val;
+  }
+
   /** The nearest extinguisher you could grab (on a hook or put down), by the walk there. */
   private nearestExt(): { h: Hook; x: number; z: number; down: boolean } | null {
     const g = this.g, w = this.w;
@@ -2329,7 +2347,7 @@ export class World3D {
       const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
       if (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank')) problems.push({ key: 'phone', icon: '📞', pos: at('phone'), ring: true });
       if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
-      if (g.fire && w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e) problems.push({ key: 'ext', icon: '🧯', pos: new THREE.Vector3(e.x, 0.6, e.z), ring: true }); }
+      if (g.fire && w.carrying !== 'extinguisher') { const e = this.nearestExtCached(); if (e) problems.push({ key: 'ext', icon: '🧯', pos: new THREE.Vector3(e.x, 0.6, e.z), ring: true }); }
       // a fault points where it needs you next: the extractor, the bit rack, the skip — not just the machine
       const ft = faultTarget(g, w);
       if (ft) problems.push({ key: 'fault', icon: '🔧', pos: at(ft) });
