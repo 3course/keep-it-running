@@ -36,7 +36,6 @@ export interface WorldState {
   bedJobId: number | null;
   finishedStack: number;         // cut sheets stacked on the finished pallet awaiting pickup
   utePresent: boolean;
-  offcutBin: number;             // 0..1
   oldBagWaiting: boolean;        // a full bag lifted out of the extractor, still to go to the skip
   /** A visiting mate giving you a hand: who, doing what, which of how many (the notepad line). */
   mateHelp?: { who: string; word: string; n: number; of: number } | null;
@@ -45,7 +44,6 @@ export interface WorldState {
   watchingSwap: string | null;   // consumable Game is swapping, so we notice when it finishes
   toiletUntil: number | null;    // absolute game minute
   rollerUpUntil: number | null;  // absolute game minute
-  sheetsSeen: number;            // today.sheetsDone last frame, to fill the offcut bin
   done: string[];                // today's events, newest first: crossed-off to-dos ("✓ Clamp the sheet") and news ("4 sheets of formply left")
   newsSeen?: number;             // today's Game log entries already scanned for stock news
   shrugs?: number;               // bumped when you reach for a sheet that isn't there (the view shrugs)
@@ -114,9 +112,9 @@ export function newWorld(g: Game): WorldState {
     v: 1, dayIndex: g.dayIndex,
     px: (START_TILE.x + 0.5) * t, py: (START_TILE.y + 0.5) * t, fx: 0, fy: -1,
     carrying: null, extinguisherFrom: null, hooks: { wall: true, shed: true, exhaust: true }, extAt: {},
-    bed: 'empty', bedJobId: null, finishedStack: 0, utePresent: false, offcutBin: 0,
+    bed: 'empty', bedJobId: null, finishedStack: 0, utePresent: false,
     oldBagWaiting: false, watchingSwap: null, toiletUntil: null, rollerUpUntil: null,
-    sheetsSeen: g.today.sheetsDone, done: [],
+    done: [],
     tour: g.dayIndex === 1 ? { visited: [], cutStarted: false } : null, // a fresh save starts with the tour
   };
 }
@@ -135,8 +133,7 @@ export function startNewDay(w: WorldState, g: Game) {
   w.finishedStack = 0; w.utePresent = false; w.toiletUntil = null; w.rollerUpUntil = null;
   // (watchingSwap stays: a swap still going at knock-off carries on in the morning (Game.replacing), and the view puts
   // the old bag out when it's done, as it does in the day)
-  w.sheetsSeen = g.today.sheetsDone; w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
-  if (w.carrying === 'bundle') w.carrying = null; // the driver's forklift took care of it
+  w.done = []; w.newsSeen = 0; w.canSpots = {}; w.made = []; w.pickedUp = 0; w.walkedToday = 0;
   // a sheet cutting at knock-off was scrapped by Game; it's still lying on the bed
   if (w.bed === 'running') w.bed = 'scrap';
 }

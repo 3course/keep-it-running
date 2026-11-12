@@ -53,7 +53,7 @@ const RARE_EVENTS: RareEvent[] = [
 export const CONFIG = {
   clock: {
     startHour: 7,
-    endHour: 17,          // knock-off; overtime prompt appears here
+    endHour: 17,          // knock-off; the mate's at the roller door at 5
     overtimeEndHour: 19,  // hard stop
     realMsPerGameMinute: 1000,
     // Time scale (Game.timeScale, set from Game.scaleFor): 1x while anything's happening; fast when the machine's idle,
@@ -423,7 +423,7 @@ export const CONFIG = {
 
   // The chores, with teeth (claude/sim-chores.md). Off: none of them, and the economy runs exactly as it did before them
   // (`npm run sim -- nochores`).
-  chores: true,
+  chores: true as boolean, // mutable: the sim's `-- nochores` turns it off
   chore: {
     // clamping: each loaded sheet takes four clamps. Every one left off is a chance it shifts mid-cut and is ruined.
     clamp: {
@@ -454,7 +454,7 @@ export const CONFIG = {
   },
 
   // Off: no rare events at all, and the economy runs exactly as before them (the frozen baseline; `npm run sim -- baseline`).
-  rareEvents: true,
+  rareEvents: true as boolean, // mutable: the sim's `-- baseline` turns it off
   rareEvent: {
     dayChance: 1 / 6,          // about one day in six has one
     fromDay: 4,                // none during the grace days
@@ -463,7 +463,7 @@ export const CONFIG = {
   },
 
   // Off: no milestones, and no unlocks from them (also part of the frozen baseline).
-  milestones: true,
+  milestones: true as boolean, // mutable: the sim's `-- baseline` turns it off
   milestone: {
     fireFreeDays: 3,           // this many days running without a fire…
     fireChanceMult: 0.6,       // …unlocks the upgraded extractor (spark arrestor): spot fires start this much as often
@@ -487,7 +487,6 @@ export const CONFIG = {
     idleLogAboveMinutes: 2, // the day log notes every stretch the machine sat idle longer than this (game minutes)
   },
 
-  startingMarginHint: 0.15,
 } as const;
 
 export type UpgradeId = (typeof CONFIG.upgrades)[number]['id'];

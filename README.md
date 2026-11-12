@@ -42,7 +42,7 @@ src/people/            mates, Dennis, Jess, dialogue
 - **Faults** fire while cutting. Diagnose where it shows, then fix it where the fix happens. Bit, spoilboard and extractor bag wear push the odds up.
 - **Fires** start in the exhaust while cutting (at most one on day 1, none during the tour). The extinguisher is a thing you carry: put it down anywhere and it stays there. When a fire starts, a pointer shows where it is.
 - **The office:** the phone takes calls. The computer is Kerr, a rule-based "local model" on the Nac Mini: today's and yesterday's P&L, the rent clock, 3–5 lines of dry advice from the day log (costliest first). Ply is ordered there.
-- **People:** mates drop in 1–2 times a day, the courier needs a signature, the bank rings if you're overdrawn. The fridge opens at 2pm.
+- **People:** mates drop in 1–2 times a day, the ply truck's docket needs a signature, the bank rings if you're overdrawn. The fridge opens at 2pm.
 - **The shed** is the factory floor, the office, the dock, the side and rear yards. The toilet, smoko corner, storage and back shed are walled off until each has a job.
 - **End of day:** P&L, an upgrade shop, "Copy day log" (with the shift's seed). Then a knock-off beer with a mate, or home.
 

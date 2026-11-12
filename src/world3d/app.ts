@@ -304,8 +304,6 @@ export class World3D {
       },
       toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
-      knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
-      overtime: () => { this.g.startOvertime(); this.hud.hideEndOfDay(); this.save(); },
       settings: () => this.openSettings(),
       restartDay: () => this.restartDay(),
       quit: () => this.quitToTitle(),
@@ -321,7 +319,7 @@ export class World3D {
     // answered: the call is a job card (who, the sketch, the details as they tell you, due bottom-right), then Accept /
     // Decline inside it. The job card stays quiet when those sheets land (the call already showed them).
     uiHooks.orderCard = (d, offer, take, decline) => {
-      const g = this.g, j = offer.jobs[0], n = offer.jobs.length, t = CONFIG.jobs.types.find(x => x.id === j.type)!;
+      const g = this.g, j = offer.jobs[0], n = offer.jobs.length, t = CONFIG.jobs.types.find(x => x.id === j.type) ?? CONFIG.jobs.types[0]; // offers are generated from types, but don't crash the call card on a stale one
       const total = offer.jobs.reduce((s, x) => s + x.price, 0), lo = Math.min(...offer.jobs.map(x => x.price)), hi = Math.max(...offer.jobs.map(x => x.price));
       this.callCard.show(d.id, {
         who: `${d.customer ?? 'A customer'}${d.big ? ' · the big job' : ''}`, job: j, rush: offer.kind === 'rush', due: g.dueLabel(j),
@@ -568,7 +566,6 @@ export class World3D {
 
   private ndc(lx: number, ly: number) { return new THREE.Vector2(lx / this.vw * 2 - 1, -(ly / this.vh * 2 - 1)); }
 
-  /** Which object (if any) is under a logical-px point. */
   /** A can on the floor under a logical-px point (they're small: a generous invisible hit box each). */
   private pickCan(lx: number, ly: number): number | null {
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
@@ -1096,7 +1093,6 @@ export class World3D {
     return { title, sub: l ? `${bank} · $${l.rentDue.toLocaleString('en-AU')} rent due day ${leaseLength()}` : bank };
   }
 
-  /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
   /**
    * Day 20's cash as the day will end. The reckoning's at 5pm, but endDay (after it) still settles the served walk-ins,
    * the overdraft fee and Dennis's router day: so the ending's worked out on a copy of the game knocked off to the day
@@ -1112,6 +1108,7 @@ export class World3D {
     return projectedCash(copy);
   }
 
+  /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
   reckoning(): Reckoning | null {
     const l = this.w.lease, g = this.g;
     if (!l || leaseDay(l, g) !== leaseLength()) return null;
@@ -1190,7 +1187,6 @@ export class World3D {
     this.save();
   }
 
-  /** Rebuild the shed from the layout (as after a lost context). */
   /** The people in the shed are Figures (legs, faces, looks): the council inspector now, and whichever mate's in, when he comes. */
   private dressNpcs() {
     const ins = this.built.inspector;
@@ -1329,8 +1325,6 @@ export class World3D {
       else if (job.status === 'done') { this.pieceDone(job); w.bed = CONFIG.chores ? 'empty' : 'done'; w.clamps = 0; } // its boards join the pile at the bed's end
       else if (job.status === 'scrapped' && !g.fault) w.bed = 'scrap';
     }
-    w.offcutBin = g.offcutBin; // the bin's Game's now (CONFIG.chore.offcuts)
-    w.sheetsSeen = g.today.sheetsDone;
     if (w.watchingSwap && g.replacing?.key !== w.watchingSwap) {
       if (w.watchingSwap === 'filter') w.oldBagWaiting = true;
       w.watchingSwap = null;
@@ -1435,7 +1429,7 @@ export class World3D {
 
   private move(dt: number) {
     const g = this.g, w = this.w;
-    const frozen = this.paused || g.phase !== 'day' || this.kerr?.showing || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
+    const frozen = this.paused || g.phase !== 'day' || this.kerr?.showing || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.summaryShowing;
     let tx = 0, tz = 0;
     if (!frozen) {
       // screen-relative input (keyboard or stick) → world, using the camera's yaw

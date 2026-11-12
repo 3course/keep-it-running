@@ -87,7 +87,7 @@ describe('loading a save', () => {
     Object.assign(file.game, { dayIndex: -5, minute: 99999, cash: 1e300, rapport: 1e6, upgrades: ['nesting', 'free money', 7], current: 123456 });
     file.game.wear = { bit: 50, spoilboard: -3, filter: 'x' };
     file.game.fault = { def: 'no-such-fault', path: null };
-    file.world.bed = 'on fire'; file.world.carrying = 'a grudge'; file.world.offcutBin = 9;
+    file.world.bed = 'on fire'; file.world.carrying = 'a grudge';
     const text = JSON.stringify(file).replace('"v":2,', '"v":2,"__proto__":{"polluted":1},')
       .replace('"game":{', '"game":{"__proto__":{"tick":null},"constructor":1,');
     const back = parseSave(text.replace(/"seed":\d+/, '"seed":"1e999"'));
@@ -98,7 +98,7 @@ describe('loading a save', () => {
     assert.deepEqual([...b.upgrades], ['nesting']);
     assert.equal(b.current, null); assert.equal(b.fault, null);
     assert.deepEqual(b.wear, { bit: 1, spoilboard: 0, filter: 1 });
-    assert.equal(back.world.bed, 'empty'); assert.equal(back.world.carrying, null); assert.equal(back.world.offcutBin, 1);
+    assert.equal(back.world.bed, 'empty'); assert.equal(back.world.carrying, null);
     assert.equal(typeof b.tick, 'function', 'the prototype is untouched');
     assert.equal(Object.getPrototypeOf(b), Game.prototype);
     assert.equal(({}).polluted, undefined);

@@ -389,7 +389,7 @@ export class Game {
     if (amount <= 0) return;
     this.cash -= amount;
     if (bucket !== 'upgrades') this.today.costs += amount; // capex stays out of operating margin
-    (this.today as unknown as Record<string, number>)[bucket] += amount;
+    this.today[bucket] += amount;
     if (note) this.say(`-$${amount.toFixed(0)} ${note}`, 'money');
   }
 
@@ -397,7 +397,7 @@ export class Game {
   private book(amount: number, bucket: keyof DayStats) {
     if (amount <= 0) return;
     this.today.costs += amount;
-    (this.today as unknown as Record<string, number>)[bucket] += amount;
+    this.today[bucket] += amount;
   }
 
   private earn(amount: number, note: string) {

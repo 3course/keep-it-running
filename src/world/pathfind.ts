@@ -81,8 +81,3 @@ export function smooth(walkable: Walkable, path: P[]): P[] {
   return out;
 }
 
-export function pathLength(path: P[]): number {
-  let d = 0;
-  for (let i = 1; i < path.length; i++) d += Math.hypot(path[i].x - path[i - 1].x, path[i].y - path[i - 1].y);
-  return d;
-}

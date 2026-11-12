@@ -12,7 +12,6 @@ import { flatDesign, bounds, type Pt } from '../designs/path.js';
 import type { Design, DesignKind } from '../designs/types.js';
 import { SCRIPTS } from '../people/dialogue/index.js';
 import type { FriendId } from '../people/dialogue/types.js';
-import { friendById } from '../people/friends.js';
 import { slurStrength } from '../people/slur.js';
 import { people, type Keepsake } from '../people/state.js';
 import type { WorldState } from '../world/state.js';
@@ -378,4 +377,3 @@ function ribbons(lines: { pts: [number, number][]; w: number }[], mat: THREE.Mat
   return m;
 }
 
-export const friendName = (id: FriendId | 'you') => (id === 'you' ? 'You' : friendById(id).name);

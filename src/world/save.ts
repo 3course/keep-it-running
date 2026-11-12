@@ -234,7 +234,6 @@ function worldFromJson(raw: unknown, g: Game): WorldState {
   if (!BEDS.includes(out.bed)) out.bed = 'empty';
   if (out.carrying !== null && !CARRIES.includes(out.carrying)) out.carrying = null;
   tidyExtinguishers(out, g);
-  out.offcutBin = clamp(out.offcutBin, 0, 1);
   out.finishedStack = clamp(Math.floor(out.finishedStack), 0, 1000);
   // the lease: a fresh world has none (newWorld doesn't set it), so repair() above took it as-is — check it
   // against a template lease, or a tampered rentDue/startDayIndex (NaN, a string) silently stops rent ever falling due

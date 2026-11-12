@@ -200,7 +200,7 @@ export function renderDaySummary(el: HTMLElement, g: Game, onNext: () => void, o
 /** `weekend`: between weeks of a lease, Saturday and Sunday come first (it calls `next` on Monday). `title`: the heading. */
 export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void, weekend?: (next: () => void) => void, title = 'Week closed') {
   const total = g.week.reduce<DayStats>((acc, d) => {
-    for (const k of Object.keys(acc) as (keyof DayStats)[]) (acc as unknown as Record<string, number>)[k] += d[k] ?? 0; // a day saved before a field existed
+    for (const k of Object.keys(acc) as (keyof DayStats)[]) acc[k] += d[k] ?? 0; // a day saved before a field existed
     return acc;
   }, { day: 0, revenue: 0, costs: 0, materials: 0, labour: 0, consumables: 0, fixes: 0, beer: 0, fees: 0, upgrades: 0, sheetsDone: 0, sheetsLate: 0, sheetsScrapped: 0, sheetsDemanded: 0, sheetsMissed: 0, sheetsDeclined: 0, sheetsLost: 0, latePayLost: 0, lostJobsValue: 0, beers: 0, firesSpot: 0, firesDuct: 0, firesExtractor: 0, faults: 0, wrongCalls: 0, stockOutMinutes: 0, fumbles: 0, looTrips: 0, deliveryFees: 0, overdraftFees: 0, mateBeer: 0, trucks: 0, plyOnHandValue: 0, plyOnHandSheets: 0, sheetsShifted: 0, sheetsLifted: 0, choreBoards: 0, walkIns: 0, walkInCount: 0, pickups: 0, palletBlocked: 0, binOverflows: 0, afterHours: 0, canRefund: 0, layoutMinutes: 0, bets: 0, coffee: 0, idleMinutes: 0, fastMinutes: 0 });
   total.fees += g.weekOverheads; // rent, power, insurance
@@ -210,7 +210,7 @@ export function renderWeekSummary(el: HTMLElement, g: Game, onNext: () => void, 
   const verdict = g.cash < 0 ? "You're overdrawn. The bank will be calling all next week."
     : wm >= 0.3 ? 'Thirty-plus percent in a one-man shed. Mick from the joinery would like a word about buying you out.'
     : wm >= 0.15 ? 'A real business, just. One bad week from not being one.'
-    : 'Alive, but you worked a week for very little. Scrap and overtime are the usual suspects.';
+    : 'Alive, but you worked a week for very little. Scrap and quiet mornings are the usual suspects.';
   el.innerHTML = `
     <h1>${title}</h1>
     <p class="sub ${g.cash >= 0 ? 'money' : 'bad'}">Cash in the bank: ${money(g.cash)}</p>

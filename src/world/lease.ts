@@ -130,7 +130,6 @@ export function runFacts(l: LeaseState, g: Game, p: PeopleState) {
     sold: String(l.sold.length),
   };
 }
-export type RunFacts = ReturnType<typeof runFacts>;
 export const fillRun = (text: string, f: Record<string, string>) => text.replace(/\{(\w+)\}/g, (m, k) => f[k] ?? m);
 
 /** The favourite made piece: the best-traced thing cut after hours, else the design made most. */
