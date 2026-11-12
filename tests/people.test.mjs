@@ -3,7 +3,7 @@
 // the part-timer's arc to full time (kept across a reload), a customer's thank-you, and the safe tier's plain night.
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { frames, freshGame, startBrowser, steps, tapLabel, walkTo } from './browser.mjs';
+import { frames, freshGame, startBrowser, steps, tapLabel, walkTo, waitTimeout } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -12,7 +12,7 @@ after(() => env.close());
 const five = game => game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); g.minute = 17 * 60; g.phase = 'endOfDayPrompt'; });
 /** Tap reply `i` (or the one matching a regex) on the bubbles at the bottom. */
 async function reply(game, which, sel = '#kir-hud .replies:not(.day) button') {
-  await game.page.waitForFunction(s => document.querySelectorAll(s).length > 0, sel, { timeout: 60_000 });
+  await game.page.waitForFunction(s => document.querySelectorAll(s).length > 0, sel, { timeout: waitTimeout(60_000) });
   await game.page.evaluate(([w, sel]) => {
     const bs = [...document.querySelectorAll(sel)];
     const b = typeof w === 'number' ? bs[w] : bs.find(x => new RegExp(w, 'i').test(x.textContent));
@@ -57,7 +57,7 @@ describe('knock-off beers', () => {
     }
     await untilReplies(game);
     await reply(game, /w.*nd it up/); // wind it up
-    await game.page.waitForFunction(() => window.kir.phase === 'daySummary', null, { timeout: 30_000 });
+    await game.page.waitForFunction(() => window.kir.phase === 'daySummary', null, { timeout: waitTimeout(30_000) });
     await game.page.waitForSelector('#kir-hud .summary .lastnight');
     const sum = await game.page.evaluate(() => document.querySelector('#kir-hud .summary .lastnight')?.textContent ?? '');
     assert.match(sum, /Last night: You and .+, \d+ beers? each\. “.+” — .+/);
@@ -74,7 +74,7 @@ describe('knock-off beers', () => {
     await game.eval((g, w, s) => s.knockoff.atFive());
     await reply(game, 0);
     let guest = null;
-    for (let turn = 0; turn < 14 && !guest; turn++) {
+    for (let turn = 0; turn < (process.env.CI ? 24 : 14) && !guest; turn++) {
       await untilReplies(game);
       const st = await game.eval((g, w, s) => ({ opts: s.knockoff.talk.options, beers: s.knockoff.night.beers, guest: s.knockoff.night.guest, calling: !!s.knockoff.night.calling }));
       guest = st.guest;
@@ -86,7 +86,7 @@ describe('knock-off beers', () => {
     assert.equal(await game.eval((g, w, s) => s.knockoff.figures.size), 3, 'three on the crates');
     await untilReplies(game);
     await reply(game, (await game.eval((g, w, s) => s.knockoff.talk.options.length)) - 1);
-    await game.page.waitForFunction(() => window.kir.phase === 'daySummary', null, { timeout: 30_000 });
+    await game.page.waitForFunction(() => window.kir.phase === 'daySummary', null, { timeout: waitTimeout(30_000) });
     const cans = await game.eval((g, w) => w.people.cans.map(c => c.spot));
     assert.ok(cans.length >= 3 && cans.includes('bed') && cans.includes('extractor'), `cans: ${cans}`);
     await game.close();
@@ -163,14 +163,14 @@ describe('after hours', () => {
     assert.equal(traced.strokes, 2, 'lifted and resumed');
     assert.ok(traced.score > 0.4, `close enough: ${traced.score}`);
     await reply(game, /cut it/);
-    await game.page.waitForFunction(() => window.kirScene.tracing.mode === 'off' && window.kirScene.knockoff.mode === 'night', null, { timeout: 30_000 });
+    await game.page.waitForFunction(() => window.kirScene.tracing.mode === 'off' && window.kirScene.knockoff.mode === 'night', null, { timeout: waitTimeout(45_000) });
     const k = await game.eval((g, w) => w.people.keepsakes.map(k => ({ id: k.design.id, outer: k.design.outer.slice(0, 2), beers: k.beers, by: k.suggestedBy, sheet: k.sheet })));
     assert.equal(k.length, 1);
     assert.match(k[0].id, /^kept-ah-coaster/); assert.equal(k[0].beers, 3); assert.equal(k[0].sheet, 'offcut');
     // wind it up: the summary shows it
     await untilReplies(game);
     await reply(game, (await game.eval((g, w, s) => s.knockoff.talk.options.length)) - 1);
-    await game.page.waitForFunction(() => window.kir.phase === 'daySummary', null, { timeout: 30_000 });
+    await game.page.waitForFunction(() => window.kir.phase === 'daySummary', null, { timeout: waitTimeout(30_000) });
     await game.page.waitForSelector('#kir-hud .summary .afterhours');
     const ah = await game.page.evaluate(() => [...document.querySelectorAll('#kir-hud .summary .afterhours .pair .cap')].map(c => c.textContent));
     assert.equal(ah.length, 1);
@@ -188,7 +188,7 @@ describe('the part-timer', () => {
     await game.eval((g, w, s) => { g.day = 2; });
     await game.page.waitForFunction(() => !!window.kirScene.peopleDay.jess);
     await game.eval((g, w, s) => { w.people.trust = 50; g.minute = 11 * 60 + 2; const j = s.peopleDay.jess; j.x = s.pos.x + 1; j.z = s.pos.z; j.path = []; });
-    await game.page.waitForFunction(() => window.kirScene.peopleDay.task === 'ask' && window.kirScene.peopleDay.talk.asking, null, { timeout: 120_000 });
+    await game.page.waitForFunction(() => window.kirScene.peopleDay.task === 'ask' && window.kirScene.peopleDay.talk.asking, null, { timeout: waitTimeout(120_000) });
     await reply(game, 0, '#kir-hud .replies.day button');
     const p = await game.eval((g, w) => ({ ft: w.people.fullTime, cake: w.people.cakeDay, day: g.dayIndex }));
     assert.ok(p.ft); assert.equal(p.cake, p.day + 1);

@@ -11,6 +11,9 @@ import { createServer } from 'vite';
 /** The reference phone the HUD is tuned for (WORLD.view). */
 export const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 };
 
+/** Playwright waits: GitHub Actions runners are slower than a local machine. */
+export const waitTimeout = (ms) => (process.env.CI ? Math.round(ms * 2.5) : ms);
+
 /**
  * Start the dev server and the browser once per test file. `config` and `mates` come from src/ (and `load`
  * gets any other module), so tests check against the real numbers and names.
