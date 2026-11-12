@@ -4,8 +4,6 @@ import type { Expr, FriendScript, Line, Thread } from './types.js';
 
 const s = (text: string, expr?: Expr): Line => (expr ? { text, expr } : { text });
 const q = (text: string, expr?: Expr): Line => ({ text, expr, quote: true });
-const g = (text: string, expr?: Expr): Line => ({ who: 'guest', text, expr });
-
 export const SCRIPT: FriendScript = {
   greet: [
     "Knock-off. Two of the finest words in the language.",

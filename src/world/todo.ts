@@ -4,7 +4,6 @@ import type { Game } from '../sim/Game.js';
 import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
-import { WORLD } from './worldConfig.js';
 
 /** A to-do line. `targets`: where tapping it walks you (the nearest, if there are several). */
 export interface TodoItem { key: string; text: string; targets: ObjectId[]; urgent: boolean }

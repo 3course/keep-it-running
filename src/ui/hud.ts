@@ -7,7 +7,6 @@ import { BUILD_TAG } from './clipboard.js';
 import type { Game } from '../sim/Game.js';
 import type { ObjectId } from '../world/layout.js';
 import type { TodoItem } from '../world/todo.js';
-import { WORLD } from '../world/worldConfig.js';
 import { getItem, KEYS, setItem } from '../storage.js';
 
 const HAND = "'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive";

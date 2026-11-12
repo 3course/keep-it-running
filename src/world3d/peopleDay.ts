@@ -462,7 +462,8 @@ export class PeopleDay {
 
   // ---------- bits ----------
 
-  private say(who: string, text: string, secs = 3.2, expr: 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated' = 'relaxed', name?: string, img?: string | null) {
+  // _secs is dead weight: Talk works bubble time out from the text length. Kept so call sites needn't churn.
+  private say(who: string, text: string, _secs = 3.2, expr: 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated' = 'relaxed', name?: string, img?: string | null) {
     const label = name ?? (who === 'jess' ? J.name : who === 'you' ? 'You' : who === 'mate' ? 'Mate' : '');
     this.talk.say(who, label, text, who === 'you' ? 'you' : '', img);
     const f = who === 'jess' ? this.jess?.fig : who === 'cust' ? this.visitor?.fig : who === 'mate' ? this.cakeMate?.fig : who === 'walkin' ? this.walkIn?.fig : undefined;

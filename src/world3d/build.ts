@@ -491,7 +491,7 @@ const BUILDERS: Partial<Record<ObjectId, Builder>> = {
     g.add(boxAt(0.4, 0.4, 0.15, o.colour, 0, h, -0.17));
     return {};
   },
-  racks: (g, w, d, h, o) => {
+  racks: (g, w, d, h) => {
     for (const sx of [-1, 0, 1]) g.add(boxAt(0.08, h, d, 0x5a5f66, sx * (w / 2 - 0.05)));
     for (let i = 0; i < 14; i++) g.add(boxAt(w - 0.2, 0.03, d - 0.15, i % 3 ? 0xd6bc8a : 0xc7a878, 0, 0.1 + i * 0.1));
     return {};

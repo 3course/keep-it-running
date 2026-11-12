@@ -504,7 +504,7 @@ function playOn(script: Script, g: Game, buying = false, morning?: (g: Game) => 
         today.total += 1; run += 1; today.longest = Math.max(today.longest, run);
       } else run = 0;
     }
-    else if (g.phase === 'endOfDayPrompt') { script.overtime(g) ? g.startOvertime() : g.knockOff(); }
+    else if (g.phase === 'endOfDayPrompt') { if (script.overtime(g)) g.startOvertime(); else g.knockOff(); }
     else if (g.phase === 'daySummary') {
       if (buying) script.buy(g);
       g.nextDay();
@@ -524,9 +524,7 @@ const scrapRate = (days: DayStats[]) => sum(days, 'sheetsScrapped') / Math.max(1
 function report(name: string, seed: number, { g, idle }: WeekResult) {
   const rev = g.week.reduce((s, d) => s + d.revenue, 0);
   const cost = g.week.reduce((s, d) => s + d.costs, 0);
-  const done = g.week.reduce((s, d) => s + d.sheetsDone, 0);
   const scrap = g.week.reduce((s, d) => s + d.sheetsScrapped, 0);
-  const late = g.week.reduce((s, d) => s + d.sheetsLate, 0);
   const faults = g.week.reduce((s, d) => s + d.faults, 0);
   const margin = rev > 0 ? (rev - cost) / rev : 0;
   const d1 = g.week[0];

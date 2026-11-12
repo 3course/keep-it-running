@@ -51,7 +51,7 @@ export class TitleScreen {
       <div class="ver">${esc(o.version)}</div>`;
     this.logos = [pixelText('KEEP IT', { size: 14 }), pixelText('RUNNING', { size: 14, colour: '#f2a35b', shade: '#a3401c' })];
     const logo = el.querySelector('.logo')!;
-    this.logos.forEach((c, i) => logo.insertBefore(c, el.querySelector('.sub')));
+    this.logos.forEach(c => logo.insertBefore(c, el.querySelector('.sub')));
     for (const t of ['pointerdown', 'pointerup', 'click'] as const) el.addEventListener(t, e => e.stopPropagation());
     const menu = el.querySelector<HTMLElement>('.menu')!, confirm = el.querySelector<HTMLElement>('.confirm')!;
     const showConfirm = (on: boolean) => { confirm.hidden = !on; menu.querySelectorAll<HTMLElement>(':scope > button').forEach(b => { b.hidden = on; }); };

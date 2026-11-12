@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { after, describe, it } from 'node:test';
-import { advance, answerCard, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, stepUntil, steps, tapLabel, waitForLabel, walkTo } from './browser.mjs';
+import { advance, answerCard, frames, freshGame, freshMate, holdLabel, labels, mateNow, setTime, startBrowser, stepUntil, tapLabel, waitForLabel, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 const LAYOUT = await env.load('/src/world/layout.ts');
@@ -443,7 +443,7 @@ describe('rare events and milestones in the shed', () => {
       const game = await freshGame(env);
       try {
         // off in the yard, so the roller door and the office are off-screen
-        await game.eval((g, w, s) => { s.pos = { x: 5.25, z: 3.75 }; w.tour = null; g.forceRareEvent(arg); g.rare.phase = 'tell'; }, id);
+        await game.eval((g, w, s, arg) => { s.pos = { x: 5.25, z: 3.75 }; w.tour = null; g.forceRareEvent(arg); g.rare.phase = 'tell'; }, id);
         await frames(game, 5);
         const pointers = await game.page.evaluate(() => [...document.querySelectorAll('#kir-hud .pointers .icon')].map(e => e.textContent));
         assert.ok(pointers.includes(icon), `${id}: ${icon} pointer (${pointers})`);
