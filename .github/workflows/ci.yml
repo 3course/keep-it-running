@@ -1,12 +1,11 @@
 name: CI
 
-# Checks every pull request into `world` (Cursor's, Claude's, Dependabot's): typecheck and the full test suite. It
-# never deploys and never blocks a deploy (that's deploy.yml, the same file on main and world). Not for PRs into
-# `main`: this file only lives on world, and main has no test script.
+# Checks pull requests: typecheck and the full test suite. It never deploys and never blocks a deploy (that's
+# deploy.yml, the same file on main and world). This file lives on world, so it runs for PRs into world and into
+# branches made from it (a review follow-up into a Cursor branch, say); PRs into main don't carry it.
 # No lint: typescript-eslint doesn't support TypeScript 7 yet (see docs/REVIEW.md).
 on:
   pull_request:
-    branches: [world]
 
 permissions:
   contents: read
@@ -31,4 +30,5 @@ jobs:
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - run: npm run typecheck
-      - run: npm test
+      # the spec reporter ends with a list of what failed, so a red run is readable from the tail of the log
+      - run: node --test --test-reporter=spec tests/*.test.mjs
