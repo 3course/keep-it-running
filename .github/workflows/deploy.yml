@@ -59,6 +59,7 @@ jobs:
           VITE_BASE: /
         run: |
           npm ci
+          npm run lint --if-present # --if-present: main has no lint script and this file must match on both branches
           npm run build
 
       - name: Combine
