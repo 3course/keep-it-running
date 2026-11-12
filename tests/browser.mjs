@@ -75,7 +75,7 @@ export async function walkTo(game, id) {
  * what happens depends on the number of frames, never on how long they take in real time. Fails after `frames`
  * (default 2400: two minutes of game time). Returns the frames it took.
  */
-export async function stepUntil(game, cond, arg, { frames: max = 2400, dt = 0.05, what = 'a condition' } = {}) {
+export async function stepUntil(game, cond, arg, { frames: max = waitTimeout(2400), dt = 0.05, what = 'a condition' } = {}) {
   // in short batches: one long synchronous evaluate leaves Playwright's next waitForFunction stuck (seen: even
   // waitForFunction(() => true) timed out after one), so no call runs more than `CHUNK` frames
   const CHUNK = 40;
