@@ -1,12 +1,19 @@
 name: CI
 
+# Checks every pull request into `world` (Cursor's, Claude's, Dependabot's): typecheck and the full test suite. It
+# never deploys and never blocks a deploy (that's deploy.yml, the same file on main and world). Not for PRs into
+# `main`: this file only lives on world, and main has no test script.
+# No lint: typescript-eslint doesn't support TypeScript 7 yet (see docs/REVIEW.md).
 on:
   pull_request:
-  push:
-    branches: [cursor/**]
+    branches: [world]
 
 permissions:
   contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -23,6 +30,5 @@ jobs:
       - run: npm ci
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-      - run: npm run lint
       - run: npm run typecheck
       - run: npm test
