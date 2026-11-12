@@ -19,8 +19,7 @@ export function initAnalytics() {
   try {
     const w = window as unknown as { dataLayer: unknown[]; gtag: Gtag };
     w.dataLayer = w.dataLayer || [];
-    // eslint-disable-next-line prefer-rest-params -- gtag.js needs the real `arguments` object, not a rest array
-    w.gtag = function () { w.dataLayer.push(arguments); };
+    w.gtag = function () { w.dataLayer.push(arguments); }; // gtag.js needs the real `arguments` object, not a rest array
     w.gtag('js', new Date());
     w.gtag('config', GA_ID, { anonymize_ip: true });
     const s = document.createElement('script');
