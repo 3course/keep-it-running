@@ -88,7 +88,7 @@ describe('the first morning, at the cafe', () => {
     } finally { await context.close(); }
   });
 
-  it('the sign (Little Bird, on the upper façade): fully on screen and never under a speech bubble; the job card waits till the shed', async () => {
+  it('the sign (the cafe name, on the upper façade): fully on screen and never under a speech bubble; the job card waits till the shed', async () => {
     const { page, context } = await open('?seed=3');
     try {
       let samples = 0, withBubble = 0;

@@ -49,7 +49,7 @@ Week 1 (grace): ~21–25% for all three, so sloppy is profitable that week only.
 - **Spare spindle and second vacuum zone earn nothing** in the sim: the spindle's fix path is never the better choice, and the vacuum zone measures ~0.
 - **Average is thinner with the chores:** ~6% steady, 17/20 solvent through week 4 buying nothing. Knobs in `sim-chores.md`.
 - **Dazza the office manager** is designed (`office-manager-and-upgrades.md`, must be net positive for average) but not built.
-- **Bar names in the visitor stories** (Dr Morse, The Builders Arms, Labour in Vain, Naked for Satan, and their suburbs) are unverified placeholders, in `config.ts` → `visitors.bars`.
+- ~~**Bar names in the visitor stories** were real venues~~ — replaced with invented names (The Offcut, The Loose Tenon, The Night Shift, The Spotted Quoll) in `config.ts` → `visitors.bars`; the cafe is now Early Mark.
 - **Human playtest pending:**
   - Does the day feel full or frantic?
   - Do players heed the board's-full warning? The sim assumes 2 in 3.

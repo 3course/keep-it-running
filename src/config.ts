@@ -238,12 +238,12 @@ export const CONFIG = {
     wanderMin: 4,              // minutes at one spot before moving on to another
     wanderMax: 8,
     areas: ['floor', 'office'] as ('floor' | 'office' | 'smoko')[], // where they wander (the smoko corner's walled off for now)
-    // Bars for the night-out stories ({bar}, {suburb}). Placeholders: names and suburbs unverified, swap freely.
+    // Bars for the night-out stories ({bar}, {suburb}). Invented names (no real venues); suburbs are real, swap freely.
     bars: [
-      { name: 'Dr Morse', suburb: 'Abbotsford' },
-      { name: 'The Builders Arms', suburb: 'Fitzroy' },
-      { name: 'Labour in Vain', suburb: 'Fitzroy' },
-      { name: 'Naked for Satan', suburb: 'Fitzroy' },
+      { name: 'The Offcut', suburb: 'Abbotsford' },
+      { name: 'The Loose Tenon', suburb: 'Fitzroy' },
+      { name: 'The Night Shift', suburb: 'Fitzroy' },
+      { name: 'The Spotted Quoll', suburb: 'Fitzroy' },
     ],
   },
 
@@ -297,7 +297,7 @@ export const CONFIG = {
   // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
   // The cafe before work (src/world3d/cafe.ts): the coffee's real money; a large one makes you a bit quicker till 11.
   cafe: {
-    name: 'Little Bird',
+    name: 'Early Mark',
     barista: 'Mai',
     regular: 5, large: 6.5,
     largeSpeedup: 0.05, largeUntilHour: 11,

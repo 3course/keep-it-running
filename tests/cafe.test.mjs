@@ -27,7 +27,7 @@ describe('the cafe', () => {
     await tap(game, '#kir-hud .replies.day button');
     const after = await game.eval((g, w, s) => ({ active: s.cafe.active, done: w.done.join('|'), calls: g.orderCalls.map(c => c.minute), jess: w.people.trust }));
     assert.equal(after.active, false);
-    assert.match(after.done, /Coffee at Little Bird/);
+    assert.match(after.done, /Coffee at Early Mark/);
     if (/Lead:/.test(after.done)) assert.ok(after.calls.includes(600), 'the lead rings at 10');
     await game.close();
   });
