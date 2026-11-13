@@ -119,7 +119,7 @@ export class Cafe {
     if (open && !this.chip) {
       const b = this.chip = document.createElement('button');
       b.className = 'cafechip'; b.textContent = `☕ ${CONFIG.cafe.name} first?`;
-      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(160px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '6',
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(160px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '5', // (under the prompts: a label beside you wins over the morning chip)
         font: "calc(max(14px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.enter(); });
       this.d.parent.appendChild(b);

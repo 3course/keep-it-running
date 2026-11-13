@@ -1300,7 +1300,7 @@ export class World3D {
     if (open && !this.layoutChip) {
       const b = this.layoutChip = document.createElement('button');
       b.className = 'layoutchip'; b.textContent = 'Move anything round?';
-      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(118px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '6',
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(118px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '5', // (under the prompts)
         font: "calc(max(14px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace", padding: '6px 10px', background: '#fff1c9', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.enterLayout(); });
       this.hud.labels.parentElement!.appendChild(b);
