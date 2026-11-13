@@ -116,7 +116,7 @@ export class PadNav {
 .padcursor { position: fixed; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 3px solid #fff8ec; box-shadow: 0 0 0 2px #14110f; pointer-events: none; z-index: 60; display: none; }
 .padcursor.down { background: rgba(63,167,255,.6); }
 .padlegend { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); transform: translateX(-50%); top: calc(8px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)));
-  display: none; gap: 10px; font: max(16px, calc(14px * var(--s, 1))) 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.7); padding: 6px 10px; border-radius: 8px; pointer-events: none; z-index: 9; }
+  display: none; gap: 14px; white-space: nowrap; font: max(16px, calc(14px * var(--s, 1))) 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.7); padding: 6px 10px; border-radius: 8px; pointer-events: none; z-index: 9; }
 .padlegend b { display: inline-block; min-width: 1.4em; padding: 0 .3em; margin-right: .3em; border-radius: .7em; background: #efe6d8; color: #14110f; text-align: center; }
 `;
       document.head.appendChild(s);
@@ -361,12 +361,12 @@ export class PadNav {
     let sig = '';
     if (padish) {
       const parts: [PadButton, string][] = [];
-      if (this.layer === 'world' || (this.layer === null && this.host.inWorld())) parts.push(['carry', 'Pick up / put down'], ['notepad', 'Notepad'], ['pause', 'Pause']);
+      if (this.layer === 'world' || (this.layer === null && this.host.inWorld())) parts.push(['carry', 'Carry'], ['notepad', 'Notepad'], ['pause', 'Pause']);
       else if (this.layer === 'notepad') parts.push(['confirm', 'Go'], ['notepad', 'Back']);
       else if (this.layer) { parts.push(['confirm', 'Choose']); if (LAYERS.find(l => l.name === this.layer)?.back) parts.push(['back', 'Back']); }
       if (this.focus?.matches('.hold, [data-g="hold"]')) parts.splice(0, parts.length, ['confirm', 'Hold']);
       if (this.focus?.matches('.handle, .docket')) parts.splice(0, parts.length, ['confirm', 'Hold + left stick']);
-      if (this.cursor.on) parts.splice(0, parts.length, ['confirm', 'Press / hold + stick to drag'], ['back', 'Back']);
+      if (this.cursor.on) parts.splice(0, parts.length, ['confirm', 'Press · hold + stick drags'], ['back', 'Back']);
       sig = parts.map(([b, w]) => `<span><b>${this.glyph(b)}</b>${w}</span>`).join('');
     }
     if (sig !== this.lastSig) { this.lastSig = sig; this.legendEl.innerHTML = sig; this.legendEl.style.display = sig ? 'flex' : 'none'; }
