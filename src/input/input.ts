@@ -153,8 +153,15 @@ export class Input {
     return { x: 0, y: 0 };
   }
 
-  /** The left stick alone (steering a cursor or a gesture), keys included. */
-  stick(): { x: number; y: number } { return this.move(); }
+  /** The left stick alone, or WASD / the arrows (steering a cursor, a drag, the spray): not the d-pad, which stays the
+   * menus' (so a cursor scene's answers are still a d-pad away). */
+  stick(): { x: number; y: number } {
+    const k = (n: string) => this.keysDown.has(n);
+    const x = (k('d') || k('arrowright') ? 1 : 0) - (k('a') || k('arrowleft') ? 1 : 0);
+    const y = (k('s') || k('arrowdown') ? 1 : 0) - (k('w') || k('arrowup') ? 1 : 0);
+    if (x || y) { const n = Math.hypot(x, y); return { x: x / n, y: y / n }; }
+    return this.pad ? { x: this.pad.lx, y: this.pad.ly } : { x: 0, y: 0 };
+  }
 
   /** The right stick (scrolling, aiming). */
   aim(): { x: number; y: number } { return this.pad ? { x: this.pad.rx, y: this.pad.ry } : { x: 0, y: 0 }; }

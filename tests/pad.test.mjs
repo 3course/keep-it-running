@@ -4,7 +4,7 @@
 // and the view is stepped frame by frame; only the hold gestures wait real seconds, by design (as they do for a thumb).
 import assert from 'node:assert/strict';
 import { after, describe, it } from 'node:test';
-import { advance, freshGame, padConnect, padFocus, padLabel, padPress, padSet, startBrowser, stepUntil, steps, TV, walkTo } from './browser.mjs';
+import { advance, freshGame, padConnect, padFocus, padGesture, padLabel, padPress, padSet, startBrowser, stepUntil, steps, TV, walkTo } from './browser.mjs';
 
 const env = await startBrowser();
 after(() => env.close());
@@ -25,6 +25,9 @@ const workThrough = async game => {
   await advance(game, 0);
 };
 
+/** `SHOTS=<dir>`: also save each screen at 1280×720 (the PR's screenshots). */
+const shot = async (game, name) => { if (process.env.SHOTS) await game.page.screenshot({ path: `${process.env.SHOTS}/${name}.png` }); };
+
 async function padGame(seed = 1) {
   const game = await freshGame(env, seed, TV);
   await padConnect(game);
@@ -33,6 +36,42 @@ async function padGame(seed = 1) {
 }
 
 describe('each gesture, by pad', () => {
+  it("the morning's cans (a tap on them, for a thumb): a prompt beside them for the pad, A picks one up", async () => {
+    const game = await padGame();
+    try {
+      await game.eval((g, w, s) => {
+        w.tour = null; s.jobCard.hide(); document.querySelectorAll('#kir-hud .lettercard').forEach(e => e.remove());
+        w.people.cans = [{ id: 1, spot: 'floor', x: s.pos.x + 0.4, y: 0, z: s.pos.z }];
+      });
+      await padLabel(game, 'Pick up the can');
+      assert.deepEqual(await game.eval((g, w) => [w.carrying, w.canCount, w.people.cans.length]), ['cans', 1, 0]);
+    } finally { await game.close(); }
+  });
+
+  it('after-hours trace: the stick brings a cursor; hold A and steer to draw; the d-pad to Cut it', async () => {
+    const game = await padGame();
+    try {
+      await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); document.querySelectorAll('#kir-hud .lettercard').forEach(e => e.remove()); s.tracing.start('freehand', 'eggby', 0, a => { window.__traced = a; }); });
+      await stepUntil(game, (g, w, s) => s.padNav.layer === 'replies', null, { frames: 60, what: 'offcut or sheet' });
+      await padPress(game, 'confirm'); // an offcut
+      await stepUntil(game, (g, w, s) => s.tracing.drawing, null, { frames: 200, what: 'the pencil out' });
+      // the stick: a cursor over the sheet; A held and steered: a line
+      await padSet(game, [], { lx: -0.5, ly: -0.2 }); await steps(game, 6);
+      assert.equal(await game.eval((g, w, s) => s.padNav.cursor.on), true, 'a cursor');
+      await padSet(game, ['confirm']); await steps(game, 2);
+      for (const [lx, ly] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) { await padSet(game, ['confirm'], { lx, ly }); await steps(game, 6); }
+      await padSet(game, []); await steps(game, 3);
+      assert.ok(await game.eval((g, w, s) => s.tracing.strokes.flat().length) > 4, 'drawn');
+      await shot(game, '22-trace');
+      // the d-pad (not the stick) goes to the answers: Cut it
+      await padPress(game, 'down');
+      assert.equal((await padFocus(game)).layer, 'replies');
+      for (let i = 0; i < 4 && (await padFocus(game)).text !== 'Cut it'; i++) await padPress(game, 'up', { hold: 1, after: 1 });
+      await padPress(game, 'confirm');
+      await stepUntil(game, (g, w, s) => !s.tracing.drawing, null, { frames: 60, what: 'cutting' });
+    } finally { await game.close(); }
+  });
+
   it('taps (the clips), drag down (tip the bag), drag up (fit the new one): the extractor bag', async () => {
     const game = await padGame();
     try {
@@ -101,8 +140,6 @@ describe('each gesture, by pad', () => {
 
 // ---------- every screen: navigable with the d-pad, and left with the pad (no dead ends) ----------
 
-/** `SHOTS=<dir>`: also save each screen at 1280×720 (the PR's screenshots). */
-const shot = async (game, name) => { if (process.env.SHOTS) await game.page.screenshot({ path: `${process.env.SHOTS}/${name}.png` }); };
 
 /** Ring everything on the top layer with the d-pad (down, then right): what it visited. Fails if nothing's ringed. */
 async function walkLayer(game, layer, { max = 14 } = {}) {
@@ -335,5 +372,49 @@ describe('every screen, by pad', () => {
       const d = await walkLayer(game, 'summary', { max: 6 });
       assert.ok(d.includes('Back to the lease'), JSON.stringify(d));
     } finally { await context.close(); }
+  });
+});
+
+// ---------- a whole day on the pad ----------
+
+describe('a whole day, pad only', () => {
+  it('day 1 from the letter to the day summary and on to day 2, with nothing but the pad', async () => {
+    const game = await padGame();
+    try {
+      // the real clock and the real day (freshGame stops them for the other tests)
+      await game.eval(g => { delete g.tick; delete g.maybeDistraction; });
+      const snap = () => game.eval((g, w, s) => ({
+        phase: g.phase, day: g.dayIndex, layer: s.padNav.layer, gesture: s.gesture.active?.kind ?? null, walking: s.walking,
+        lines: [...document.querySelectorAll('#kir-hud .pad li[data-key]')].length, summary: s.hud.summaryShowing,
+        knock: s.knockoff.inScene, home: !!document.querySelector('#kir-hud .replies button.home'), answers: !!document.querySelector('#kir-hud .callcard .row.on'),
+      }));
+      // the player: reads the screen, presses buttons (never calls the game)
+      let i = 0;
+      for (; i < 4000; i++) {
+        const st = await snap();
+        if (st.phase === 'day' && st.day === 2) break;
+        if (st.gesture) { await padGesture(game); continue; }
+        switch (st.layer) {
+          case 'letter': await padPress(game, 'confirm'); continue;
+          case 'call': if (st.answers) await padPress(game, 'confirm'); else await steps(game, 10); continue; // take the job
+          case 'kerr': case 'ply': case 'log': case 'ledger': case 'pause': case 'settings': await padPress(game, 'back'); continue;
+          case 'summary': await padPress(game, 'confirm'); await steps(game, 20); continue; // the ring starts on the way on
+          case 'replies':
+            // home at 5 (B); otherwise the last answer (back to work)
+            if (st.home) await padPress(game, 'back'); else { await padPress(game, 'up'); await padPress(game, 'confirm'); }
+            await steps(game, 10); continue;
+          case 'notepad': await padPress(game, 'confirm'); continue; // the top line: walk there and do it
+        }
+        if (st.knock || st.summary) { await padPress(game, 'confirm'); await steps(game, 10); continue; } // hurry the night along
+        if (st.walking) { await steps(game, 20); continue; }
+        if (st.layer === 'world' && i % 3 !== 0) { await padPress(game, 'confirm'); await steps(game, 10); continue; } // what's ringed here
+        if (st.lines && st.phase === 'day') { await padPress(game, 'notepad'); await steps(game, 2); continue; }
+        await steps(game, 40); // nothing to do: let the clock run
+      }
+      const end = await game.eval((g, w) => ({ day: g.dayIndex, phase: g.phase, made: g.lastDay?.sheetsDone ?? null, revenue: g.lastDay?.revenue ?? null }));
+      assert.deepEqual([end.day, end.phase], [2, 'day'], `day 2 on the pad (stopped after ${i} steps: ${JSON.stringify(end)})`);
+      assert.ok(end.made >= 1, `sheets went out the door on day 1 (${JSON.stringify(end)})`);
+      assert.deepEqual(game.errors, []);
+    } finally { await game.close(); }
   });
 });

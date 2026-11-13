@@ -155,7 +155,7 @@ export class PadNav {
     const inp = this.input, padish = inp.kind !== 'touch';
     // touch play: nothing to do (no ring, no legend, no DOM reads: a phone's frame is untouched)
     if (!padish && !this.press) {
-      if (this.layer !== null || this.focus) { this.layer = null; this.setFocus(null); this.draw(); }
+      if (this.layer !== null || this.focus || this.lastSig || this.cursor.on) { this.layer = null; this.cursor.on = false; this.setFocus(null); this.draw(); }
       return;
     }
     // which layer's on top, from the DOM as it is this frame (only while a pad or keys are in use: see above)
@@ -168,7 +168,7 @@ export class PadNav {
     const canvasMode = this.host.canvasScene();
     const s = inp.stick();
     if (canvasMode && padish && (s.x || s.y) && !this.press) this.cursor.on = true;
-    if (canvasMode && inp.nav(true)) this.cursor.on = false; // (the d-pad: the stick's the cursor's)
+    if (canvasMode && (inp.nav(true) || inp.pressed('prev') || inp.pressed('next'))) this.cursor.on = false; // (the d-pad, LB/RB: the answers)
     if (!canvasMode) this.cursor.on = false;
 
     // a press in progress: the stick steers it (drags, strokes, the spray's aim); A up lets go
@@ -361,7 +361,7 @@ export class PadNav {
     let sig = '';
     if (padish) {
       const parts: [PadButton, string][] = [];
-      if (this.layer === 'world') parts.push(['carry', 'Pick up / put down'], ['notepad', 'Notepad'], ['pause', 'Pause']);
+      if (this.layer === 'world' || (this.layer === null && this.host.inWorld())) parts.push(['carry', 'Pick up / put down'], ['notepad', 'Notepad'], ['pause', 'Pause']);
       else if (this.layer === 'notepad') parts.push(['confirm', 'Go'], ['notepad', 'Back']);
       else if (this.layer) { parts.push(['confirm', 'Choose']); if (LAYERS.find(l => l.name === this.layer)?.back) parts.push(['back', 'Back']); }
       if (this.focus?.matches('.hold, [data-g="hold"]')) parts.splice(0, parts.length, ['confirm', 'Hold']);

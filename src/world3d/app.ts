@@ -379,7 +379,7 @@ export class World3D {
         // a tap anywhere hurries the line along (the speech bubbles listen on the window)
         this.padNav.tapAt(document.body, innerWidth / 2, innerHeight / 2);
       },
-      canvasScene: () => this.layoutEditor.active || this.tracing.drawing,
+      canvasScene: () => this.layoutEditor.active || this.tracing.drawing || this.knockoff.lsg.playing,
       playerScreen: () => { const p = this.project(new THREE.Vector3(this.pos.x, 1.2, this.pos.z)); return p.behind ? null : p; },
       pause: () => { if (!this.title) this.setPaused(!this.paused); },
       showLog: () => this.hud.showLog(),
@@ -724,7 +724,11 @@ export class World3D {
   private skipDraw = false;
 
   private frame(now: number) {
-    if (this.failed) return; // the failure card is up: stop
+    if (this.failed) {
+      // the failure card is up: the view's stopped, but a pad can still press its buttons (Copy details, Reload)
+      if (this.input && this.padNav) { this.input.poll(1 / 60); this.padNav.update(1 / 60); requestAnimationFrame(t => this.frame(t)); }
+      return;
+    }
     requestAnimationFrame(t => this.frame(t));
     if (this.manualFrames) { this.last = 0; return; }
     this.holdFrameRate(now);
@@ -1733,6 +1737,19 @@ export class World3D {
       if (c.held || !spot || Math.hypot(spot.x - this.pos.x, spot.z - this.pos.z) > WORLD.interactRange + 0.2) continue;
       const status = c.fill > 0 ? `Beer · ${Math.round(c.fill * 100)}% left${c.warm ? ' · warm' : ''}` : 'Empty can';
       entries.push({ id: `can-${c.id}`, anchor: new THREE.Vector3(spot.x, 0.55, spot.z), acts: this.canActions(c.id), status });
+    }
+    // last night's cans and the refund bag, the morning after: a tap on them walks you over; a pad or keys get a prompt
+    // when you're beside them (touch play has no new labels)
+    if (live && this.input.kind !== 'touch') {
+      const p = people(this.w);
+      for (const c of p.cans) {
+        const reach = c.spot !== 'floor' ? 2.4 : WORLD.interactRange + 0.45;
+        if (Math.hypot(c.x - this.pos.x, c.z - this.pos.z) > reach) continue;
+        entries.push({ id: `mcan-${c.id}`, anchor: new THREE.Vector3(c.x, 1.1, c.z), acts: [{ label: 'Pick up the can', done: 'Picked up a can', run: () => { this.pendingMorning = { can: c.id }; this.morningArrive(); } }], status: null });
+      }
+      if (w.carrying === 'cans' && (w.canCount ?? 0) > 0 && Math.hypot(BAG_SPOT.x - this.pos.x, BAG_SPOT.z - this.pos.z) <= WORLD.interactRange + 0.45) {
+        entries.push({ id: 'refundbag', anchor: new THREE.Vector3(BAG_SPOT.x, 1.0, BAG_SPOT.z), acts: [{ label: 'Cans in the refund bag', done: 'Cans in the refund bag', run: () => { this.pendingMorning = { bag: true }; this.morningArrive(); } }], status: null });
+      }
     }
     // the visiting mate, when they're beside you
     const mate = live ? g.distractions.find(d => d.kind === 'friend') : undefined;
