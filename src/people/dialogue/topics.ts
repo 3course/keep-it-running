@@ -674,7 +674,7 @@ export const TOPIC_THREADS: Thread[] = [
       {
         id: 'cathedral',
         say: [
-          { text: 'Bunnings on a Saturday morning. Big doors open. Smell of timber and onions.', expr: 'misty' },
+          { text: 'The big hardware barn on a Saturday morning. Big doors open. Smell of timber and onions.', expr: 'misty' },
           { text: "It's a cathedral. The sausage sizzle is communion.", expr: 'animated', quote: true },
         ],
         replies: [{ text: 'Onions under the snag. Not on top.', next: 'list' }, { text: "Bit much. It's a shed shop.", next: 'list' }],

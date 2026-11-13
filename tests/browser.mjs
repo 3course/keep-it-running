@@ -12,6 +12,12 @@ import { createServer } from 'vite';
 export const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 };
 
 /**
+ * Real-time Playwright waits only (GitHub Actions runners are slower than a local machine). Never for frame budgets:
+ * a frame count doesn't depend on how fast the machine is, so scaling one only loosens the test.
+ */
+export const waitTimeout = (ms) => (process.env.CI ? Math.round(ms * 2.5) : ms);
+
+/**
  * Start the dev server and the browser once per test file. `config` and `mates` come from src/ (and `load`
  * gets any other module), so tests check against the real numbers and names.
  */

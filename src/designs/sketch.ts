@@ -18,7 +18,8 @@ const n = (v: number) => v.toFixed(1);
 function wobble(pts: Pt[], closed: boolean, step: number, amp: number, rnd: () => number, overshoot: number): Pt[] {
   const src = closed ? [...pts, pts[0]] : pts;
   const out: Pt[] = [];
-  let phase = rnd() * 6.28, freq = 0.6 + rnd() * 0.5;
+  let phase = rnd() * 6.28;
+  const freq = 0.6 + rnd() * 0.5;
   for (let i = 1; i < src.length; i++) {
     const a = src[i - 1], b = src[i];
     const len = Math.hypot(b[0] - a[0], b[1] - a[1]);

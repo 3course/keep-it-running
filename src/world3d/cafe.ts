@@ -24,7 +24,7 @@ import { boxAt, toon } from './build.js';
 import { removeAndDispose } from './dispose.js';
 import { Figure } from './figures.js';
 import { friendLook, NAMED, randomLook } from './looks.js';
-import { snapToPixels } from './pixelSnap.js';
+import { snapToPixels, unsnap } from './pixelSnap.js';
 import type { Sfx } from './sfx.js';
 import { KEYS, setItem } from '../storage.js';
 
@@ -540,6 +540,7 @@ export class Cafe {
     this.talk.destroy(); this.chip?.remove(); this.skipChip?.remove(); this.nextBtn?.remove(); this.signEl.remove();
     for (const f of this.figs.values()) f.dispose();
     this.figs.clear();
+    for (const s of this.sparrows) unsnap(s.root); // registered in buildSparrows; the detached set keeps them parented
     removeAndDispose(this.set);
   }
 }

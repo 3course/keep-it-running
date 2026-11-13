@@ -65,6 +65,7 @@ export class RingSound {
    */
   cue(kind: CueKind, pan: number, volume: number) {
     this.cues.push(kind);
+    if (this.cues.length > 60) this.cues.shift(); // tests read the tail; a long session doesn't need the lot
     const ctx = this.ctx;
     if (!ctx || this.muted) return;
     const out = ctx.createGain(); out.gain.value = Math.max(0, Math.min(1, volume)) * 0.5;

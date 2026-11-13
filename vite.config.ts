@@ -12,6 +12,16 @@ const base = (process.env.VITE_BASE || '/').replace(/\/?$/, '/');
 export default defineConfig({
   base,
   define: { __BUILD_COMMIT__: JSON.stringify(commit) },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules/three/')) return 'three';
+          if (id.includes('/src/people/dialogue/')) return 'dialogue';
+        },
+      },
+    },
+  },
   plugins: [
     { name: 'build-commit', transformIndexHtml: html => html.replace('</head>', `  <meta name="build-commit" content="${commit}" />\n  </head>`) },
     VitePWA({

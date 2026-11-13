@@ -44,6 +44,7 @@ function rules(g: Game, w: WorldState): Said[] {
   // the router sat idle (the day log's "Idle …" stretches)
   const idle = d.idleMinutes ?? 0;
   if (idle > CONFIG.kerr.idleOverMinutes) out.push({ cost: idle * perMinute, line: `Router idle ${idle} min today. About ${money(idle * perMinute)} of cutting. Have the next sheet on the bed before this one's done.` });
+  if (g.canKnockOffEarly()) out.push({ cost: (CONFIG.clock.endHour * 60 - g.minute) * perMinute, line: `Last call's done and the board's clear. You can knock off now — or watch the clock till ${g.formatTime(CONFIG.clock.endHour * 60)}.` });
   // a fire with a full bag
   const hot = g.fireStarts.filter(f => f.bag > CONFIG.kerr.fullBagAbove);
   if (hot.length) {

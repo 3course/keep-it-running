@@ -12,6 +12,7 @@ const { Game } = await server.ssrLoadModule('/src/sim/Game.ts');
 const { newWorld } = await server.ssrLoadModule('/src/world/state.ts');
 const { parseSave, saveText } = await server.ssrLoadModule('/src/world/save.ts');
 const { START_TILE } = await server.ssrLoadModule('/src/world/layout.ts');
+const { newLease } = await server.ssrLoadModule('/src/world/lease.ts');
 const { WORLD } = await server.ssrLoadModule('/src/world/worldConfig.ts');
 
 /** Play the game on (knocking off when asked) for `minutes` of day time; it must not throw. */
@@ -86,7 +87,7 @@ describe('loading a save', () => {
     Object.assign(file.game, { dayIndex: -5, minute: 99999, cash: 1e300, rapport: 1e6, upgrades: ['nesting', 'free money', 7], current: 123456 });
     file.game.wear = { bit: 50, spoilboard: -3, filter: 'x' };
     file.game.fault = { def: 'no-such-fault', path: null };
-    file.world.bed = 'on fire'; file.world.carrying = 'a grudge'; file.world.offcutBin = 9;
+    file.world.bed = 'on fire'; file.world.carrying = 'a grudge';
     const text = JSON.stringify(file).replace('"v":2,', '"v":2,"__proto__":{"polluted":1},')
       .replace('"game":{', '"game":{"__proto__":{"tick":null},"constructor":1,');
     const back = parseSave(text.replace(/"seed":\d+/, '"seed":"1e999"'));
@@ -97,7 +98,7 @@ describe('loading a save', () => {
     assert.deepEqual([...b.upgrades], ['nesting']);
     assert.equal(b.current, null); assert.equal(b.fault, null);
     assert.deepEqual(b.wear, { bit: 1, spoilboard: 0, filter: 1 });
-    assert.equal(back.world.bed, 'empty'); assert.equal(back.world.carrying, null); assert.equal(back.world.offcutBin, 1);
+    assert.equal(back.world.bed, 'empty'); assert.equal(back.world.carrying, null);
     assert.equal(typeof b.tick, 'function', 'the prototype is untouched');
     assert.equal(Object.getPrototypeOf(b), Game.prototype);
     assert.equal(({}).polluted, undefined);
@@ -167,6 +168,66 @@ describe('loading a save', () => {
       assert.deepEqual(place(load(f => { f.hooks.wall = false; f.extAt = {}; })), { hook: true, down: null, carrying: null, from: null });
       assert.deepEqual(place(load(f => { f.hooks.wall = false; f.extAt = {}; f.carrying = null; f.extinguisherFrom = 'wall'; })), { hook: true, down: null, carrying: null, from: null });
     });
+  });
+});
+
+describe('tampered fields that used to slip through', () => {
+  it('a fault with junk inside (busyRemaining a string, a made-up phase) loads workable, not wedged', () => {
+    const { g, w } = midGame();
+    const file = JSON.parse(saveText(g, w));
+    file.game.fault = { def: 'chipping', phase: 'nonsense', busyRemaining: 'x', minutesOpen: 'y', triedDiagnoses: [], busyLabel: 7, stepIndex: -3, sheetScrapped: 0, path: null };
+    const back = parseSave(JSON.stringify(file));
+    assert.ok(back, 'loads');
+    const f = back.game.fault;
+    assert.ok(f, 'the fault is kept (its def is real)');
+    assert.equal(typeof f.busyRemaining, 'number', 'busyRemaining counts down again');
+    assert.equal(typeof f.minutesOpen, 'number');
+    assert.ok(['diagnose', 'wrongCall', 'choosePath', 'step', 'working'].includes(f.phase), `a real phase, not ${f.phase}`);
+  });
+
+  it('a swap with a junk key is dropped (it would write garbage into wear)', () => {
+    const { g, w } = midGame();
+    const file = JSON.parse(saveText(g, w));
+    file.game.replacing = { key: 'frobnicator', remaining: 5 };
+    const back = parseSave(JSON.stringify(file));
+    assert.ok(back, 'loads');
+    assert.equal(back.game.replacing, null);
+  });
+
+  it("the lease: junk rent or start day comes back as real numbers (rent still falls due)", () => {
+    const { g, w } = midGame();
+    w.lease = newLease(g);
+    const file = JSON.parse(saveText(g, w));
+    file.world.lease.rentDue = 'lots';
+    file.world.lease.startDayIndex = null;
+    file.world.lease.ending = 'gloriously';
+    const back = parseSave(JSON.stringify(file));
+    assert.ok(back, 'loads');
+    const l = back.world.lease;
+    assert.ok(typeof l.rentDue === 'number' && Number.isFinite(l.rentDue) && l.rentDue > 0, `rentDue is money again (${l.rentDue})`);
+    assert.ok(Number.isInteger(l.startDayIndex) && l.startDayIndex >= 1, `startDayIndex is a day again (${l.startDayIndex})`);
+    assert.equal(l.ending, null, 'a made-up ending is dropped');
+  });
+
+  it('an intact lease round-trips untouched', () => {
+    const { g, w } = midGame();
+    w.lease = newLease(g);
+    const text = saveText(g, w);
+    const back = parseSave(text);
+    assert.ok(back);
+    assert.equal(saveText(back.game, back.world).replace(/"savedAt":\d+/, ''), text.replace(/"savedAt":\d+/, ''));
+  });
+
+  it("view-side flags (signing, spraying, fireHold, extinguisherAway) don't ride in frozen: the view sets them each frame", () => {
+    const { g, w } = midGame();
+    const file = JSON.parse(saveText(g, w));
+    Object.assign(file.game, { signing: true, spraying: true, fireHold: true, extinguisherAway: true, escorting: true });
+    const back = parseSave(JSON.stringify(file));
+    assert.ok(back, 'loads');
+    assert.deepEqual(
+      [back.game.signing, back.game.spraying, back.game.fireHold, back.game.extinguisherAway, back.game.escorting],
+      [false, false, false, false, false],
+    );
   });
 });
 

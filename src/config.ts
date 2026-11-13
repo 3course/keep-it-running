@@ -53,7 +53,7 @@ const RARE_EVENTS: RareEvent[] = [
 export const CONFIG = {
   clock: {
     startHour: 7,
-    endHour: 17,          // knock-off; overtime prompt appears here
+    endHour: 17,          // knock-off; the mate's at the roller door at 5
     overtimeEndHour: 19,  // hard stop
     realMsPerGameMinute: 1000,
     // Time scale (Game.timeScale, set from Game.scaleFor): 1x while anything's happening; fast when the machine's idle,
@@ -238,12 +238,12 @@ export const CONFIG = {
     wanderMin: 4,              // minutes at one spot before moving on to another
     wanderMax: 8,
     areas: ['floor', 'office'] as ('floor' | 'office' | 'smoko')[], // where they wander (the smoko corner's walled off for now)
-    // Bars for the night-out stories ({bar}, {suburb}). Placeholders: names and suburbs unverified, swap freely.
+    // Bars for the night-out stories ({bar}, {suburb}). Invented names (no real venues); suburbs are real, swap freely.
     bars: [
-      { name: 'Dr Morse', suburb: 'Abbotsford' },
-      { name: 'The Builders Arms', suburb: 'Fitzroy' },
-      { name: 'Labour in Vain', suburb: 'Fitzroy' },
-      { name: 'Naked for Satan', suburb: 'Fitzroy' },
+      { name: 'The Offcut', suburb: 'Abbotsford' },
+      { name: 'The Loose Tenon', suburb: 'Fitzroy' },
+      { name: 'The Night Shift', suburb: 'Fitzroy' },
+      { name: 'The Spotted Quoll', suburb: 'Fitzroy' },
     ],
   },
 
@@ -297,7 +297,7 @@ export const CONFIG = {
   // Beer is a can you carry and drink, not an instant hit. Effects ramp in as you drink and wear off after.
   // The cafe before work (src/world3d/cafe.ts): the coffee's real money; a large one makes you a bit quicker till 11.
   cafe: {
-    name: 'Little Bird',
+    name: 'Early Mark',
     barista: 'Mai',
     regular: 5, large: 6.5,
     largeSpeedup: 0.05, largeUntilHour: 11,
@@ -423,7 +423,7 @@ export const CONFIG = {
 
   // The chores, with teeth (claude/sim-chores.md). Off: none of them, and the economy runs exactly as it did before them
   // (`npm run sim -- nochores`).
-  chores: true,
+  chores: true as boolean, // mutable: the sim's `-- nochores` turns it off
   chore: {
     // clamping: each loaded sheet takes four clamps. Every one left off is a chance it shifts mid-cut and is ruined.
     clamp: {
@@ -454,7 +454,7 @@ export const CONFIG = {
   },
 
   // Off: no rare events at all, and the economy runs exactly as before them (the frozen baseline; `npm run sim -- baseline`).
-  rareEvents: true,
+  rareEvents: true as boolean, // mutable: the sim's `-- baseline` turns it off
   rareEvent: {
     dayChance: 1 / 6,          // about one day in six has one
     fromDay: 4,                // none during the grace days
@@ -463,7 +463,7 @@ export const CONFIG = {
   },
 
   // Off: no milestones, and no unlocks from them (also part of the frozen baseline).
-  milestones: true,
+  milestones: true as boolean, // mutable: the sim's `-- baseline` turns it off
   milestone: {
     fireFreeDays: 3,           // this many days running without a fire…
     fireChanceMult: 0.6,       // …unlocks the upgraded extractor (spark arrestor): spot fires start this much as often
@@ -485,9 +485,10 @@ export const CONFIG = {
   ui: {
     swapHintBelow: 0.3,   // the to-do list says "Swap the …" once a consumable's health drops below this
     idleLogAboveMinutes: 2, // the day log notes every stretch the machine sat idle longer than this (game minutes)
+    knockOffEarlyFromHour: 14, // no "knock off early" before this (2pm)
+    knockOffEarlyIdleMinutes: 2, // offer it after the machine's sat idle this long with nothing on the board
   },
 
-  startingMarginHint: 0.15,
 } as const;
 
 export type UpgradeId = (typeof CONFIG.upgrades)[number]['id'];

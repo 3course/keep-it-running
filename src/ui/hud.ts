@@ -7,7 +7,6 @@ import { BUILD_TAG } from './clipboard.js';
 import type { Game } from '../sim/Game.js';
 import type { ObjectId } from '../world/layout.js';
 import type { TodoItem } from '../world/todo.js';
-import { WORLD } from '../world/worldConfig.js';
 import { getItem, KEYS, setItem } from '../storage.js';
 
 const HAND = "'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive";
@@ -88,7 +87,6 @@ const CSS = `
 #kir-hud .modal p { font-size: ${F(18)}; color: #a2937f; margin: 8px 0; line-height: 1.35; }
 #kir-hud .modal p.warn { color: #f08a6b; }
 #kir-hud .modal button { font: inherit; font-size: ${F(19)}; color: #efe6d8; border: 0; padding: 10px 14px; margin: 12px 6px 0; min-width: 130px; min-height: ${F(48)}; cursor: pointer; }
-#kir-hud .modal .go { background: #4e8a46; } #kir-hud .modal .ot { background: #9e3d3d; }
 #kir-hud .paused { cursor: pointer; }
 #kir-hud .paused .card { border-color: #a2937f; }
 #kir-hud .paused .card button { display: block; width: 100%; margin-top: 10px; padding: 10px; font: 16px 'Courier New', monospace; background: #efe6d8; color: #14110f; border: 2px solid #14110f; border-radius: 10px; }
@@ -181,8 +179,6 @@ export interface HudCallbacks {
   putCanDown: () => void;
   toggleMute: () => boolean;
   togglePause: () => void;
-  knockOff: () => void;
-  overtime: () => void;
   /** Layout mode (the pause menu): move things round; put everything back where it was built. */
   layout?: () => void;
   resetLayout?: () => void;
@@ -203,7 +199,6 @@ export class Hud {
   private padBody!: HTMLDivElement;
 
   private catcher: HTMLDivElement;
-  private eod: HTMLDivElement;
   private pausedEl: HTMLDivElement;
   private pauseBtn!: HTMLButtonElement;
   private restartBtn!: HTMLButtonElement;
@@ -229,8 +224,10 @@ export class Hud {
   private vh = 844;
   /** HUD scale: 1 on a phone, bigger on big screens. CSS px per reference px. */
   get unit() { return this.s; }
-  /** CSS px on the left covered by the pinned notepad column (landscape), so the view can centre on the rest. */
-  get coverLeft() { return this.land && this.pinned ? Math.max(0, Math.round(this.pad.getBoundingClientRect().right)) : 0; }
+  /** CSS px on the left covered by the pinned notepad column (landscape), so the view can centre on the rest.
+   * Cached in placeTab(): it's read every frame, and getBoundingClientRect there would force a layout every frame. */
+  get coverLeft() { return this.land && this.pinned ? this.cover : 0; }
+  private cover = 0;
   private ply: HTMLDivElement;
   readonly bubble: HTMLDivElement;
   readonly mateBubble: HTMLDivElement; // what the mate at the door is saying
@@ -242,7 +239,7 @@ export class Hud {
   /** A card that takes the screen's taps is up: the notepad (portrait), or any of the HUD's modals. */
   get modalOpen(): boolean {
     if (this.isOpen && !this.land) return true;
-    return [this.ply, this.eod, this.pausedEl, this.logPanel, this.summary].some(m => m.style.display !== '' && m.style.display !== 'none');
+    return [this.ply, this.pausedEl, this.logPanel, this.summary].some(m => m.style.display !== '' && m.style.display !== 'none');
   }
   isOpen = false;
 
@@ -270,7 +267,6 @@ export class Hud {
     this.pad = el('div', { className: 'pad' });
     this.padBody = el('div');
     this.pad.append(this.padBody);
-    this.eod = el('div', { className: 'modal' });
     this.pausedEl = el('div', { className: 'modal paused' });
     this.pausedEl.innerHTML = `<div class="card"><h1>Paused</h1><p>The clock's stopped.</p>
       <button class="big resume">Resume</button><button class="big settings">Settings</button>
@@ -324,7 +320,7 @@ export class Hud {
     }
     this.pinned = getItem(KEYS.padPinned) !== '0'; // default: pinned
     // the speech bubbles go under the labels: a mate's answer buttons always sit over what he's saying
-    this.stage.append(this.bubble, this.mateBubble, this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.pauseBtn, this.mute, this.tab, this.pad, this.toast, this.canChip, this.eod, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
+    this.stage.append(this.bubble, this.mateBubble, this.labels, this.pointers, this.hint, this.stick, this.catcher, this.clock, this.pauseBtn, this.mute, this.tab, this.pad, this.toast, this.canChip, this.ply, this.logPanel, this.summary, this.pausedEl, tag);
     if (this.fsBtn) this.stage.appendChild(this.fsBtn);
     document.body.appendChild(this.root);
     this.layout(window.innerWidth, window.innerHeight);
@@ -355,6 +351,7 @@ export class Hud {
     const padw = this.stage.style.getPropertyValue('--padw') || '0px';
     this.tab.style.left = this.land && this.pinned ? `calc(${padw} + env(safe-area-inset-left, 0px))` : '';
     this.stage.style.setProperty('--cover', this.land && this.pinned ? padw : '0px');
+    this.cover = this.land && this.pinned ? Math.max(0, Math.round(this.pad.getBoundingClientRect().right)) : 0;
   }
 
   open() {
@@ -425,10 +422,9 @@ export class Hud {
    */
   update(g: Game, items: TodoItem[], log: string[], head: { title: string; sub: string } = { title: `Day ${g.day}`, sub: '' }, waiting = false) {
     this.updateToast(log);
-    const ot = g.overtime ? ' · OT' : '';
     const cashCls = g.cash < 0 ? 'cash neg' : 'cash';
     // fast-forwarding: a small "waiting…" under the time, so the speed-up is legible
-    const html = `${g.formatTime()}${ot}<br><span class="${cashCls}">${money(g.cash)}${g.cash < 0 ? ' overdrawn' : ''}</span>${waiting ? '<br><span class="waiting">waiting…</span>' : ''}`;
+    const html = `${g.formatTime()}<br><span class="${cashCls}">${money(g.cash)}${g.cash < 0 ? ' overdrawn' : ''}</span>${waiting ? '<br><span class="waiting">waiting…</span>' : ''}`;
     if (this.clock.innerHTML !== html) this.clock.innerHTML = html;
 
     const urgent = items.filter(i => i.urgent).length;
@@ -533,21 +529,6 @@ export class Hud {
   }
   /** For tests: what pointers are showing. */
   get pointerKeys() { return [...this.pointerEls.keys()]; }
-
-  showEndOfDay(g: Game) {
-    const left = g.queued.length + (g.current ? 1 : 0);
-    const half = g.current ? `<p class="warn">${esc(g.current.name)} is half-cut on the bed — knock off now and it's scrap.</p>` : '';
-    const ot = money(CONFIG.labour.hourlyRate * CONFIG.labour.overtimeMultiplier);
-    this.eod.innerHTML = `<div class="card"><h1>It's 5 o'clock.</h1>${half}
-      <p>${left} sheet${left === 1 ? '' : 's'} still on the board. Margin today: ${g.today.revenue > 0 ? Math.round(g.margin * 100) + '%' : '—'}.</p>
-      <p>Overtime costs ${ot}/hr. Anything half-cut at ${CONFIG.clock.overtimeEndHour - 12}pm is scrap.</p>
-      <button class="go">Knock off</button><button class="ot">Overtime till ${CONFIG.clock.overtimeEndHour - 12}pm</button></div>`;
-    this.eod.querySelector('.go')!.addEventListener('click', () => this.cb.knockOff());
-    this.eod.querySelector('.ot')!.addEventListener('click', () => this.cb.overtime());
-    this.eod.style.display = 'flex';
-  }
-  hideEndOfDay() { this.eod.style.display = 'none'; }
-  get endOfDayShowing() { return this.eod.style.display === 'flex'; }
 
   /** Client (CSS) coordinates → HUD coordinates. The canvas and HUD both fill the viewport, so they're the same. */
   toLogical(clientX: number, clientY: number) { return { x: clientX, y: clientY }; }

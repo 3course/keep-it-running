@@ -4,7 +4,6 @@ import type { Game } from '../sim/Game.js';
 import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
-import { WORLD } from './worldConfig.js';
 
 /** A to-do line. `targets`: where tapping it walks you (the nearest, if there are several). */
 export interface TodoItem { key: string; text: string; targets: ObjectId[]; urgent: boolean }
@@ -145,6 +144,9 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   if (short.length) add(!g.nextUp(), 'orderply', `Order ply (out of ${short.map(t => g.stockWord(t)).join(', ')})`, 'desk'); // on the computer
 
   // (milestones are on Kerr's screen: progress, not a to-do)
+
+  // last order call handled, board clear, nothing to do till 5
+  if (g.canKnockOffEarly()) add(false, 'knock-early', `Knock off early (${g.formatTime()})`, 'rollerDoor');
 
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({

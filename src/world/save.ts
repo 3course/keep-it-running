@@ -7,11 +7,14 @@ import { CONFIG, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
 import { Rng } from '../sim/rng.js';
-import type { Job } from '../sim/types.js';
+import type { FaultPhase, Job } from '../sim/types.js';
 import type { WorldState } from './state.js';
 import { getItem, KEYS, removeItem, setItem } from '../storage.js';
 import { CARRIES, HOOKS, hookThere, newWorld, type Hook } from './state.js';
 import { DEFAULT_PLAN, fullPlan, reachableFor } from './layoutPlan.js';
+import { newLease, type LeaseState } from './lease.js';
+import { ENDINGS } from './leaseEnding.js';
+import { FORTUNE_KINDS } from './leaseWeeks.js';
 import { WORLD } from './worldConfig.js';
 
 const SAVE_VERSION = 2; // 2: positions in metres (Three.js world)
@@ -112,8 +115,22 @@ function gameFromJson(raw: Loose): Game {
   const f = raw.fault;
   const def = isObject(f) ? FAULTS.find(d => d.id === f.def) : undefined;
   if (isObject(f) && def) {
-    g.fault = { ...(repair(f, {}, 0) as unknown as NonNullable<Game['fault']>), def, path: typeof f.path === 'string' ? def.paths.find(p => p.id === f.path) : undefined };
+    // repaired against a template, not {}: a fresh game's fault is null, so sameKind would otherwise take
+    // anything — and a string busyRemaining (say) never counts down, wedging the machine on 'fault' all day
+    const template: Omit<NonNullable<Game['fault']>, 'def' | 'path'> = {
+      phase: 'diagnose', minutesOpen: 0, triedDiagnoses: [], busyRemaining: 0, busyLabel: '', stepIndex: 0, sheetScrapped: false,
+    };
+    const path = typeof f.path === 'string' ? def.paths.find(p => p.id === f.path) : undefined;
+    const r = repair(f, template as unknown as Loose, 1, true) as unknown as NonNullable<Game['fault']>;
+    g.fault = { ...r, def, path };
+    const PHASES: FaultPhase[] = ['diagnose', 'wrongCall', 'choosePath', 'step', 'working'];
+    if (!PHASES.includes(g.fault.phase)) g.fault.phase = path ? 'step' : 'diagnose';
+    if ((g.fault.phase === 'step' || g.fault.phase === 'working') && !path) g.fault.phase = 'diagnose'; // a step needs its path
+    g.fault.minutesOpen = clamp(g.fault.minutesOpen, 0, 24 * 60);
+    g.fault.busyRemaining = clamp(g.fault.busyRemaining, 0, 24 * 60);
+    g.fault.stepIndex = path ? clamp(Math.floor(g.fault.stepIndex), 0, path.steps.length) : 0;
   } else g.fault = null; // (a fault that isn't in the game any more: cleared)
+  if (g.replacing && !(g.replacing.key in CONFIG.consumables)) g.replacing = null; // a junk key would write garbage into wear
   g.deliveries = g.deliveries.filter(d => isObject(d) && Array.isArray(d.lines));
   for (const d of g.deliveries) d.lines = d.lines.filter(l => isObject(l) && CONFIG.jobs.types.some(t => t.id === l.type));
   if (g.fire !== null && !isObject(g.fire)) g.fire = null;
@@ -124,7 +141,9 @@ function gameFromJson(raw: Loose): Game {
     delete r.escortSec;
     if (r.id === 'council' && (typeof r.escortMinutes !== 'number' || !Number.isFinite(r.escortMinutes) || r.escortMinutes < 0)) r.escortMinutes = 0;
   }
-  g.escorting = false; // the view sets it each frame from where you are
+  // the view sets these each frame from where you are / what's held; left frozen they'd make the
+  // validation day (playsOn) a different game from the one the player resumes
+  g.escorting = false; g.signing = false; g.spraying = false; g.fireHold = false; g.extinguisherAway = false;
   // a save from before refills counted across days: the old daily count isn't carried (the lifetime count starts at 0)
   delete (g as unknown as Loose).extinguisherUsesToday;
   target.extinguisherUses = clamp(Math.floor(g.extinguisherUses), 0, LIMIT.count);
@@ -215,8 +234,23 @@ function worldFromJson(raw: unknown, g: Game): WorldState {
   if (!BEDS.includes(out.bed)) out.bed = 'empty';
   if (out.carrying !== null && !CARRIES.includes(out.carrying)) out.carrying = null;
   tidyExtinguishers(out, g);
-  out.offcutBin = clamp(out.offcutBin, 0, 1);
   out.finishedStack = clamp(Math.floor(out.finishedStack), 0, 1000);
+  // the lease: a fresh world has none (newWorld doesn't set it), so repair() above took it as-is — check it
+  // against a template lease, or a tampered rentDue/startDayIndex (NaN, a string) silently stops rent ever falling due
+  if (out.lease !== undefined) {
+    if (!isObject(out.lease)) delete out.lease;
+    else {
+      const l = repair(out.lease as unknown as Loose, newLease(g) as unknown as Loose, 1, true) as unknown as LeaseState;
+      l.n = clamp(Math.floor(l.n), 1, LIMIT.count);
+      l.startDayIndex = clamp(Math.floor(l.startDayIndex), 1, LIMIT.dayIndex);
+      l.rentDue = clamp(l.rentDue, 0, LIMIT.money);
+      if (l.ending !== null && !ENDINGS.includes(l.ending)) l.ending = null;
+      l.days = (Array.isArray(l.days) ? l.days : []).filter(isObject) as unknown as LeaseState['days'];
+      l.sold = (Array.isArray(l.sold) ? l.sold : []).filter(isObject) as unknown as LeaseState['sold'];
+      if (l.fortunes) l.fortunes = l.fortunes.map(k => (k === null || FORTUNE_KINDS.includes(k) ? k : null));
+      out.lease = l;
+    }
+  }
   return out;
 }
 

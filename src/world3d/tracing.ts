@@ -12,7 +12,6 @@ import { flatDesign, bounds, type Pt } from '../designs/path.js';
 import type { Design, DesignKind } from '../designs/types.js';
 import { SCRIPTS } from '../people/dialogue/index.js';
 import type { FriendId } from '../people/dialogue/types.js';
-import { friendById } from '../people/friends.js';
 import { slurStrength } from '../people/slur.js';
 import { people, type Keepsake } from '../people/state.js';
 import type { WorldState } from '../world/state.js';
@@ -201,7 +200,7 @@ export class Tracing {
   }
 
   private rebuildInk() {
-    if (this.ink) { this.ink.parent?.remove(this.ink); this.ink.geometry.dispose(); }
+    if (this.ink) { this.ink.parent?.remove(this.ink); this.ink.geometry.dispose(); (this.ink.material as THREE.Material).dispose(); } // runs per frame while drawing: the material goes too (see clearMeshes)
     this.ink = null;
     const d = this.design!, tl = toLocal(d, this.scale);
     const live = this.strokes.filter(s => s.length > 1);
@@ -338,6 +337,14 @@ export class Tracing {
   }
 
   private pick(xs: string[]) { return xs[Math.floor(this.t * 7 + this.strokes.length) % xs.length]; }
+
+  /** Replaced (a rebuilt world): whatever a live trace had up goes, like the other view classes. */
+  dispose() {
+    this.clearMeshes();
+    if (this.offcut) { this.offcut.parent?.remove(this.offcut); this.offcut.geometry.dispose(); this.offcut = null; }
+    this.done = null;
+    this.mode = 'off';
+  }
 }
 
 const len = (s: Pt[]) => s.reduce((a, p, i) => (i ? a + Math.hypot(p[0] - s[i - 1][0], p[1] - s[i - 1][1]) : 0), 0);
@@ -370,4 +377,3 @@ function ribbons(lines: { pts: [number, number][]; w: number }[], mat: THREE.Mat
   return m;
 }
 
-export const friendName = (id: FriendId | 'you') => (id === 'you' ? 'You' : friendById(id).name);

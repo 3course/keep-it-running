@@ -42,7 +42,7 @@ export class CallCard {
     if (!document.getElementById('kir-callcard-css')) { const s = document.createElement('style'); s.id = 'kir-callcard-css'; s.textContent = CSS; document.head.appendChild(s); }
     this.el = document.createElement('div');
     this.el.className = 'callcard';
-    for (const t of ['pointerdown', 'pointermove', 'pointerup', 'click'] as const) this.el.addEventListener(t, e => e.stopPropagation());
+    for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'click'] as const) this.el.addEventListener(t, e => e.stopPropagation());
     parent.appendChild(this.el);
   }
 

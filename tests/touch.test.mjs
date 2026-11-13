@@ -9,13 +9,11 @@ import { advance, frames, freshGame, freshMate, labels, mateNow, setTime, startB
 
 const env = await startBrowser();
 after(() => env.close());
-const V = env.config.visitors, F = env.config.distractions.friend, BEER = env.config.beer;
+const V = env.config.visitors;
 
 const FLAT_OUT = '"Flat out, sorry"';
 const hhmm = ([h, m]) => `${h}:${String(m).padStart(2, '0')}`;
 const YARN = '"Yeah, what\'s up?"', HAND = '"Give us a hand?"', BEER_LATER = '"Beer after two?"', BEER_NOW = '"Grab you a beer?"';
-const yes = shown => shown.filter(t => t !== FLAT_OUT);
-
 /** New game, you at the sheet racks in the dock (nothing of their own to tap), the clock at `time`, `beers` already given out today, and a mate who's just walked in. */
 async function mateDropsIn([h, m], { mate: mateId, beers } = {}) {
   const game = await freshGame(env);

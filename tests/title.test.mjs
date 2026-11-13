@@ -41,6 +41,17 @@ describe('the title screen', () => {
     await context.close();
   });
 
+  it("Space behind the title doesn't start the clock", async () => {
+    const { page, context, errors } = await open('?seed=1', { save: true });
+    const m0 = await page.evaluate(() => window.kir.minute);
+    await page.keyboard.press(' ');
+    await page.waitForTimeout(800);
+    assert.equal(await page.evaluate(() => window.kir.minute), m0, 'the clock still waits');
+    assert.equal(await page.evaluate(() => window.kirScene.isPaused), true, 'still paused');
+    assert.deepEqual(errors, []);
+    await context.close();
+  });
+
   it('with a save: Continue shows where you are; New game asks first', async () => {
     const { page, context } = await open('?seed=1', { save: true });
     const b = await buttons(page);

@@ -10,7 +10,6 @@ import type { Game } from '../sim/Game.js';
 import { Hints } from '../ui/hints.js';
 import { GesturePad } from '../ui/gesture.js';
 import { Hud } from '../ui/hud.js';
-import { renderDaySummary, renderWeekSummary } from '../ui/summary.js';
 import { track } from '../analytics.js';
 import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, uteActions, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
 import { CallCard } from '../ui/callCard.js';
@@ -20,9 +19,8 @@ import { findPath, smooth, type P } from '../world/pathfind.js';
 import { writeSave, clearSave, parseSave, saveText } from '../world/save.js';
 import { absMinute, extPlace, HOOKS, hookThere, logEvent, onHook, startNewDay, type Hook, type WorldState } from '../world/state.js';
 import { TOUR, todoItems, tourActive } from '../world/todo.js';
-import { mateById } from '../data/mates.js';
 import { WORLD } from '../world/worldConfig.js';
-import { boxAt, buildWorld, toon, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
+import { boxAt, buildWorld, toonRamp, type BuiltWorld, type ObjectView } from './build.js';
 import { dropSpot, moveAndSlide, type Box } from './collide.js';
 import { Effects } from './effects.js';
 import { Particles } from './particles.js';
@@ -51,7 +49,7 @@ import { BAG_SPOT } from '../world/cans.js';
 import { LayoutEditor } from './layoutEditor.js';
 import { DennisView } from './dennisView.js';
 import { Cafe } from './cafe.js';
-import { dayHeading, dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, pastLeases, projectedCash, rentClockText, recordDay, rememberLease, runFacts } from '../world/lease.js';
+import { dayHeading, dealWeek, fillRun, fireWobble, leaseDay, leaseLength, leaseOver, newLease, outcome, owedAfter, projectedCash, rentClockText, recordDay, rememberLease, runFacts } from '../world/lease.js';
 import { LEASE_LINES } from '../people/lines/lease.js';
 import { KerrView } from '../ui/kerr.js';
 import { TitleScreen } from '../ui/title.js';
@@ -59,12 +57,10 @@ import { showSettings } from '../ui/settingsCard.js';
 import { SETTINGS } from '../settings.js';
 import { BUILD_TAG } from '../ui/clipboard.js';
 import { holdSeconds } from '../ui/talk.js';
-import { snapAll } from './pixelSnap.js';
+import { pruneSnapped, snapAll } from './pixelSnap.js';
 import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
-import { renderDailyCard } from '../ui/dailyCard.js';
-import { renderWeekend } from '../ui/weekend.js';
 import { startOver } from '../world/save.js';
 import type { Reckoning } from './knockoff.js';
 import { DEFAULT_PLAN, applyPlan, clonePlan, effectsOf, fullPlan, measure, STATION_IDS, type Plan } from '../world/layoutPlan.js';
@@ -140,14 +136,17 @@ export class World3D {
   private ePressed = false;
   private ptr: { id: number; x0: number; y0: number; t0: number; stickable: boolean; active: boolean } | null = null;
   private stickVec = { x: 0, y: 0 };
-  private labelHold = false;
   private labelPressed = false;  // a finger is down on a label: don't move or rebuild them under it
   private labelPressedAt = 0;
   /** Every action done, for tests and debugging: what was tapped and what it said. */
   readonly actionLog: { label: string; said: string; t: number }[] = [];
-  private objectHold = false;
-  /** The finger holding the spray (on the label or the exhaust): only it aims, only its lift lets go. */
-  private holdId: number | null = null;
+  // The spray can be held two ways at once (the label and the exhaust mesh); each hold is keyed to its own
+  // finger so one lifting never leaks the other's flag. Only the holding finger aims, only its lift lets go.
+  private labelHoldId: number | null = null;
+  private objectHoldId: number | null = null;
+  private get labelHold() { return this.labelHoldId !== null; }
+  private get objectHold() { return this.objectHoldId !== null; }
+  private get holdId(): number | null { return this.labelHoldId ?? this.objectHoldId; }
   private thumb = { x: 0, y: 0 };       // where the last finger is (logical px): aims the extinguisher
   private sprayHeld = false;             // the trigger was down last frame
   private flareUntil = 0;                // the flames jump while a let-go fire flares back
@@ -157,6 +156,7 @@ export class World3D {
   // camera
   private camYaw = 0;
   private camLook = new THREE.Vector3();
+  private camTarget = new THREE.Vector3(); // scratch for updateCamera (per frame: no allocating)
   private lead = { x: 0, z: 0 };
   private camScale = 1; // pulls back a little outside
 
@@ -291,6 +291,7 @@ export class World3D {
       goTo: (targets, key) => {
         this.hints.mark('notepad');
         this.hints.mark('drag'); // a walk's a walk: the notepad got you there
+        if (key === 'knock-early' && this.g.knockOffEarly()) { this.save(); return; }
         // a fire with the extinguisher not in your hands: go to the nearest one, wherever it is (a hook or the floor)
         if (key === 'fire' && this.w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e?.down) { this.walkToPoint(e.x, e.z); this.pendingExt = e.h; return; } }
         this.goToNearest(targets, key);
@@ -301,8 +302,6 @@ export class World3D {
       },
       toggleMute: () => { this.ring.setMuted(!this.ring.muted); return this.ring.muted; },
       togglePause: () => this.setPaused(!this.paused),
-      knockOff: () => { this.g.knockOff(); this.hud.hideEndOfDay(); },
-      overtime: () => { this.g.startOvertime(); this.hud.hideEndOfDay(); this.save(); },
       settings: () => this.openSettings(),
       restartDay: () => this.restartDay(),
       quit: () => this.quitToTitle(),
@@ -318,7 +317,7 @@ export class World3D {
     // answered: the call is a job card (who, the sketch, the details as they tell you, due bottom-right), then Accept /
     // Decline inside it. The job card stays quiet when those sheets land (the call already showed them).
     uiHooks.orderCard = (d, offer, take, decline) => {
-      const g = this.g, j = offer.jobs[0], n = offer.jobs.length, t = CONFIG.jobs.types.find(x => x.id === j.type)!;
+      const g = this.g, j = offer.jobs[0], n = offer.jobs.length, t = CONFIG.jobs.types.find(x => x.id === j.type) ?? CONFIG.jobs.types[0]; // offers are generated from types, but don't crash the call card on a stale one
       const total = offer.jobs.reduce((s, x) => s + x.price, 0), lo = Math.min(...offer.jobs.map(x => x.price)), hi = Math.max(...offer.jobs.map(x => x.price));
       this.callCard.show(d.id, {
         who: `${d.customer ?? 'A customer'}${d.big ? ' · the big job' : ''}`, job: j, rush: offer.kind === 'rush', due: g.dueLabel(j),
@@ -496,7 +495,7 @@ export class World3D {
       canvas.setPointerCapture(e.pointerId);
       const L = this.hud.toLogical(e.clientX, e.clientY);
       const hit = this.pick(L.x, L.y);
-      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHold = true; this.holdId = e.pointerId; return; }
+      if ((hit === 'exhaust' || hit === 'duct') && this.canSpray()) { this.objectHoldId = e.pointerId; return; }
       // the first finger down is the stick (or the tap): a second one doesn't take it over or tap
       if (this.ptr) return;
       // a drag anywhere is the stick; a quick tap uses whatever's under it
@@ -521,7 +520,7 @@ export class World3D {
     const up = (e: PointerEvent) => {
       if (this.layoutEditor.active) this.layoutEditor.pointer('up', e);
       if (this.tracing.active) this.tracing.pointer('up', e);
-      if (this.holdId === null || e.pointerId === this.holdId) { this.objectHold = false; if (!this.labelHold) this.holdId = null; }
+      if (this.objectHoldId === e.pointerId) this.objectHoldId = null;
       if (this.uiBlocking) { this.dropPointer(); return; } // no tap-to-walk through a card
       const p = this.ptr;
       if (!p || p.id !== e.pointerId) return;
@@ -541,10 +540,10 @@ export class World3D {
     window.addEventListener('pointerdown', track, true);
     window.addEventListener('pointermove', track, true);
     const release = (e: PointerEvent) => {
-      if (this.holdId !== null && e.pointerId !== this.holdId) return; // another finger lifting doesn't stop the spray
-      this.labelHold = false;
-      if (!this.objectHold) this.holdId = null;
-      if (this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
+      // each hold lets go only on its own finger's lift; another finger lifting doesn't stop the spray
+      if (this.labelHoldId === e.pointerId) this.labelHoldId = null;
+      if (this.objectHoldId === e.pointerId) this.objectHoldId = null;
+      if (this.holdId === null && this.labelPressed) { this.labelPressed = false; this.labelSig = ''; } // rebuild now the finger's off
     };
     window.addEventListener('pointerup', release);
     window.addEventListener('pointercancel', release);
@@ -553,17 +552,18 @@ export class World3D {
       const k = e.key.toLowerCase();
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) this.hints.mark('drag');
       if (k === '`') { this.debug.visible = !this.debug.visible; this.debugLabels.forEach(d => { d.el.style.display = this.debug.visible ? 'block' : 'none'; }); }
-      if (k === ' ') { this.setPaused(!this.paused); e.preventDefault(); }
+      if (k === ' ' && !this.title) { this.setPaused(!this.paused); e.preventDefault(); } // not behind the title: its clock's stopped for real
       if (this.reveal.active && (k === 'escape' || k === 'enter' || k === 'e')) { this.reveal.skip(); this.skipEl.style.display = 'none'; return; }
       if (k === 'e' && !e.repeat) this.ePressed = true;
       this.keys.add(k);
     });
     window.addEventListener('keyup', e => this.keys.delete(e.key.toLowerCase()));
+    // focus gone (Alt-Tab, another window): the keyups will never come, so let go of everything held
+    window.addEventListener('blur', () => { this.keys.clear(); this.ePressed = false; });
   }
 
   private ndc(lx: number, ly: number) { return new THREE.Vector2(lx / this.vw * 2 - 1, -(ly / this.vh * 2 - 1)); }
 
-  /** Which object (if any) is under a logical-px point. */
   /** A can on the floor under a logical-px point (they're small: a generous invisible hit box each). */
   private pickCan(lx: number, ly: number): number | null {
     this.raycaster.setFromCamera(this.ndc(lx, ly), this.camera);
@@ -914,6 +914,7 @@ export class World3D {
       this.scene = new THREE.Scene();
       this.buildScene();
       this.makeKnockOff();
+      pruneSnapped(this.scene); // the lost scene's figures would otherwise stay registered (and reachable) forever
     } catch (e) { this.contextLost = false; this.fail(e); return; }
     this.contextLost = false;
     this.last = 0;
@@ -924,7 +925,9 @@ export class World3D {
 
   private lastTracked = '';
 
-  private showSummary() {
+  private showSummary() { void this.showSummaryAsync(); }
+
+  private async showSummaryAsync() {
     this.save();
     const gt = this.g, key = `${gt.dayIndex}-${gt.phase}`;
     if (key !== this.lastTracked) { // the summary can re-render (purchases, resume); count each day/week once per page load
@@ -939,14 +942,17 @@ export class World3D {
     const done = () => { this.save(); this.hud.hideSummary(); this.hud.setHudVisible(true); };
     const l = this.w.lease;
     if (l && gt.phase === 'daySummary') recordDay(l, g);
-    const weekend = l && !leaseOver(l, g) && leaseDay(l, g) < leaseLength() ? (next: () => void) => renderWeekend(this.hud.showSummary(), {
-      week: Math.ceil(leaseDay(l, g) / CONFIG.week.days), pieces: () => people(this.w).keepsakes,
-      sell: (k, price) => { const p = people(this.w); p.keepsakes = p.keepsakes.filter(x => x !== k); g.marketSale(price); l.sold.push({ name: k.design.name, price, dayIndex: g.dayIndex }); this.save(); },
-      fill: t => fillRun(t, { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord }), monday: () => { next(); },
-    }) : undefined;
+    const { renderDaySummary, renderWeekSummary } = await import('../ui/summary.js');
+    const weekend = l && !leaseOver(l, g) && leaseDay(l, g) < leaseLength()
+      ? (next: () => void) => { void import('../ui/weekend.js').then(({ renderWeekend }) => renderWeekend(this.hud.showSummary(), {
+          week: Math.ceil(leaseDay(l, g) / CONFIG.week.days), pieces: () => people(this.w).keepsakes,
+          sell: (k, price) => { const p = people(this.w); p.keepsakes = p.keepsakes.filter(x => x !== k); g.marketSale(price); l.sold.push({ name: k.design.name, price, dayIndex: g.dayIndex }); this.save(); },
+          fill: t => fillRun(t, { ...runFacts(l, g, people(this.w)), landlord: LEASE_LINES.landlord }), monday: () => { next(); },
+        })); }
+      : undefined;
     const week = () => renderWeekSummary(this.hud.showSummary(), g, done, weekend, l ? 'Friday. Payday.' : 'Week closed');
     if (g.phase === 'weekSummary') { week(); return; }
-    if (this.mode === 'daily') { renderDailyCard(this.hud.showSummary(), recordDaily(g, this.w)); return; }
+    if (this.mode === 'daily') { const { renderDailyCard } = await import('../ui/dailyCard.js'); renderDailyCard(this.hud.showSummary(), recordDaily(g, this.w)); return; }
     renderDaySummary(this.hud.showSummary(), g, () => { this.save(); if (g.phase === 'weekSummary') week(); else done(); }, () => this.save(), () => this.hints.reset(), this.madeToday(), this.dayPeople());
   }
 
@@ -967,6 +973,8 @@ export class World3D {
    * their reply, and a ute left waiting at the roller door honks. Names come off the job's design, kept in the save. */
   private pickupNews() {
     const g = this.g, w = this.w, names = (w.pickupNames ??= {});
+    // the map rides in the save, so names whose pickups Game has already dropped (3 days of done) go too
+    for (const id of Object.keys(names)) if (!g.pickups.some(p => p.id === Number(id))) delete names[Number(id)];
     for (const p of g.pickups) {
       if (names[p.id]) continue;
       const j = g.jobs.find(x => x.id === p.jobs[0]);
@@ -977,7 +985,10 @@ export class World3D {
     for (const p of g.pickupsHere) {
       const waited = now - (p.hereAt ?? now);
       const last = this.honked.get(p.id);
-      if (waited >= CONFIG.pickup.honkAfterMinutes && (last === undefined || now - last >= 10)) { this.honked.set(p.id, now); this.sfx.honk(); this.say('🛻 Beep beep!'); }
+      if (waited >= CONFIG.pickup.honkAfterMinutes && (last === undefined || now - last >= 10)) {
+        this.honked.set(p.id, now); this.sfx.honk(); this.say('🛻 Beep beep!');
+        if (this.honked.size > 40) for (const k of this.honked.keys()) { if (this.honked.size <= 40) break; this.honked.delete(k); } // long-gone utes
+      }
     }
   }
   private honked = new Map<number, number>(); // pickup → when it last honked (absolute minute): again every ten
@@ -1085,7 +1096,6 @@ export class World3D {
     return { title, sub: l ? `${bank} · $${l.rentDue.toLocaleString('en-AU')} rent due day ${leaseLength()}` : bank };
   }
 
-  /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
   /**
    * Day 20's cash as the day will end. The reckoning's at 5pm, but endDay (after it) still settles the served walk-ins,
    * the overdraft fee and Dennis's router day: so the ending's worked out on a copy of the game knocked off to the day
@@ -1101,6 +1111,7 @@ export class World3D {
     return projectedCash(copy);
   }
 
+  /** Day 20 of the Lease, at 5: the reckoning — everyone who's part of the shed, the outcome read off the save. */
   reckoning(): Reckoning | null {
     const l = this.w.lease, g = this.g;
     if (!l || leaseDay(l, g) !== leaseLength()) return null;
@@ -1179,7 +1190,6 @@ export class World3D {
     this.save();
   }
 
-  /** Rebuild the shed from the layout (as after a lost context). */
   /** The people in the shed are Figures (legs, faces, looks): the council inspector now, and whichever mate's in, when he comes. */
   private dressNpcs() {
     const ins = this.built.inspector;
@@ -1205,6 +1215,7 @@ export class World3D {
     // sun's shadow map with it, and the sheet looks (some only go on a sheet now and then). Shared ones stay (dispose.ts).
     disposeObject(old);
     if (oldLooks) for (const m of [...Object.values(oldLooks.byType), oldLooks.scrap, oldLooks.plywood]) disposeMaterial(m);
+    pruneSnapped(this.scene); // drop the old scene's figure roots from the snap registry, or the whole old graph stays reachable
     this.solid = solidCells();
     this.visitor = new VisitorWalker(this.walkable);
     this.inspector = new InspectorWalker(this.walkable);
@@ -1245,6 +1256,7 @@ export class World3D {
     });
     const m = this.built.objects.get('machine')!, sheet = m.parts.sheet as THREE.Mesh;
     const sp = (sheet.geometry as THREE.BoxGeometry).parameters;
+    this.tracing?.dispose();
     this.tracing = new Tracing({
       g: this.g, w: this.w, camera: this.camera, canvas: this.renderer.domElement, scene: this.scene, sheet,
       bed: { w: sp.width, d: sp.depth, top: sp.height / 2 }, cutView: this.cutView, reveal: this.reveal, talk: this.knockoff.talk,
@@ -1316,8 +1328,6 @@ export class World3D {
       else if (job.status === 'done') { this.pieceDone(job); w.bed = CONFIG.chores ? 'empty' : 'done'; w.clamps = 0; } // its boards join the pile at the bed's end
       else if (job.status === 'scrapped' && !g.fault) w.bed = 'scrap';
     }
-    w.offcutBin = g.offcutBin; // the bin's Game's now (CONFIG.chore.offcuts)
-    w.sheetsSeen = g.today.sheetsDone;
     if (w.watchingSwap && g.replacing?.key !== w.watchingSwap) {
       if (w.watchingSwap === 'filter') w.oldBagWaiting = true;
       w.watchingSwap = null;
@@ -1422,7 +1432,7 @@ export class World3D {
 
   private move(dt: number) {
     const g = this.g, w = this.w;
-    const frozen = this.paused || g.phase !== 'day' || this.kerr?.showing || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.endOfDayShowing || this.hud.summaryShowing;
+    const frozen = this.paused || g.phase !== 'day' || this.kerr?.showing || this.knockoff?.inScene || this.layoutEditor?.active || this.cafe?.active || g.busy !== null || w.toiletUntil !== null || this.hud.summaryShowing;
     let tx = 0, tz = 0;
     if (!frozen) {
       // screen-relative input (keyboard or stick) → world, using the camera's yaw
@@ -1639,6 +1649,7 @@ export class World3D {
     this.player.hop();
     this.hints.mark('interact');
     this.actionLog.push({ label: a.label, said, t: this.time });
+    if (this.actionLog.length > 400) this.actionLog.splice(0, this.actionLog.length - 400); // tests/debug read the tail; it rides along on real sessions
     const after = new Set(todoItems(this.g, this.w).map(i => i.key));
     // a line that vanished because of this action is done — except "grab the next sheet", which just hides while your hands are full
     let crossed = 0;
@@ -1719,7 +1730,7 @@ export class World3D {
           b.addEventListener('pointerdown', e => {
             e.preventDefault(); e.stopPropagation();
             this.labelPressed = true; this.labelPressedAt = this.time;
-            if (a.hold) { this.labelHold = true; this.holdId = e.pointerId; return; }
+            if (a.hold) { this.labelHoldId = e.pointerId; return; }
             this.doAction(a, id);
             // the label ticks: it stays put (and isn't rebuilt) until the finger lifts
             b.classList.add('tick');
@@ -1767,8 +1778,8 @@ export class World3D {
     const kl = Math.min(1, 2 * dt);
     this.lead.x += (this.vel.x / WORLD.maxSpeed * WORLD.camLead - this.lead.x) * kl;
     this.lead.z += (this.vel.z / WORLD.maxSpeed * WORLD.camLead - this.lead.z) * kl;
-    const target = new THREE.Vector3(this.pos.x + this.lead.x, 0.6, this.pos.z + this.lead.z);
-    this.camLook.lerp(target, Math.min(1, WORLD.camLerp * dt));
+    this.camTarget.set(this.pos.x + this.lead.x, 0.6, this.pos.z + this.lead.z);
+    this.camLook.lerp(this.camTarget, Math.min(1, WORLD.camLerp * dt));
     // outside reads bigger than inside: pull back a touch in the yard
     this.camScale += ((zone?.outside ? WORLD.camYardPullback : 1) - this.camScale) * Math.min(1, 1.5 * dt);
     const pitch = THREE.MathUtils.degToRad(WORLD.camPitchDeg), dist = WORLD.camDistance * this.camScale;
@@ -2125,6 +2136,16 @@ export class World3D {
     w.carrying = null; w.extinguisherFrom = null;
   }
 
+  // updatePointers asks for the nearest extinguisher every frame of a fire; the answer only moves when you do
+  // (or an extinguisher does), and each ask is a pathfind per hook — cached on (your cell, where the extinguishers are).
+  private extCache: { key: string; val: { h: Hook; x: number; z: number; down: boolean } | null } | null = null;
+  private nearestExtCached() {
+    const c = this.cell();
+    const key = `${c.x},${c.y}|${JSON.stringify(this.w.extAt ?? {})}|${JSON.stringify(this.w.hooks)}`;
+    if (this.extCache?.key !== key) this.extCache = { key, val: this.nearestExt() };
+    return this.extCache.val;
+  }
+
   /** The nearest extinguisher you could grab (on a hook or put down), by the walk there. */
   private nearestExt(): { h: Hook; x: number; z: number; down: boolean } | null {
     const g = this.g, w = this.w;
@@ -2323,7 +2344,7 @@ export class World3D {
       const problems: { key: string; icon: string; pos: THREE.Vector3; ring?: boolean }[] = [];
       if (g.distractions.some(d => d.kind === 'phone' || d.kind === 'bank')) problems.push({ key: 'phone', icon: '📞', pos: at('phone'), ring: true });
       if (g.fire) problems.push({ key: 'fire', icon: '🔥', pos: at('exhaust') });
-      if (g.fire && w.carrying !== 'extinguisher') { const e = this.nearestExt(); if (e) problems.push({ key: 'ext', icon: '🧯', pos: new THREE.Vector3(e.x, 0.6, e.z), ring: true }); }
+      if (g.fire && w.carrying !== 'extinguisher') { const e = this.nearestExtCached(); if (e) problems.push({ key: 'ext', icon: '🧯', pos: new THREE.Vector3(e.x, 0.6, e.z), ring: true }); }
       // a fault points where it needs you next: the extractor, the bit rack, the skip — not just the machine
       const ft = faultTarget(g, w);
       if (ft) problems.push({ key: 'fault', icon: '🔧', pos: at(ft) });
@@ -2407,7 +2428,7 @@ export class World3D {
     this.paused = p;
     this.hud?.setPaused(p);
     this.acc = 0;
-    if (p) { this.labelHold = this.objectHold = false; this.holdId = null; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
+    if (p) { this.labelHoldId = this.objectHoldId = null; this.stopWalking(); this.stickVec = { x: 0, y: 0 }; this.hud?.hideStick(); }
     this.labelSig = '';
     this.save();
   }

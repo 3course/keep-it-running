@@ -453,6 +453,9 @@ const withMate = (s: Script): Script => (!((globalThis as { process?: { argv: st
   : { ...s, policy: g => { usesMate.add(g); mateScript.set(g, s.name); mateHelps(g, s.name === 'competent'); s.policy(g); } });
 
 const SCRIPTS: Script[] = ([
+  // NOTE: the scripts still work overtime (Game.startOvertime is live), but the shed stopped offering it — at 5 a mate
+  // is at the roller door. The lease targets in CLAUDE.md were measured with these scripts as they are; changing the
+  // overtime policies means re-measuring those bands.
   // a half-cut sheet on the bed counts as work left: knocking off would scrap it
   { name: 'competent', policy: competent, overtime: g => !g.machineDown && (!!g.current || g.queued.length > 0), buy: competentBuys },
   { name: 'average', policy: average, overtime: g => !g.machineDown && !!g.current, buy: averageBuys }, // only to save the sheet on the bed
@@ -504,7 +507,7 @@ function playOn(script: Script, g: Game, buying = false, morning?: (g: Game) => 
         today.total += 1; run += 1; today.longest = Math.max(today.longest, run);
       } else run = 0;
     }
-    else if (g.phase === 'endOfDayPrompt') { script.overtime(g) ? g.startOvertime() : g.knockOff(); }
+    else if (g.phase === 'endOfDayPrompt') { if (script.overtime(g)) g.startOvertime(); else g.knockOff(); }
     else if (g.phase === 'daySummary') {
       if (buying) script.buy(g);
       g.nextDay();
@@ -524,9 +527,7 @@ const scrapRate = (days: DayStats[]) => sum(days, 'sheetsScrapped') / Math.max(1
 function report(name: string, seed: number, { g, idle }: WeekResult) {
   const rev = g.week.reduce((s, d) => s + d.revenue, 0);
   const cost = g.week.reduce((s, d) => s + d.costs, 0);
-  const done = g.week.reduce((s, d) => s + d.sheetsDone, 0);
   const scrap = g.week.reduce((s, d) => s + d.sheetsScrapped, 0);
-  const late = g.week.reduce((s, d) => s + d.sheetsLate, 0);
   const faults = g.week.reduce((s, d) => s + d.faults, 0);
   const margin = rev > 0 ? (rev - cost) / rev : 0;
   const d1 = g.week[0];
@@ -571,9 +572,9 @@ if (!args.includes('dennis')) (CONFIG.dennis as { enabled: boolean }).enabled = 
 /** The layout every game in this run plays on. */
 let simLayout: LayoutEffects = NEUTRAL_LAYOUT;
 // `-- baseline`: rare events and milestones off, as the economy was before them (the frozen baseline)
-if (args.includes('baseline')) Object.assign(CONFIG as unknown as Record<string, boolean>, { rareEvents: false, milestones: false });
+if (args.includes('baseline')) Object.assign(CONFIG, { rareEvents: false, milestones: false });
 // `-- nochores`: the chores without teeth, as the economy was before them
-if (args.includes('nochores')) Object.assign(CONFIG as unknown as Record<string, boolean>, { chores: false });
+if (args.includes('nochores')) Object.assign(CONFIG, { chores: false });
 console.log(`(rare events ${CONFIG.rareEvents ? 'on' : 'off'}, milestones ${CONFIG.milestones ? 'on' : 'off'}, chores ${CONFIG.chores ? 'on' : 'off'})`);
 if (args[2] === 'determinism') determinismCheck();
 else if (args[2] === 'upgrades') upgradeStudy();

@@ -235,7 +235,7 @@ export class PeopleDay {
       this.talk.ask([{ text: q.a[0] }, { text: q.a[1] }], i => {
         this.say('you', q.a[i], 3); this.asked = null;
         p.trust += J.trust.answered;
-        window.setTimeout(() => this.say('jess', pick(JESS.thanks, this.d.g.minute), 3, 'laughing'), 1200);
+        this.later(() => this.say('jess', pick(JESS.thanks, this.d.g.minute), 3, 'laughing'), 1200);
       });
       return;
     }
@@ -287,7 +287,7 @@ export class PeopleDay {
     const g = this.d.g, p = this.p;
     p.fullTime = true; p.fullTimeDay = g.dayIndex; p.cakeDay = g.dayIndex + 1;
     this.task = null;
-    JESS.yes.forEach((l, i) => window.setTimeout(() => this.say('jess', l, 3, i === 0 ? 'misty' : 'laughing'), i * 2600));
+    JESS.yes.forEach((l, i) => this.later(() => this.say('jess', l, 3, i === 0 ? 'misty' : 'laughing'), i * 2600));
     this.d.sfx.cheer();
     logEvent(this.d.w, `${J.name}'s going full time`);
     this.d.save();
@@ -308,11 +308,11 @@ export class PeopleDay {
       this.cakeMate = { fig, x: at.x, z: at.z, path: [], speed: 1.4, leaveAt: g.minute + 40 };
       fig.root.position.set(at.x, 0, at.z); fig.setExpr('laughing');
       this.d.scene.add(fig.root);
-      JESS.cake.forEach((l, i) => window.setTimeout(() => this.say('jess', l, 3, 'laughing'), i * 2400));
+      JESS.cake.forEach((l, i) => this.later(() => this.say('jess', l, 3, 'laughing'), i * 2400));
       const cheers = [...JESS.cheer];
-      window.setTimeout(() => { this.d.sfx.cheer(); this.say('mate', cheers[0] ?? 'Speech!', 3.5, 'animated', f.name); }, JESS.cake.length * 2400);
-      window.setTimeout(() => this.say('you', cheers[1] ?? 'To the new full-timer!', 3.5), JESS.cake.length * 2400 + 1500);
-      window.setTimeout(() => this.say('mate', cheers[2] ?? 'Hooray!', 3, 'laughing', f.name), JESS.cake.length * 2400 + 3200);
+      this.later(() => { this.d.sfx.cheer(); this.say('mate', cheers[0] ?? 'Speech!', 3.5, 'animated', f.name); }, JESS.cake.length * 2400);
+      this.later(() => this.say('you', cheers[1] ?? 'To the new full-timer!', 3.5), JESS.cake.length * 2400 + 1500);
+      this.later(() => this.say('mate', cheers[2] ?? 'Hooray!', 3, 'laughing', f.name), JESS.cake.length * 2400 + 3200);
       logEvent(this.d.w, `${J.name} brought a cake to smoko`);
       this.d.save();
     }
@@ -413,11 +413,11 @@ export class PeopleDay {
     this.say('you', yes ? WALK_IN.yes : WALK_IN.no, 2.5);
     if (yes) {
       g.serveWalkIn(v.id);
-      window.setTimeout(() => this.say('walkin', pick(WALK_IN.thanks, v.id + g.dayIndex), 4, 'laughing', v.name), 900);
+      this.later(() => this.say('walkin', pick(WALK_IN.thanks, v.id + g.dayIndex), 4, 'laughing', v.name), 900);
       logEvent(this.d.w, `Took ${v.name}'s ${v.design.name.toLowerCase()}`);
     } else {
       g.turnAwayWalkIn(v.id);
-      window.setTimeout(() => this.say('walkin', pick(WALK_IN.declined, v.id), 3, 'relaxed', v.name), 900);
+      this.later(() => this.say('walkin', pick(WALK_IN.declined, v.id), 3, 'relaxed', v.name), 900);
     }
     if (this.walkInAsking) { this.talk.hideReplies(); this.walkInAsking = false; }
     this.endWalkIn(5);
@@ -462,7 +462,8 @@ export class PeopleDay {
 
   // ---------- bits ----------
 
-  private say(who: string, text: string, secs = 3.2, expr: 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated' = 'relaxed', name?: string, img?: string | null) {
+  // _secs is dead weight: Talk works bubble time out from the text length. Kept so call sites needn't churn.
+  private say(who: string, text: string, _secs = 3.2, expr: 'relaxed' | 'laughing' | 'thoughtful' | 'misty' | 'animated' = 'relaxed', name?: string, img?: string | null) {
     const label = name ?? (who === 'jess' ? J.name : who === 'you' ? 'You' : who === 'mate' ? 'Mate' : '');
     this.talk.say(who, label, text, who === 'you' ? 'you' : '', img);
     const f = who === 'jess' ? this.jess?.fig : who === 'cust' ? this.visitor?.fig : who === 'mate' ? this.cakeMate?.fig : who === 'walkin' ? this.walkIn?.fig : undefined;
@@ -497,7 +498,12 @@ export class PeopleDay {
     return wk.path.length === 0;
   }
 
+  // dialogue beats still pending; tracked so a rebuilt world doesn't have them fire into a destroyed Talk
+  private timers: number[] = [];
+  private later(f: () => void, ms: number) { this.timers.push(window.setTimeout(f, ms)); }
+
   dispose() {
+    for (const t of this.timers) window.clearTimeout(t);
     this.removeJess();
     this.visitor?.fig.dispose(); this.visitor = null;
     this.cakeMate?.fig.dispose(); this.cakeMate = null;

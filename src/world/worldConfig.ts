@@ -56,15 +56,14 @@ export const WORLD = {
   labelGap: 6,                         // px kept between two action labels that would overlap (the upper one moves up)
   offerSwapBelow: 0.6,                 // swap labels (bit, bag, spoilboard) only show once the part is this worn
   rollerOpenMinutes: 4,                // game minutes the roller door stays up after a pickup or delivery
-  offcutsPerSheet: 0.25,               // offcut bin fill per sheet cut (1 = full)
   offcutsEmptyAt: 0.5,                 // bin can be bagged up from this level
   // spraying the extinguisher: the aim mark sits this far above your thumb, and has to be within this of the glow
   sprayAimAbove: 70,                   // CSS px (scaled with the HUD)
   sprayAimRadius: 38,                  // CSS px (scaled with the HUD)
   sprayFlareSeconds: 1.2,              // the flames jump up this long when you let go too soon
-  uteReach: 3.2,
+  uteReach: 3.2,                       // m from the ute's middle: close enough to hand the stack over
   offcutPileReach: 1.8,                // m from the offcut bin: a spilled heap slows you down this close…
   offcutPileWalkMult: 0.55,            // …to this fraction of your speed
   // the compressor's hiss (Hz): high after a drain, a little lower each sheet, low when it's due a drain
-  hiss: { high: 3400, perSheet: 260, due: 760, volume: 0.07, reach: 14 },                       // m from the ute's middle: close enough to hand the stack over
+  hiss: { high: 3400, perSheet: 260, due: 760, volume: 0.07, reach: 14 },
 } as const;

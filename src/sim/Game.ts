@@ -329,7 +329,7 @@ export class Game {
     this.powerTripped = false;
     if (!walked && !this.sparkyFavour) this.busy = { label: 'resetting the breaker', remaining: Math.max(1, Math.round(this.layout.switchboardMinutes)) };
     if (this.sparkyFavour) { this.sparkyFavour = false; this.say('The sparky you shouted came over and reset it. Cheers.'); }
-    if (this.machine === 'paused' && this.current && !this.fault && !this.replacing) this.machine = 'cutting';
+    if (this.machine === 'paused') this.settleMachine(); // not back to cutting mid walk-round, swap, etc.
     this.say('Breaker back on.');
     return true;
   }
@@ -389,7 +389,7 @@ export class Game {
     if (amount <= 0) return;
     this.cash -= amount;
     if (bucket !== 'upgrades') this.today.costs += amount; // capex stays out of operating margin
-    (this.today as unknown as Record<string, number>)[bucket] += amount;
+    this.today[bucket] += amount;
     if (note) this.say(`-$${amount.toFixed(0)} ${note}`, 'money');
   }
 
@@ -397,7 +397,7 @@ export class Game {
   private book(amount: number, bucket: keyof DayStats) {
     if (amount <= 0) return;
     this.today.costs += amount;
-    (this.today as unknown as Record<string, number>)[bucket] += amount;
+    this.today[bucket] += amount;
   }
 
   private earn(amount: number, note: string) {
@@ -434,6 +434,7 @@ export class Game {
     this.overtime = false;
     this.today = emptyStats(this.day);
     this.beersToday = 0;
+    this.coffeeUntil = 0; // yesterday's large wore off overnight (it's a minute-of-day, and every morning starts before 11)
     this.cans = []; this.alcohol = 0; this.alcoholAtLastSip = 0; this.looSince = null; this.beersAtLoo = 0; // slept it off; the shed got tidied
     this.rushJobsToday = 0;
     this.competence = Math.min(CONFIG.competence.max, this.competence + CONFIG.competence.sleepRecovery);
@@ -619,7 +620,7 @@ export class Game {
         this.wear[this.replacing.key] = 1;
         this.say(`New ${this.replacing.key} fitted.`, 'good');
         this.replacing = null;
-        if (this.machine === 'paused' && this.current && !this.powerTripped) this.machine = 'cutting';
+        if (this.machine === 'paused') this.settleMachine(); // not back to cutting mid walk-round or with the power off
       }
     }
 
@@ -1167,7 +1168,8 @@ export class Game {
   }
 
   private tickCallbacks() {
-    for (const c of this.callbacks.filter(x => this.minute >= x.expiresMinute)) this.loseCallback(c);
+    // strictly past: the voicemail says "ring back by 11:30", so at 11:30 on the dot it still counts
+    for (const c of this.callbacks.filter(x => this.minute > x.expiresMinute)) this.loseCallback(c);
   }
 
   private loseCallback(c: Callback) {
@@ -2082,6 +2084,54 @@ export class Game {
     return CONFIG.clock.fastScale;
   }
 
+  /** Every order call for today has rung (dead air till 5 if the board's clear). Voicemails can still wait. */
+  get callsDone(): boolean {
+    return this.orderCalls.length === 0 && !this.distractions.some(d => d.kind === 'phone' && d.order);
+  }
+
+  /**
+   * The board's clear, the last order call's handled, nothing's on — but it's still before 5. Knock off early and the
+   * mate's at the roller door now (same as a normal close).
+   */
+  canKnockOffEarly(): boolean {
+    if (this.phase !== 'day' || this.overtime || this.machineDown) return false;
+    const end = CONFIG.clock.endHour * 60;
+    if (this.minute >= end || this.minute < CONFIG.ui.knockOffEarlyFromHour * 60) return false;
+    if (!this.callsDone) return false;
+    if (this.queued.length || this.current) return false;
+    if (this.machine !== 'idle' || this.replacing !== null || this.fault || this.fire || this.fireResponse !== null) return false;
+    if (this.busy !== null || this.dennisRinging) return false;
+    if (this.truckOnApron || this.pickupsHere.length || (this.rare?.phase === 'live')) return false;
+    // a ute still due today (texted earlier, not here yet): close now and it comes tomorrow, its pay a day late — and on
+    // day 20 after the reckoning, so it never counts toward the rent
+    if (this.pickups.some(p => p.status === 'waiting' && p.dueAt < this.dayIndex * 1440 + end)) return false;
+    if (this.walkIns.some(w => w.status === 'waiting')) return false;
+    if (this.distractions.length) return false;
+    if (this.idleRun < CONFIG.ui.knockOffEarlyIdleMinutes || this.idleWhy !== 'nothing on the board') return false;
+    return true;
+  }
+
+  /**
+   * A time-skip, not a saving: the clock jumps to 5 and your wage runs to 5 as if you'd stood there (labour for the
+   * skipped minutes at the ordinary rate, in the same bucket tick() uses). What the afternoon would have brought — a
+   * 3pm walk-in, a late inspection, a mate — just doesn't come.
+   */
+  knockOffEarly(): boolean {
+    if (!this.canKnockOffEarly()) return false;
+    const from = this.formatTime(), end = CONFIG.clock.endHour * 60;
+    this.flushIdle();
+    this.logFastForward();
+    // exactly what the ticks to 5 would have charged, minute by minute (tick() rates a minute by the clock after it
+    // moves on, so the one that lands on 5:00 is at the overtime rate: kept, so both ways cost the same)
+    let wage = 0;
+    for (let m = this.minute + 1; m <= end; m++) wage += CONFIG.labour.hourlyRate / 60 * (m >= end ? CONFIG.labour.overtimeMultiplier : 1);
+    this.spend(wage, 'labour');
+    this.minute = end;
+    this.phase = 'endOfDayPrompt';
+    this.say(`Knocked off early at ${from}: nothing left to cut. The day's paid to 5 either way.`);
+    return true;
+  }
+
   /** Nothing left on the board after a sheet: ring today's next order call now (CONFIG.pickup.ringNextCallWhenEmpty). */
   private keepWorkComing() {
     if (!CONFIG.pickup.ringNextCallWhenEmpty || this.queued.length || !this.orderCalls.length) return;
@@ -2305,7 +2355,6 @@ export class Game {
     this.lostYesterday = lost.length;
     if (lost.length) this.say(`${lost.length} overdue sheet${lost.length > 1 ? 's' : ''} pulled by the customer.`, 'bad');
     for (const c of [...this.callbacks]) this.loseCallback(c); // nobody rings back after knock-off
-    if (this.cash < 0) { this.spend(CONFIG.economy.overdraftFeePerDay, 'overdraftFees', 'overdraft fee'); }
     const truck = this.truckOnApron;
     if (truck?.stage === 'waiting') this.driverLeaves(truck);
     else if (truck?.stage === 'unloading') {
@@ -2330,6 +2379,8 @@ export class Game {
       }
       this.dennis.ringing = null; this.dennis.call = null; this.dennis.pitched = null;
     }
+    // the bank looks at the till once everyone's squared up: the fee is for a day that *ends* overdrawn
+    if (this.cash < 0) { this.spend(CONFIG.economy.overdraftFeePerDay, 'overdraftFees', 'overdraft fee'); }
     // a swap still going at knock-off: you stay back and finish it (the part's paid for), so it's in for the morning
     if (this.replacing) {
       this.wear[this.replacing.key] = 1;

@@ -24,8 +24,6 @@ import type { Sfx } from './sfx.js';
 import { boxAt, toon } from './build.js';
 import { LsgVignette } from './lsg.js';
 import { MATE_LAYOUT } from '../people/lines/layout.js';
-import { PEOPLE } from '../people/config.js';
-const PEOPLE_SHIRT = { jess: PEOPLE.partTimer.shirt };
 import { fullPlan, shift } from '../world/layoutPlan.js';
 import { friendLook, NAMED } from './looks.js';
 
