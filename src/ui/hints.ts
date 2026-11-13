@@ -3,7 +3,7 @@
 // save) so they never come back unless reset.
 import { getJson, KEYS, removeItem, setItem } from '../storage.js';
 
-const HINT_IDS = ['drag', 'interact', 'notepad', 'fault', 'gesture'] as const;
+const HINT_IDS = ['drag', 'interact', 'notepad', 'fault', 'gesture', 'neighbours'] as const;
 export type HintId = (typeof HINT_IDS)[number];
 
 const ORDER: { id: HintId; text: string }[] = [
@@ -15,6 +15,7 @@ const ORDER: { id: HintId; text: string }[] = [
 const MOMENTS = {
   fault: 'Something’s broken. Follow the 🔧 — fix it where it is',
   gesture: 'Do it with your thumb: copy the grey dot',
+  neighbours: 'You can walk to the joinery, the fab shop or the sign place — the router keeps cutting while you\'re gone',
 };
 
 export class Hints {

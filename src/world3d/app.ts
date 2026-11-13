@@ -13,6 +13,7 @@ import { Hud } from '../ui/hud.js';
 import { track } from '../analytics.js';
 import { actionsFor, inspectorActions, inspectorStatus, statusFor, uiHooks, uteActions, visitorActions, visitorStatus, type Action } from '../world/interactables.js';
 import { CallCard } from '../ui/callCard.js';
+import { NeighbourCard } from '../ui/neighbourCard.js';
 import { faultTarget } from '../world/fixes.js';
 import { COLS, MACHINE_SPOT, OBJECTS, ROLLER_TILES, ROWS, START_TILE, T, ZONES, objectById, solidCells, zoneAt, type ObjectId } from '../world/layout.js';
 import { findPath, smooth, type P } from '../world/pathfind.js';
@@ -175,6 +176,7 @@ export class World3D {
   /** The yes/no card for an order call you've picked up (public for tests). */
   /** An order call you've picked up, filling in on the notepad as they describe it. */
   callCard!: CallCard;
+  neighbourCard!: NeighbourCard;
   private gestureAt: string | null = null;
   private ring = new RingSound();
   private flashRing!: THREE.Group;
@@ -314,6 +316,8 @@ export class World3D {
     tapAway(this.hud.mateBubble, () => { this.mateBubbleAway = this.hud.mateBubble.textContent; });
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
     this.callCard = new CallCard(this.hud.labels.parentElement!);
+    this.neighbourCard = new NeighbourCard(this.hud.labels.parentElement!);
+    uiHooks.neighbourCard = () => this.neighbourCard.sync(this.g, i => { this.g.neighbourPick(i); this.neighbourCard.sync(this.g, j => this.g.neighbourPick(j)); this.save(); });
     // answered: the call is a job card (who, the sketch, the details as they tell you, due bottom-right), then Accept /
     // Decline inside it. The job card stays quiet when those sheets land (the call already showed them).
     uiHooks.orderCard = (d, offer, take, decline) => {
@@ -801,6 +805,10 @@ export class World3D {
       this.save();
     }
     this.gratitude.update(people(this.w), this.g.dayIndex, this.planNow);
+    w.atNeighbour = this.g.neighbourSite;
+    if (this.g.lentExtinguisherTo === 'sal') w.hooks.wall = false;
+    if (this.g.neighbourTalk) this.neighbourCard.sync(this.g, i => { this.g.neighbourPick(i); this.neighbourCard.sync(this.g, j => this.g.neighbourPick(j)); this.save(); });
+    else this.neighbourCard.close();
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'

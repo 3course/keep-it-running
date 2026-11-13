@@ -6,6 +6,7 @@ import { track } from '../analytics.js';
 import { CONFIG, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
+import { newNeighbourLedgers } from '../sim/neighbours.js';
 import { Rng } from '../sim/rng.js';
 import type { FaultPhase, Job } from '../sim/types.js';
 import type { WorldState } from './state.js';
@@ -135,6 +136,11 @@ function gameFromJson(raw: Loose): Game {
   for (const d of g.deliveries) d.lines = d.lines.filter(l => isObject(l) && CONFIG.jobs.types.some(t => t.id === l.type));
   if (g.fire !== null && !isObject(g.fire)) g.fire = null;
   if (g.rare != null && !isObject(g.rare)) g.rare = null;
+  if (!isObject(g.neighbours)) g.neighbours = newNeighbourLedgers();
+  else for (const id of ['sal', 'mick', 'priya'] as const) {
+    const L = (g.neighbours as Record<string, unknown>)[id];
+    if (!isObject(L)) (g.neighbours as Record<string, { favour: number; burnedUntil: number }>)[id] = { favour: 0, burnedUntil: 0 };
+  }
   if (g.rare) {
     // a save from before the walk-round ran in game minutes (escortSec, real seconds): the round starts over
     const r = g.rare as unknown as Loose;

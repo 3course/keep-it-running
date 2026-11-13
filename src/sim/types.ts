@@ -95,6 +95,17 @@ export interface ActiveFault {
 
 export type DistractionKind = 'friend' | 'phone' | 'courier' | 'bank';
 
+export type NeighbourId = 'sal' | 'mick' | 'priya';
+
+export interface NeighbourLedger { favour: number; burnedUntil: number }
+export interface NeighbourTalk {
+  who: NeighbourId;
+  via: 'phone' | 'visit';
+  scene: string;
+  step: 'offer' | 'counter' | 'done';
+}
+export interface BorrowedPly { type: JobTypeId; sheets: number; cashOwe: number; dueDay: number }
+
 export interface Distraction {
   id: number;
   kind: DistractionKind;
@@ -102,6 +113,9 @@ export interface Distraction {
   line: string;
   remaining: number;      // friend: minutes left of the visit. others: response window.
   engaged: boolean;       // friend: you're having a yarn (attention split)
+  /** A neighbour on the phone (small asks). */
+  neighbour?: NeighbourId;
+  neighbourScene?: string;
   order?: number;         // phone: sheets in the order this call is bringing, if it's an order call
   orderType?: JobTypeId;  // phone: what kind of job the order is
   customer?: string;      // phone: who's calling with the order

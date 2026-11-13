@@ -9,7 +9,7 @@ export interface EndingLines { headline: string; headlineRide?: string; you: str
 export type WobbleKind = 'priceRise' | 'quietCustomer' | 'extractorDue' | 'jessAnswer';
 
 export const LEASE_LINES = {
-  landlord: 'Graham Pettifer',
+  landlord: 'Marco',
   /** Day 1: an envelope under the roller door. Dry, decent. */
   letter: [
     'Dear tenant. Hope the shed is treating you well. It treated me well for thirty years.',
@@ -256,7 +256,7 @@ export const LEASE_LINES = {
         "I'll take what's there. {owed} rides over. I've had worse tenants. I've had much worse.",
       ],
       youRide: [
-        '{owed} short. Graham took what was there and let the rest ride. We stay.',
+        '{owed} short. Marco took what was there and let the rest ride. We stay.',
         "Close. Not quite. Close enough, as it turns out. The shed's still ours.",
         'Paid what we had. {owed} to find next lease. Laughed about it eventually.',
       ],
