@@ -1,15 +1,24 @@
-# Keep It Running — status (31 Oct 2026)
+# Keep It Running — status (13 Nov 2026)
 
 ## Links
 - **The game** (3D, mobile): https://keepitrunning.fyi/. Weak GPUs: `?safe=1` (low tier), `?safe=2` (no shadows). `?seed=N` starts a new game on a fixed seed. The old `/preview/` address redirects here.
 - **Original panel prototype:** https://keepitrunning.fyi/panel/
 - **Repo:** https://github.com/3course/keep-it-running. `world` (the 3D build) deploys to the site root, `main` (the panel) to `/panel/`; one workflow builds both on a push to either.
 
+## Live now (13 Nov 2026)
+- **Commit:** `9d8f21c` on `world` (merge of #15, the review and fix pass, with Claude's follow-ups in #17). Deploy run 80 succeeded; the site serves `meta build-commit=9d8f21c` and the service-worker cache `kir-9d8f21c`. `/panel/` (`main`) is unchanged and still loads.
+- **Tests:** 343, all passing locally and on CI (`.github/workflows/ci.yml`: typecheck + the full suite on every pull request; pinned actions, read-only token). CI doesn't gate deploys.
+- **TypeScript:** 7.0.2 (one version in the lockfile).
+- **Lint:** none. ESLint was removed until typescript-eslint supports TypeScript 7 (see `docs/REVIEW.md`).
+- **Sim** (`npm run sim -- --lease 200`, rent made; bands in CLAUDE.md): competent **84%** (80–90), average **70%** (65–75), sloppy **10%** (5–15). Spare at the end of the lease: $3,527 / $1,852 / −$2,897.
+- **Bundle:** ~1,333 kB of JS at first visit, in three chunks loaded in parallel (`index` 594, `three` 585, `dialogue` 154 kB); the day summary, weekend and daily card (~16 kB) load when they first show. Every chunk is precached for offline play.
+- What changed in the review pass is under "Done 12–13 Nov" below; the full list with file:line is in `docs/REVIEW.md`.
+
 ## What's built
 - **Economy** (`src/sim`, `config.ts`): orders by phone through the day; three job types (formwork / MDF / acrylic); deadlines, late pay, pulled jobs. Ply is real stock, delivered by truck. Beer is a can you carry. The day summary itemises the P&L.
 - **World:** Three.js, low-res pixel render, portrait, tap-to-walk + stick. Day-1 tour, hint cards, off-screen pointers, panned phone ring. PWA, pause-and-resume save, GPU tiering and failure card.
 - **Today:**
-  - **Browser tests:** `npm test`, 82 tests. Playwright as a touch phone; game-logic tests without a browser.
+  - **Browser tests:** `npm test`, 343 tests (13 Nov). Playwright as a touch phone; game-logic tests without a browser.
   - **Breakdown grace and ramp:** no breakdowns on days 1–3, ramping to a **0.8 plateau** from day 8 (`difficulty.breakdownByDay`). Day 2 has a scripted, slow, glowing **lesson fire**.
   - **Visitors:** Eggby, Courtney and Tim Baker stay 30 minutes, wander, and come back with an ask, shop talk or a night-out story. Seeded per day; beer caps (2 a mate, 4 a day); step out of doorways and your way.
   - **Phone:** moved to the office back wall beside the computer, a straight run in from the door.
@@ -24,7 +33,9 @@
 - `npm run sim -- upgrades [seeds]`: each upgrade alone (margin, scrap, payback, ± SE), and each script's buying policy over 4 continuous weeks, with solvency. Default 20 seeds; use 100 for decisions.
 - Scripts: **competent**, **average** (late on a third of faults, heeds the warning 2 times in 3), **sloppy**.
 
-**Current numbers** (100 seeds, `sim-solvency.md` §5; continuous weeks 3–4, buying nothing / with its buying policy):
+**Current numbers:** the lease bands under "Live now" above. The margin tables below are from 31 Oct, before the lease and rent model, and are kept for history.
+
+**31 Oct numbers** (100 seeds, `sim-solvency.md` §5; continuous weeks 3–4, buying nothing / with its buying policy):
 
 | Script | Solvent through week 4 | Margin, weeks 3–4 | Scrap, weeks 3–4 | Fresh steady week |
 |---|---|---|---|---|
@@ -49,10 +60,29 @@ Week 1 (grace): ~21–25% for all three, so sloppy is profitable that week only.
 - **Spare spindle and second vacuum zone earn nothing** in the sim: the spindle's fix path is never the better choice, and the vacuum zone measures ~0.
 - **Average is thinner with the chores:** ~6% steady, 17/20 solvent through week 4 buying nothing. Knobs in `sim-chores.md`.
 - **Dazza the office manager** is designed (`office-manager-and-upgrades.md`, must be net positive for average) but not built.
-- ~~**Bar names in the visitor stories** were real venues~~ — replaced with invented names (The Offcut, The Loose Tenon, The Night Shift, The Spotted Quoll) in `config.ts` → `visitors.bars`; the cafe is now Early Mark.
 - **Human playtest pending:**
   - Does the day feel full or frantic?
   - Do players heed the board's-full warning? The sim assumes 2 in 3.
-- **Still open from before:**
+- **Still open:**
   - Stage 2 people and art;
-  - the Android GPU report.
+  - the Android GPU report;
+  - saves don't validate the floor plan or people references (risk; `docs/REVIEW.md`);
+  - no lint until typescript-eslint supports TypeScript 7;
+  - the minute landing on 5:00 is charged at the overtime rate ($0.75 a day), and the sim's bots still work overtime the shed no longer offers;
+  - Kerr's two bag-full thresholds (80% vs 75%);
+  - the `three` chunk is over Vite's 500 kB warning;
+  - the layout editor and the cafe are still statically imported (lazy-loading them would trim the first parse);
+  - the pinned `actions/checkout` and `actions/setup-node` run on Node 20, which GitHub is retiring: bump them;
+  - `tests/people.test.mjs:77` allows 24 conversation turns on CI against 14 locally (a looser budget on CI).
+
+## Done 12–13 Nov (review pass, #15 + #17)
+Moved out of "Still open"; the full list with file:line is in `docs/REVIEW.md`.
+- **Knock off early:** offered once today's calls are done, the board's clear and the machine's idle (from 2pm). A time-skip to 5pm: labour is still paid to 5, and a test checks the day costs the same either way.
+- **Day-20 ute pay:** knock off early waits for a ute still due today, so its pay lands before the reckoning instead of the day after.
+- **Bar names:** real bar and cafe names in the fiction are replaced with invented ones (The Offcut, Early Mark…), and "Bunnings" is gone from the dialogue.
+- Saves can't wedge the game: faults, swaps, the lease and view flags are repaired or dropped on load.
+- Coffee no longer carries overnight; voicemail callbacks honour the stated minute; the breaker reset and a finished swap no longer restart the cut mid walk-round; the overdraft fee waits for walk-ins to pay.
+- Multi-touch: a second finger no longer steals the stick, the spray or a hold ring; held keys clear when the window loses focus.
+- **Capped logs and caches:** the action log (400), honks (40), pickup names (pruned with the utes), keepsake thumbnails (40) and ring cues (60) no longer grow all session; the pixel-snap registry no longer keeps old scenes alive.
+- **Bundle split:** `three` and `dialogue` in their own chunks; the end-of-day screens load on demand.
+- **CI:** typecheck and the full suite on every pull request.
