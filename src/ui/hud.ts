@@ -383,6 +383,14 @@ export class Hud {
     this.toastTimer = window.setTimeout(() => this.toast.classList.remove('show'), 2500);
   }
 
+  /** A toast that isn't from the day's log (a controller unplugged). */
+  toastNow(text: string) {
+    this.toast.textContent = text;
+    this.toast.classList.add('show');
+    window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => this.toast.classList.remove('show'), 3500);
+  }
+
   /** Today's events, newest first, in a scrollable panel. */
   showLog() {
     const lines = this.logLines;

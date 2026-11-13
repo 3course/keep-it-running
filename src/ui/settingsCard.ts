@@ -46,6 +46,7 @@ export function showSettings(parent: HTMLElement, host: SettingsHost): { close: 
     <div class="row"><span>Graphics</span>${seg<Graphics>('graphics', [['auto', 'Auto'], ['low', 'Low'], ['bare', 'No shadows']])}</div>
     <p class="note" hidden>Applies after a reload…</p>
     <div class="row"><span>Reduce motion</span><button class="toggle" data-k="reduceMotion"></button></div>
+    <div class="row"><span>Controller rumble</span><button class="toggle" data-k="rumble"></button></div>
     <div class="btns reset-row"><button class="danger reset">Reset save</button></div>
     <div class="btns confirm" hidden><button class="cancel">Keep it</button><button class="danger wipe">Wipe the save</button></div>
     <p class="confirm-text" hidden style="text-align:center;color:#f08a6b;margin:8px 0 0">Wipe your saved game? That can't be undone.</p>
@@ -58,7 +59,9 @@ export function showSettings(parent: HTMLElement, host: SettingsHost): { close: 
       el.querySelector(`.val[data-for=${k}]`)!.textContent = `${Math.round(SETTINGS[k] * 100)}%`;
     }
     for (const k of ['textSpeed', 'graphics'] as const) el.querySelectorAll<HTMLButtonElement>(`.seg[data-k=${k}] button`).forEach(b => b.classList.toggle('on', b.dataset.v === SETTINGS[k]));
-    const rm = el.querySelector<HTMLButtonElement>('.toggle')!; rm.textContent = SETTINGS.reduceMotion ? 'On' : 'Off'; rm.classList.toggle('on', SETTINGS.reduceMotion);
+    for (const k of ['reduceMotion', 'rumble'] as const) {
+      const b = el.querySelector<HTMLButtonElement>(`.toggle[data-k=${k}]`)!; b.textContent = SETTINGS[k] ? 'On' : 'Off'; b.classList.toggle('on', SETTINGS[k]);
+    }
   };
   el.querySelectorAll<HTMLInputElement>('input[type=range]').forEach(i => i.addEventListener('input', () => { setSetting(i.dataset.k as 'sound' | 'music', Number(i.value) / 100); refresh(); }));
   el.querySelectorAll<HTMLButtonElement>('.seg button').forEach(b => b.addEventListener('click', () => {
@@ -67,7 +70,10 @@ export function showSettings(parent: HTMLElement, host: SettingsHost): { close: 
     setSetting(k, b.dataset.v as never); refresh();
     if (k === 'graphics') { el.querySelector<HTMLElement>('.note')!.hidden = false; window.setTimeout(() => host.graphicsChanged(), 700); }
   }));
-  el.querySelector('.toggle')!.addEventListener('click', () => { setSetting('reduceMotion', !SETTINGS.reduceMotion); refresh(); });
+  el.querySelectorAll<HTMLButtonElement>('.toggle').forEach(b => b.addEventListener('click', () => {
+    const k = b.dataset.k as 'reduceMotion' | 'rumble';
+    setSetting(k, !SETTINGS[k]); refresh();
+  }));
   const ask = (on: boolean) => { for (const s of ['.confirm', '.confirm-text']) el.querySelector<HTMLElement>(s)!.hidden = !on; el.querySelector<HTMLElement>('.reset-row')!.hidden = on; };
   el.querySelector('.reset')!.addEventListener('click', () => ask(true));
   el.querySelector('.cancel')!.addEventListener('click', () => ask(false));

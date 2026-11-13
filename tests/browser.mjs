@@ -10,6 +10,10 @@ import { createServer } from 'vite';
 
 /** The reference phone the HUD is tuned for (WORLD.view). */
 export const PHONE = { viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 };
+/** A 720p TV or monitor: landscape, no touch (a pad or a keyboard). */
+export const TV = { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 };
+/** The same at 1080p. */
+export const TV1080 = { viewport: { width: 1920, height: 1080 }, deviceScaleFactor: 1 };
 
 /**
  * Real-time Playwright waits only (GitHub Actions runners are slower than a local machine). Never for frame budgets:
@@ -40,8 +44,8 @@ export async function startBrowser() {
  * is stopped (Game.tick is a no-op; advance() runs it) so nothing spawns, wears or wanders off while a test walks
  * around; tests set the time they need.
  */
-export async function freshGame(env, seed = 1) {
-  const context = await env.browser.newContext(PHONE);
+export async function freshGame(env, seed = 1, device = PHONE) {
+  const context = await env.browser.newContext(device);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -272,3 +276,72 @@ export const setTime = (game, hour, min = 0) => game.eval((g, w, s, m) => { g.mi
 
 /** Wait a few frames so the view catches up with a state change. */
 export const frames = (game, n = 3) => game.page.evaluate(n => new Promise(r => { const f = () => (--n <= 0 ? r() : requestAnimationFrame(f)); requestAnimationFrame(f); }), n);
+
+// ---------- a pad (src/input): a virtual one, read through the same path as a real pad, frame by frame ----------
+
+/** Plug a virtual pad in (an Xbox one unless `id` says otherwise). Nothing held. */
+export const padConnect = (game, id = 'Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 02fd)') =>
+  game.page.evaluate(id => { window.kirScene.input.virtualPad = { id, buttons: {}, lx: 0, ly: 0, rx: 0, ry: 0 }; }, id);
+
+/** Set what's held on the virtual pad: `buttons` (names from src/input/pad.ts PAD), sticks -1..1. */
+export const padSet = (game, buttons = [], { lx = 0, ly = 0, rx = 0, ry = 0 } = {}) =>
+  game.page.evaluate(([b, lx, ly, rx, ry]) => {
+    const s = window.kirScene;
+    const id = s.input.virtualPad?.id ?? 'Xbox Wireless Controller (STANDARD GAMEPAD)';
+    s.input.virtualPad = { id, buttons: Object.fromEntries(b.map(x => [x, true])), lx, ly, rx, ry };
+  }, [buttons, lx, ly, rx, ry]);
+
+/** Press and let go of one button: held `hold` frames, then `after` frames with nothing held. */
+export async function padPress(game, button, { hold = 2, after = 3 } = {}) {
+  await padSet(game, [button]); await steps(game, hold);
+  await padSet(game, []); await steps(game, after);
+}
+
+/** What the pad's focus ring is on, and which layer it's in. */
+export const padFocus = game => game.page.evaluate(() => ({ layer: window.kirScene.padNav.layer, text: window.kirScene.padNav.focusText }));
+
+/** Step frames until `cond` holds in the page (frames, not seconds), with the pad as it is. */
+export const padUntil = (game, cond, arg, opts) => stepUntil(game, cond, arg, opts);
+
+/**
+ * Do the open gesture card with the pad, one mapping per kind: hold A (the ring, real seconds as with a thumb), A on
+ * each target, hold A and steer the left stick (drag, sign), d-pad then A (pick). `choice`: which option to pick
+ * (default: the one matching the swatch, else the first).
+ */
+export async function padGesture(game, { choice } = {}) {
+  const gst = await gestureNow(game);
+  assert.ok(gst, 'a gesture card is open');
+  await steps(game, 2); // the ring finds the card
+  if (gst.kind === 'hold') {
+    await padSet(game, ['confirm']); await steps(game, 2);
+    await game.page.waitForFunction(() => {
+      const ring = document.querySelector('#kir-hud .gesture .ring');
+      return !ring || parseFloat(ring.style.getPropertyValue('--p') || '0') >= 1;
+    }, null, { timeout: 60_000, polling: 50 });
+    await padSet(game, []); await steps(game, 3);
+  } else if (gst.kind === 'taps') {
+    for (let i = 0; i < gst.parts.length + 2 && await gestureNow(game); i++) await padPress(game, 'confirm');
+  } else if (gst.kind === 'drag' || gst.kind === 'sign') {
+    const dir = gst.kind === 'sign' ? 'right' : await game.page.evaluate(() => window.kirScene.gesture.active.dir);
+    const v = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] }[dir];
+    await padSet(game, ['confirm']); await steps(game, 2);
+    await padSet(game, ['confirm'], { lx: v[0], ly: v[1] });
+    // a drag finishes when the handle reaches the goal; a signature when the pen lifts after a long enough stroke
+    await stepUntil(game, () => {
+      const card = document.querySelector('#kir-hud .gesture');
+      const bar = card?.querySelector('.progress');
+      return !card || (bar && parseFloat(bar.style.getPropertyValue('--p') || '0') >= 1);
+    }, null, { frames: 200, what: `a ${gst.kind} by pad` });
+    await padSet(game, []); await steps(game, 3);
+  } else if (gst.kind === 'pick') {
+    const want = choice ?? await game.page.evaluate(() => {
+      const a = window.kirScene.gesture.active; const i = a.match ? a.options.findIndex(o => o.colour === a.match) : 0; return Math.max(0, i);
+    });
+    for (let i = 0; i < 6; i++) {
+      const at = await game.page.evaluate(() => { const f = window.kirScene.padNav.focus; return f?.dataset.i !== undefined ? Number(f.dataset.i) : -1; });
+      if (at === want) break;
+      await padPress(game, at < want ? 'right' : 'left');
+    }
+    await padPress(game, 'confirm');
+  }
+}
