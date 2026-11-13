@@ -5,6 +5,9 @@
 // Two rules: an action only shows when it makes sense right now (no dead buttons), and every action
 // says what happened — `done` is the line it leaves in the notepad's recent events.
 import { CONFIG, type ConsumableKey } from '../config.js';
+import { defaultVisitScene, neighboursActive, openTalk } from '../sim/neighbours.js';
+import type { NeighbourId } from '../sim/types.js';
+import { NEIGHBOUR_NAMES } from '../people/lines/neighbours.js';
 import type { Game } from '../sim/Game.js';
 import type { Distraction, OrderPreview } from '../sim/types.js';
 import type { GestureSpec } from '../ui/gesture.js';
@@ -64,6 +67,7 @@ export const uiHooks = {
   mateBeer: (_id: number) => {},
   mateAfterTwo: (_id: number) => {},
   mateGive: (_id: number): boolean => false,
+  neighbourCard: () => {},
 };
 
 /** The fault, where it is: work out what it is and pick a fix there; then each step where that step happens. */
@@ -251,7 +255,11 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
             if (!offer) return 'They rang off';
             uiHooks.orderCard(d, offer, take, decline);
           } });
-        } else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => { g.respond(d.id, 'answer'); } });
+        } else if (d.kind === 'phone' && d.neighbour && d.neighbourScene) a.push({ label: 'Answer', key: `phone-${d.id}`, done: `On the phone to ${d.title}`, run: () => {
+          if (!g.respond(d.id, 'answer')) return 'Line dead';
+          uiHooks.neighbourCard();
+        } });
+        else if (d.kind === 'phone') a.push({ label: 'Answer', key: `phone-${d.id}`, done: 'Answered the phone', run: () => { g.respond(d.id, 'answer'); } });
         else if (d.kind === 'bank') a.push({ label: 'Talk to the bank', key: `bank-${d.id}`, done: 'Talked the bank round', run: () => { g.respond(d.id, 'answer'); } });
       }
       if (g.dennisRinging) a.unshift({ label: `Answer (${CONFIG.dennis.name})`, key: 'dennis', done: `On the phone to ${CONFIG.dennis.name}`, run: () => { if (!g.answerDennis()) return 'He rang off'; uiHooks.dennis(); } });
@@ -279,6 +287,18 @@ export function actionsFor(id: ObjectId, g: Game, w: WorldState): Action[] {
         if (!g.useToilet()) return "Can't go right now";
         w.toiletUntil = absMinute(g) + CONFIG.beer.toiletMinutes;
       } }] : [];
+    case 'neighbourSal':
+    case 'neighbourMick':
+    case 'neighbourPriya': {
+      // at their front: a word (what it's about depends on the day: what you owe, your extinguisher, the dust, a sale)
+      const who = id.replace('neighbour', '').toLowerCase() as NeighbourId;
+      if (!neighboursActive(g, who) || g.neighbourTalk || g.phase !== 'day') return [];
+      const name = NEIGHBOUR_NAMES[who].split(' ')[0];
+      return [{ label: `Talk to ${name}`, auto: false, key: `nb-${who}`, done: `Talking with ${name}`, run: () => {
+        if (!openTalk(g, who, 'visit', defaultVisitScene(g, who))) return 'Not now';
+        uiHooks.neighbourCard();
+      } }];
+    }
     default:
       return [];
   }

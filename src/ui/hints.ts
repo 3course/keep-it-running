@@ -2,20 +2,17 @@
 // moment they're about (the first fault, the first hands-on job). Remembered in localStorage (separately from the
 // save) so they never come back unless reset.
 import { getJson, KEYS, removeItem, setItem } from '../storage.js';
+import { say, type PromptKey } from '../input/prompts.js';
 
-const HINT_IDS = ['drag', 'interact', 'notepad', 'fault', 'gesture'] as const;
+const HINT_IDS = ['drag', 'interact', 'notepad', 'fault', 'gesture', 'neighbours'] as const;
 export type HintId = (typeof HINT_IDS)[number];
 
-const ORDER: { id: HintId; text: string }[] = [
-  { id: 'drag', text: 'Drag anywhere to walk' },
-  { id: 'interact', text: 'Tap things to use them' },
-  { id: 'notepad', text: 'Your notepad is on the left — tap a line to go there' },
+// (the words are the input's: touch, keyboard or pad — src/input/prompts.ts)
+const ORDER: { id: HintId; text: PromptKey }[] = [
+  { id: 'drag', text: 'walk' },
+  { id: 'interact', text: 'interact' },
+  { id: 'notepad', text: 'notepad' },
 ];
-
-const MOMENTS = {
-  fault: 'Something’s broken. Follow the 🔧 — fix it where it is',
-  gesture: 'Do it with your thumb: copy the grey dot',
-};
 
 export class Hints {
   private done = new Set<HintId>();
@@ -26,11 +23,11 @@ export class Hints {
   }
 
   /** The card to show now, or null when they've all been done. */
-  get current(): string | null { return ORDER.find(h => !this.done.has(h.id))?.text ?? null; }
+  get current(): string | null { const h = ORDER.find(x => !this.done.has(x.id)); return h ? say(h.text) : null; }
 
   /** A hint for a moment (once the first three are done): its card if it hasn't been seen through yet. */
   when(id: Exclude<HintId, 'drag' | 'interact' | 'notepad'>): string | null {
-    return this.current || this.done.has(id) ? null : MOMENTS[id];
+    return this.current || this.done.has(id) ? null : say(id);
   }
 
   mark(id: HintId) {

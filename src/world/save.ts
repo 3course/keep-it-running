@@ -3,9 +3,11 @@
 // are copied out and back in, with the few non-JSON bits (RNG state, the upgrade Set, fault references,
 // the current-job reference) handled by hand.
 import { track } from '../analytics.js';
-import { CONFIG, type UpgradeId } from '../config.js';
+import { CONFIG, type JobTypeId, type UpgradeId } from '../config.js';
 import { FAULTS } from '../data/faults.js';
 import { Game } from '../sim/Game.js';
+import { isScene, NEIGHBOUR_IDS, newNeighbourDaily, newNeighbourLedgers } from '../sim/neighbours.js';
+import type { NeighbourId } from '../sim/types.js';
 import { Rng } from '../sim/rng.js';
 import type { FaultPhase, Job } from '../sim/types.js';
 import type { WorldState } from './state.js';
@@ -135,6 +137,7 @@ function gameFromJson(raw: Loose): Game {
   for (const d of g.deliveries) d.lines = d.lines.filter(l => isObject(l) && CONFIG.jobs.types.some(t => t.id === l.type));
   if (g.fire !== null && !isObject(g.fire)) g.fire = null;
   if (g.rare != null && !isObject(g.rare)) g.rare = null;
+  repairNeighbours(g, raw);
   if (g.rare) {
     // a save from before the walk-round ran in game minutes (escortSec, real seconds): the round starts over
     const r = g.rare as unknown as Loose;
@@ -218,8 +221,44 @@ function tidyExtinguishers(w: WorldState, g: Game) {
     }
   } else w.extinguisherFrom = null;
   // off its bracket, not in your hands, not on the floor: nowhere. Back on the bracket.
-  for (const h of here) if (hooks[h] === false && !down[h] && !(w.carrying === 'extinguisher' && w.extinguisherFrom === h)) hooks[h] = true;
+  // (but the wall one lent to Sal is next door: its bracket stays empty till he brings it back)
+  for (const h of here) if (hooks[h] === false && !down[h] && !(w.carrying === 'extinguisher' && w.extinguisherFrom === h) && !(h === 'wall' && g.lentExtinguisherTo)) hooks[h] = true;
   w.extAt = down;
+}
+
+/**
+ * Next door, from a save: the ledger (numbers clamped), today's offers (flags), what you owe Sal (known types, sane
+ * numbers), his jobs (ones still on the board), the extinguisher (lent to Sal or not), Mick's deadline (a minute of the
+ * day), and a talk saved mid-way (a known neighbour and scene, else none). Built fresh, so nothing can reach a prototype.
+ */
+function repairNeighbours(g: Game, raw: Loose) {
+  const N = CONFIG.neighbours, num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) ? v : d);
+  const isId = (v: unknown): v is NeighbourId => typeof v === 'string' && (NEIGHBOUR_IDS as string[]).includes(v);
+  const ledgers = newNeighbourLedgers(), rawL = isObject(raw.neighbours) ? raw.neighbours : {};
+  for (const id of NEIGHBOUR_IDS) {
+    const L = Object.prototype.hasOwnProperty.call(rawL, id) ? rawL[id] : null;
+    if (isObject(L)) ledgers[id] = { favour: clamp(Math.round(num(L.favour, 0)), N.favourFloor, N.favourCeil), burnedUntil: clamp(Math.floor(num(L.burnedUntil, 0)), 0, LIMIT.dayIndex) };
+  }
+  g.neighbours = ledgers;
+  const daily = newNeighbourDaily(), rawD = isObject(raw.neighbourDaily) ? raw.neighbourDaily : {};
+  for (const k of Object.keys(daily) as (keyof typeof daily)[]) daily[k] = rawD[k] === true;
+  g.neighbourDaily = daily;
+  const types = new Set<string>(CONFIG.jobs.types.map(t => t.id));
+  g.salDebts = (Array.isArray(raw.salDebts) ? raw.salDebts : []).filter(isObject).filter(d => typeof d.type === 'string' && types.has(d.type)).slice(0, 50)
+    .map(d => ({ type: d.type as JobTypeId, sheets: clamp(Math.floor(num(d.sheets, 0)), 0, 100), cashOwe: clamp(num(d.cashOwe, 0), 0, LIMIT.money), dueDay: clamp(Math.floor(num(d.dueDay, g.dayIndex)), 1, LIMIT.dayIndex) }))
+    .filter(d => d.sheets > 0);
+  g.salJobIds = (Array.isArray(raw.salJobIds) ? raw.salJobIds : []).filter((id): id is number => typeof id === 'number' && g.jobs.some(j => j.id === id));
+  g.lentExtinguisherTo = raw.lentExtinguisherTo === 'sal' ? 'sal' : null;
+  g.extBackAt = g.lentExtinguisherTo ? clamp(num(raw.extBackAt, 0), 0, 24 * 60) : -1;
+  g.mickComplaintUntil = clamp(num(raw.mickComplaintUntil, 0), 0, 24 * 60);
+  g.mickStrikes = clamp(Math.floor(num(raw.mickStrikes, 0)), 0, 10);
+  const t = raw.neighbourTalk;
+  g.neighbourTalk = isObject(t) && isId(t.who) && isScene(t.scene)
+    ? { who: t.who, via: t.via === 'phone' ? 'phone' : 'visit', scene: t.scene, step: t.step === 'counter' ? 'counter' : 'offer' } : null;
+  // a neighbour's call: someone we know, about something we know (else an ordinary call)
+  for (const d of g.distractions) {
+    if (!isId(d.neighbour) || !isScene(d.neighbourScene)) { delete d.neighbour; delete d.neighbourScene; }
+  }
 }
 
 const BEDS: readonly WorldState['bed'][] = ['empty', 'placed', 'clamped', 'running', 'done', 'scrap'];

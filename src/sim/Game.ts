@@ -6,9 +6,11 @@ import { dennisAnswer, dennisCallMult, dennisDecide, dennisFaultMult, dennisFire
   dennisStartDay, dennisTick, newDennis, type Bet, type DennisState } from './dennis.js';
 import type { Fortune, LayoutEffects, Pickup, WalkIn } from './types.js';
 import type {
-  ActiveFault, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, OrderCall, OrderPreview,
+  ActiveFault, BorrowedPly, Callback, Can, DayStats, Delivery, Distraction, DistractionKind, FaultDef, Fire, FireResponse, FixPath, Job, LogEntry, MachineState, NeighbourId, NeighbourTalk, OrderCall, OrderPreview,
   MilestoneId, MilestoneState, RareEventId, RareEventState, VisitorAsk,
 } from './types.js';
+import { isScene, ledgerLines, newNeighbourDaily, newNeighbourLedgers, openTalk, pickTalk, startNeighbourDay, tickNeighbours } from './neighbours.js';
+import type { NeighbourLedger } from './types.js';
 
 export type Phase = 'day' | 'endOfDayPrompt' | 'daySummary' | 'weekSummary';
 
@@ -180,6 +182,21 @@ export class Game {
   beersAtLoo = 0;       // beersToday at the last visit
 
   upgrades = new Set<UpgradeId>();
+  /** Favour ledger with Sal, Mick and Priya (src/sim/neighbours.ts). */
+  neighbours: Record<NeighbourId, NeighbourLedger> = newNeighbourLedgers();
+  neighbourDaily = newNeighbourDaily();
+  /** What you owe Sal, a line per time you borrowed (borrowing again adds a line). */
+  salDebts: BorrowedPly[] = [];
+  /** Sal's overflow jobs on your board (pulled by his customer: a broken deal). */
+  salJobIds: number[] = [];
+  /** The wall extinguisher's next door, and the minute it's back (-1: not lent). */
+  lentExtinguisherTo: NeighbourId | null = null;
+  extBackAt = -1;
+  /** Mick's complaint: empty the bag by this minute (0: no complaint). */
+  mickComplaintUntil = 0;
+  /** Complaints ignored since his last call to the council (CONFIG.neighbours.mick.councilAfterStrikes). */
+  mickStrikes = 0;
+  neighbourTalk: NeighbourTalk | null = null;
   /** Running totals per job type since the game started (for the balance sim; shared costs like labour aren't split). */
   typeLedger = Object.fromEntries(CONFIG.jobs.types.map(t => [t.id, { revenue: 0, boards: 0, fixes: 0, cut: 0, scrapped: 0, minutes: 0 }])) as
     Record<JobTypeId, { revenue: number; boards: number; fixes: number; cut: number; scrapped: number; minutes: number }>;
@@ -467,6 +484,7 @@ export class Game {
     this.rare = null; this.notes = []; this.story = null; this.walkIns = [];
     this.idleRun = 0; this.idleFrom = 0; this.idleWhy = ''; this.fireStarts = []; this.faultsToday = [];
     this.mateVisits = this.planMateVisits(); this.mateArrivals = 0; this.mateLeftAt = -9999; this.mateAfterTwo = false; this.mateHeldFor = -1;
+    if (CONFIG.neighbours.enabled) startNeighbourDay(this);
     // (debug, for playtest logs) when today's mates are due
     this.say(`[visits] planned: ${this.mateVisits.map(m => this.formatTime(m)).join(', ') || 'none'}`);
     if (CONFIG.rareEvents) this.rollRareEvent(); // its own seeded roll: off, nothing else in the day changes
@@ -668,6 +686,7 @@ export class Game {
     }
     if (this.rare) this.tickRare();
     if (CONFIG.dennis.enabled) dennisTick(this);
+    if (CONFIG.neighbours.enabled) tickNeighbours(this);
 
     // ply deliveries
     this.tickDeliveries();
@@ -1148,6 +1167,7 @@ export class Game {
           this.say(`"Righto, I'll let you get back to it." (+${d.friend.chatRapportGain} rapport)`, 'good');
           break;
         case 'phone':
+          if (dist.neighbour) { this.say(`Missed ${dist.title}.`, 'bad'); break; }
           if (dist.order) {
             // an order call always leaves a voicemail; it's only lost if you don't ring back in time
             const customer = dist.customer ?? this.callRng(dist.roll).pick(CUSTOMERS);
@@ -1539,6 +1559,14 @@ export class Game {
         return true;
       case 'phone':
         if (!this.canAct) return false;
+        if (dist.neighbour && dist.neighbourScene) {
+          this.removeDistraction(id);
+          // a neighbour: "can't talk now" costs nothing; answered, the talk's on (the router keeps cutting)
+          if (action === 'decline') { this.say(`Told ${dist.title.split(' ')[0]} you'd call back.`); return true; }
+          this.busy = { label: 'on the phone', remaining: d.phone.busyMinutes };
+          if (isScene(dist.neighbourScene)) openTalk(this, dist.neighbour, 'phone', dist.neighbourScene);
+          return true;
+        }
         this.removeDistraction(id);
         this.busy = { label: 'on the phone', remaining: d.phone.busyMinutes };
         if (action === 'decline' && dist.order) {
@@ -1900,6 +1928,63 @@ export class Game {
   }
 
   /**
+  /** Mick's complaint escalated: council inspection brought forward. */
+  triggerMickCouncil(): boolean {
+    if (!CONFIG.rareEvents || this.phase !== 'day') return false;
+    // one rare event a day: if today's already got one (on its way, or been), Mick's call doesn't replace it
+    if (this.rare) return false;
+    const def = this.rareDef('council');
+    const at = Math.max(this.minute + CONFIG.neighbours.mick.councilLeadMinutes, def.earliestHour * 60);
+    this.scheduleRare(def, at, false);
+    this.say('Mick called the council. Inspection brought forward.', 'bad');
+    return true;
+  }
+
+  /**
+   * Sal's overflow job today: its sheets as jobs priced like your own work (cut time and all) at his margin, due before
+   * close. The same all day (its own seeded roll), so what he offers is what you get. Not on the board yet.
+   */
+  salOverflowJobs(): Job[] {
+    const s = CONFIG.neighbours.sal, r = Rng.derive(this.seed, 'salOverflow', this.dayIndex), t = this.pickType(r), id0 = this.nextJobId;
+    const due = CONFIG.clock.endHour * 60 - s.overflowDueBeforeClose;
+    const jobs = Array.from({ length: s.overflowSheets }, (_, i) => {
+      const j = this.makeJob(r, t, `Sal's overflow — ${t.material}${s.overflowSheets > 1 ? ` (${i + 1}/${s.overflowSheets})` : ''}`, this.dayIndex, due);
+      j.price = Math.round(j.price * s.overflowMargin);
+      return j;
+    });
+    this.nextJobId = id0; // (a quote: the ids are given out when it's taken)
+    return jobs;
+  }
+
+  /** Take Sal's overflow job (`mult`: what you talked him up to). */
+  addSalJob(mult = 1) {
+    for (const j of this.salOverflowJobs()) {
+      j.id = this.nextJobId++;
+      j.price = Math.round(j.price * mult);
+      this.jobs.push(j);
+      this.salJobIds.push(j.id);
+      this.today.sheetsDemanded += 1;
+    }
+    this.say(`Sal's overflow on the board: ${CONFIG.neighbours.sal.overflowSheets} sheets, due ${this.formatTime(CONFIG.clock.endHour * 60 - CONFIG.neighbours.sal.overflowDueBeforeClose)}.`, 'good');
+  }
+
+  neighbourPick(index: number) { return pickTalk(this, index); }
+
+  neighbourLedgerLines() { return ledgerLines(this); }
+
+
+  receiveNeighbourPay(amount: number, note: string) {
+    this.cash += amount;
+    this.today.revenue += amount;
+    this.say(`+$${Math.round(amount)} ${note}`, 'money');
+  }
+
+  /** Public hooks for src/sim/neighbours.ts (say/spend/walk are private). */
+  neighbourSay(text: string, tone: LogEntry['tone'] = 'info') { this.say(text, tone); }
+  neighbourSpend(amount: number, bucket: keyof DayStats, note?: string) { this.spend(amount, bucket, note); }
+  neighbourLayoutWalk(mins: number) { return this.walkMinutes(mins); }
+
+  /**
    * Book it for `at`, in place of the first order call from then on (rather than stacking on top). `takeSlot`: it lands
    * when that call would have rung; otherwise (forced) it keeps `at` and the call just doesn't ring.
    */
@@ -1988,7 +2073,7 @@ export class Game {
     const faults = [
       ...(!walked ? ['nobody showed them round'] : []),
       ...(1 - this.wear.filter > CONFIG.fire.bagFullAbove ? ['the extractor bag full'] : []),
-      ...(this.extinguisherAway || this.fireResponse !== null ? ['the extinguisher off its hook'] : []),
+      ...(this.extinguisherAway || this.lentExtinguisherTo !== null || this.fireResponse !== null ? ['the extinguisher off its hook'] : []),
     ];
     r.phase = 'done'; r.touring = false;
     if (r.pausedCut && this.machine === 'paused' && this.current && !this.replacing && !this.powerTripped) this.machine = 'cutting';

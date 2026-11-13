@@ -119,8 +119,8 @@ export class Cafe {
     if (open && !this.chip) {
       const b = this.chip = document.createElement('button');
       b.className = 'cafechip'; b.textContent = `☕ ${CONFIG.cafe.name} first?`;
-      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + env(safe-area-inset-right, 0px))', top: 'calc(160px + env(safe-area-inset-top, 0px))', zIndex: '6',
-        font: "14px 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(160px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '5', // (under the prompts: a label beside you wins over the morning chip)
+        font: "calc(max(14px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.enter(); });
       this.d.parent.appendChild(b);
     } else if (!open && this.chip) { this.chip.remove(); this.chip = null; }
@@ -167,8 +167,8 @@ export class Cafe {
     if (skippable) {
       const b = this.skipChip = document.createElement('button');
       b.className = 'cafechip skip'; b.textContent = 'Skip intro ›';
-      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + env(safe-area-inset-right, 0px))', top: 'calc(20px + env(safe-area-inset-top, 0px))', zIndex: '8',
-        font: "14px 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(20px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '8',
+        font: "calc(max(14px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace", padding: '6px 10px', background: '#f4e2c4', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.leave(); });
       this.d.parent.appendChild(b);
     }
@@ -380,8 +380,8 @@ export class Cafe {
     if (this.nextBtn) return;
     const b = this.nextBtn = document.createElement('button');
     b.className = 'cafenext'; b.textContent = 'Next ›';
-    Object.assign(b.style, { position: 'absolute', right: 'calc(14px + env(safe-area-inset-right, 0px))', bottom: 'calc(22px + env(safe-area-inset-bottom, 0px))', zIndex: '8',
-      font: "bold 18px 'Courier New', monospace", padding: '12px 20px', background: '#8fd37a', color: '#14110f', border: '3px solid #14110f', borderRadius: '14px', boxShadow: '0 4px 0 #14110f', pointerEvents: 'auto' });
+    Object.assign(b.style, { position: 'absolute', right: 'calc(14px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', bottom: 'calc(22px + max(env(safe-area-inset-bottom, 0px), var(--tvy, 0px)))', zIndex: '8',
+      font: "bold calc(max(18px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace", padding: '12px 20px', background: '#8fd37a', color: '#14110f', border: '3px solid #14110f', borderRadius: '14px', boxShadow: '0 4px 0 #14110f', pointerEvents: 'auto' });
     b.addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); this.introAdvance = true; });
     this.d.parent.appendChild(b);
   }

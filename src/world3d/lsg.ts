@@ -70,6 +70,8 @@ export class LsgVignette {
   }
 
   get active() { return this.phase !== 'off'; }
+  /** The tap game's on (a pad steers a cursor for it). */
+  get playing() { return this.phase === 'play' && !!this.layer; }
 
   start(done: () => void) {
     this.done = done;

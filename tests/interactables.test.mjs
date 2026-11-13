@@ -37,6 +37,19 @@ const landRare = (game, id) => game.eval((g, w, s, id) => {
   return g.rare.phase;
 }, id);
 
+/** Tap an answer on a neighbour's card (a finger, where it is on screen). */
+async function tapCard(game, re) {
+  await game.page.waitForSelector('#kir-hud .nbrcard.on button', { timeout: 5_000 });
+  const at = await game.page.evaluate(src => {
+    const re = new RegExp(src), b = [...document.querySelectorAll('#kir-hud .nbrcard button')].find(x => re.test(x.textContent));
+    if (!b) return null;
+    const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  }, re.source);
+  assert.ok(at, `an answer matching ${re}`);
+  await game.page.touchscreen.tap(at.x, at.y);
+  await frames(game);
+}
+
 const CASES = {
   async machine(game) {
     await stockNext(game);
@@ -239,6 +252,30 @@ const CASES = {
     const needs = await game.eval(g => { const tick = Object.getPrototypeOf(g).tick; for (let i = 0; i < 4; i++) { g.beersToday += 1; tick.call(g); } return g.needLoo; });
     assert.equal(needs, false, 'no "Need the loo"');
   },
+  // next door (from their day): "Talk to <name>" at their front opens their card; an answer is a tap on it
+  async neighbourSal(game) {
+    const type = await game.eval(g => { g.dayIndex = 6; const j = g.jobs.find(x => x.status === 'queued'); g.stock[j.type] = 0; return j.type; });
+    await walkTo(game, 'neighbourSal');
+    assert.equal((await tapLabel(game, 'Talk to Sal')).said, 'Talking with Sal');
+    await tapCard(game, /^Borrow/);
+    assert.deepEqual(await game.eval((g, w, s, t) => [g.stock[t], g.salDebts.length, g.neighbourTalk], type), [C.neighbours.sal.borrowSheets, 1, null]);
+  },
+  async neighbourMick(game) {
+    await game.eval(g => { g.dayIndex = 6; g.offcutBin = 0.8; });
+    await walkTo(game, 'neighbourMick');
+    assert.equal((await tapLabel(game, 'Talk to Mick')).said, 'Talking with Mick');
+    await tapCard(game, /^Cheers/);
+    assert.deepEqual(await game.eval(g => [g.offcutBin, g.neighbours.mick.favour]), [0, -1]);
+  },
+  async neighbourPriya(game) {
+    const cash = await game.eval(g => { g.dayIndex = 6; g.offcutBin = 0.5; return g.cash; });
+    await walkTo(game, 'neighbourPriya');
+    assert.equal((await tapLabel(game, 'Talk to Priya')).said, 'Talking with Priya');
+    await tapCard(game, /^Sell/);
+    assert.deepEqual(await game.eval(g => [g.offcutBin, g.neighbours.priya.favour]), [0, 1]);
+    assert.equal(await game.eval(g => g.cash), cash + Math.round(C.neighbours.priya.binPay * 0.5));
+  },
+
   // the layout put the compressor on the extractor's circuit: the breaker trips
   async switchboard(game) {
     await game.eval(g => { g.powerTripped = true; g.machine = 'paused'; });
@@ -257,7 +294,7 @@ describe('interactables', () => {
     const { OBJECTS } = await env.load('/src/world/layout.ts');
     for (const id of withActions) assert.ok(OBJECTS.some(o => o.id === id), `${id} is in the shed`);
     assert.deepEqual(Object.keys(CASES).sort(), [...withActions, 'visitor', 'inspector'].sort());
-    assert.equal(Object.keys(CASES).length, 20);
+    assert.equal(Object.keys(CASES).length, 23);
   });
 
   // the exhaust unit's glow: a spot fire only smokes at first; day 2's lesson fire (CONFIG.fire.lesson) glows from the start

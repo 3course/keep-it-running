@@ -1,6 +1,9 @@
 // The notepad: what needs doing now, what can wait, and today's sheets.
 import { CONFIG } from '../config.js';
+import { say } from '../input/prompts.js';
 import type { Game } from '../sim/Game.js';
+import { favourText, salOwed } from '../sim/neighbours.js';
+import type { NeighbourId } from '../sim/types.js';
 import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
 import { HOOKS, hookThere, offcutsBagAt, onHook, type WorldState } from './state.js';
@@ -53,7 +56,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   const cans = w.people?.cans ?? [];
   if (cans.some(c => c.spot === 'bed')) add(true, 'bedcan', 'Can on the router bed from last night', 'machine');
   if (w.carrying === 'cans') add(true, 'cans-bag', `Cans in the refund bag by the roller door (${w.canCount ?? 0} in hand)`, 'fridge');
-  else if (cans.length) add(false, 'cans', `Last night's empties: ${cans.length} about the place (tap one)`, 'fridge');
+  else if (cans.length) add(false, 'cans', `Last night's empties: ${cans.length} about the place (${say('canTap')})`, 'fridge');
 
   // first day: the walk-round comes first, in order
   if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);
@@ -147,6 +150,21 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
 
   // last order call handled, board clear, nothing to do till 5
   if (g.canKnockOffEarly()) add(false, 'knock-early', `Knock off early (${g.formatTime()})`, 'rollerDoor');
+
+  // favour ledger with the neighbours (one line each)
+  if (CONFIG.neighbours.enabled) {
+    const front = (id: NeighbourId) => `neighbour${id[0].toUpperCase()}${id.slice(1)}` as ObjectId;
+    if (g.mickComplaintUntil) add(true, 'mick-dust', `Mick wants the extractor bag emptied by ${g.formatTime(g.mickComplaintUntil)}`, 'extractor');
+    const owed = salOwed(g);
+    if (owed.sheets) add(owed.due !== null && owed.due <= g.dayIndex, 'sal-debt', `You owe Sal ${owed.sheets} sheets or $${owed.cash} (by day ${owed.due})`, front('sal'));
+    if (g.lentExtinguisherTo === 'sal') add(!!g.fire, 'sal-ext', `Sal has the wall extinguisher (back ${g.formatTime(Math.max(g.minute, g.extBackAt))})`, front('sal'));
+    for (const id of ['sal', 'mick', 'priya'] as NeighbourId[]) {
+      if (g.dayIndex >= CONFIG.neighbours.fromDay[id]) add(false, `nb-${id}`, favourText(g, id), front(id));
+    }
+    for (const d of g.distractions) {
+      if (d.neighbour) add(true, `nbphone-${d.id}`, `${d.title}: ${d.line}`, 'phone');
+    }
+  }
 
   // voicemails sit under the main list: they'll wait, but not forever
   const callbacks: TodoItem[] = g.callbacks.map(c => ({

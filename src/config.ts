@@ -489,6 +489,55 @@ export const CONFIG = {
     knockOffEarlyIdleMinutes: 2, // offer it after the machine's sat idle this long with nothing on the board
   },
 
+  // Next door (src/sim/neighbours.ts): Sal's joinery, Mick's fab shop, Priya's sign place. Favours, not free money: a
+  // polite no costs nothing; a burned relationship (a broken deal, an unpaid debt, an ignored complaint) cools a
+  // neighbour off for `burnDays`. Rolls are on their own seeded stream. Off (`enabled: false`), the sim is exactly as before.
+  neighbours: {
+    enabled: true,
+    fromDay: { sal: 2, mick: 3, priya: 5 } as const,
+    /** The sim's walk round to a neighbour, each way (game minutes); in the shed you walk it yourself. */
+    walkMinutes: { sal: [3, 5], mick: [3, 6], priya: [5, 8] } as const,
+    /** A chat over the fence (a visit), after the answer. */
+    talkMinutes: 4,
+    /** How long a neighbour's phone call rings before it rings out (no harm done). */
+    phoneWindow: 10,
+    favourFloor: -3,
+    favourCeil: 3,
+    burnDays: 3,
+    sal: {
+      borrowSheets: 2,
+      borrowMarkup: 1.3,       // cash back costs this times the board cost…
+      markupPerFavour: 0.05,   // …less this for each favour he owes you
+      repayDays: 2,            // due back on day + this (taken off the pallet then if it's there)
+      graceDays: 1,            // then he sends the bill (cash, even into the overdraft) and he's burned
+      borrowCallChance: 0.06,  // a minute, once you're out past the cutoff with the truck gone
+      overflowChance: 0.02,    // a minute, between these hours
+      overflowFromHour: 9,
+      overflowUntilHour: 12,
+      overflowSheets: 2,
+      overflowMargin: 0.8,     // of what your own customers pay
+      overflowDueBeforeClose: 45,
+      haggle: 0.05,            // "ask for a bit more", once
+      extChance: 0.004,        // he asks to borrow the wall extinguisher
+      extFromHour: 10,
+      extBackAfterMinutes: 120,
+    },
+    mick: {
+      bagAbove: 0.82,          // the extractor bag this full blows dust over his fence
+      complaintMinutes: 90,    // to empty it before he rings the council…
+      graceMinutesPerFavour: 15, // …plus this for each favour he owes you
+      councilAfterStrikes: 3,  // ignore this many complaints and he rings the council…
+      councilLeadMinutes: 45,  // …and the inspector's at the roller door this long after his call (if today's free)
+      skipChance: 0.05,        // a minute, with the offcut bin past skipBinAbove
+      skipBinAbove: 0.5,
+    },
+    priya: {
+      binPay: 40,              // for a full offcut bin (less for less)
+      payPerFavour: 5,
+      buyChance: 0.05,         // a minute, with the bin past binAbove
+      binAbove: 0.5,
+    },
+  },
 } as const;
 
 export type UpgradeId = (typeof CONFIG.upgrades)[number]['id'];

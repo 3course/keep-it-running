@@ -20,7 +20,7 @@ export type GestureSpec =
 
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
-#kir-hud .gesture { position: absolute; left: 50%; bottom: ${F(96)}; transform: translateX(-50%); width: ${F(320)}; pointer-events: auto;
+#kir-hud .gesture { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); bottom: calc(${F(96)} + var(--tvy, 0px)); transform: translateX(-50%); width: ${F(320)}; pointer-events: auto;
   background: #efe6d8; border: 3px solid #14110f; border-radius: 14px; box-shadow: 0 6px 0 rgba(20,17,15,.35); padding: ${F(10)};
   touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; z-index: 30; }
 #kir-hud .gesture .top { display: flex; align-items: center; justify-content: space-between; height: ${F(34)}; }
@@ -65,6 +65,8 @@ const CSS = `
 #kir-hud .gesture .ghost { position: absolute; width: ${F(34)}; height: ${F(34)}; border-radius: 50%; background: rgba(20,17,15,.28);
   border: 2px solid rgba(255,255,255,.7); transform: translate(-50%,-50%); pointer-events: none; }
 `;
+
+import { say } from '../input/prompts.js';
 
 type Done = (choice?: number) => void;
 
@@ -244,7 +246,7 @@ export class GesturePad {
         const line = document.createElement('div'); line.className = 'line'; docket.appendChild(line);
         const cv = document.createElement('canvas'); docket.appendChild(cv);
         const bar = document.createElement('div'); bar.className = 'progress'; bar.appendChild(document.createElement('i'));
-        const tapSign = document.createElement('button'); tapSign.className = 'tapsign'; tapSign.textContent = 'Tap to sign';
+        const tapSign = document.createElement('button'); tapSign.className = 'tapsign'; tapSign.textContent = say('signNow');
         area.append(docket, bar, ghost, tapSign);
         const waiting = document.createElement('span'); waiting.className = 'waiting'; waiting.textContent = "🦶 the driver's tapping his foot";
         this.el?.querySelector('.icon')?.appendChild(waiting);

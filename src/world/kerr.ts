@@ -6,6 +6,7 @@ import type { Game } from '../sim/Game.js';
 import type { DayStats } from '../sim/types.js';
 import { leaseDay, leaseLength, projectedCash } from './lease.js';
 import type { WorldState } from './state.js';
+import { kerrNeighbourLines } from '../sim/neighbours.js';
 
 export interface KerrScreen {
   /** Label/value rows for the top of the screen. */
@@ -77,6 +78,7 @@ function rules(g: Game, w: WorldState): Said[] {
     const c = d.sheetsScrapped * CONFIG.jobs.priceBasisBoardCost;
     out.push({ cost: c, line: `${plural(d.sheetsScrapped, 'sheet')} in the skip. About ${money(c)} of board, before the time.` });
   }
+  for (const n of kerrNeighbourLines(g)) out.push(n);
   return out;
 }
 

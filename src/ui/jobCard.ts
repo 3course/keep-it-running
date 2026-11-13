@@ -8,7 +8,7 @@ import type { Job } from '../sim/types.js';
 
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
-#kir-hud .jobcard { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); /* clear of a pinned notepad */ top: calc(${F(70)} + env(safe-area-inset-top, 0px)); width: ${F(300)}; transform: translate(-50%, -12px) rotate(-1.2deg);
+#kir-hud .jobcard { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); /* clear of a pinned notepad */ top: calc(${F(70)} + max(env(safe-area-inset-top, 0px), var(--tvy, 0px))); width: ${F(300)}; transform: translate(-50%, -12px) rotate(-1.2deg);
   opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none; z-index: 6;
   background: #fbfaf4; border: 3px solid #14110f; border-radius: 6px; box-shadow: 0 6px 0 rgba(20,17,15,.35); font: ${F(14)} 'Courier New', monospace; color: #14110f; }
 #kir-hud .jobcard.show { opacity: 1; transform: translate(-50%, 0) rotate(-1.2deg); }
