@@ -193,7 +193,7 @@ function resetsPower(g: Game, chance: number): boolean {
 
 const competent: Policy = (g) => {
   answersDennis(g);
-  if (neighbourPolicy(g, false, false)) return;
+  if (neighbourPolicy(g, 'competent', !overCommitted(g))) return;
   if (g.powerTripped && resetsPower(g, 1)) return;
   // a fire beats everything: drop what you're doing and go
   if (g.fire && !g.fireResponse) g.fightFire();
@@ -219,6 +219,7 @@ const competent: Policy = (g) => {
   }
   if (g.truckOnApron?.stage === 'waiting') handleTruck(g); // sign before the driver gives up
   for (const d of g.distractions) {
+    if (d.neighbour) continue; // (neighbourPolicy's)
     // a mate who comes up (or is yarning): chats when the machine's idle, sends them off when it's cutting
     if (d.kind === 'friend' && usesMate.has(g)) continue; // the `mate` variant handles them (mateHelps)
     if (d.kind === 'friend') { if (d.ask || d.engaged) g.respond(d.id, g.machine === 'cutting' ? 'disengage' : 'chat'); }
@@ -244,7 +245,7 @@ const sloppyIgnores = new WeakMap<Game, Map<number, boolean>>();
 
 const sloppy: Policy = (g) => {
   answersDennis(g);
-  if (neighbourPolicy(g, true, false)) return;
+  if (neighbourPolicy(g, 'sloppy', !overCommitted(g))) return;
   if (g.powerTripped && resetsPower(g, 0.3)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (sloppyRare(g)) return;
@@ -271,6 +272,7 @@ const sloppy: Policy = (g) => {
   }
   // chats to everyone, ignores the courier, drinks from 2pm
   for (const d of g.distractions) {
+    if (d.neighbour) continue; // (neighbourPolicy's: sloppy lets them ring out)
     if (d.kind === 'phone' || d.kind === 'bank') g.respond(d.id, 'answer');
     if (d.kind === 'friend' && d.ask && !usesMate.has(g)) g.respond(d.id, 'chat'); // yes to everything, a beer whenever they ask
   }
@@ -337,7 +339,7 @@ function averageWantsSwap(g: Game, key: 'bit' | 'filter', at: number): boolean {
  */
 const average: Policy = (g) => {
   answersDennis(g);
-  if (neighbourPolicy(g, false, true)) return;
+  if (neighbourPolicy(g, 'average', !overCommitted(g))) return;
   if (g.powerTripped && resetsPower(g, 0.6)) return;
   if (g.fireResponse) { g.setSpraying(g.fireResponse.step === 'atDuct'); return; }
   if (g.fire && averageReacts(g, `fire-${g.fire.id}`, 20, 60) && g.fightFire()) return;
@@ -359,6 +361,7 @@ const average: Policy = (g) => {
   }
   if (g.truckOnApron?.stage === 'waiting' && P(g).chance(0.5)) handleTruck(g);
   for (const d of g.distractions) {
+    if (d.neighbour) continue; // (neighbourPolicy's)
     // a mate who comes up: a yarn (or the beer they asked for) when the machine's idle; while it's cutting, sends
     // them off two times in three and lets them talk (they start a yarn anyway) the third
     if (d.kind === 'friend') {

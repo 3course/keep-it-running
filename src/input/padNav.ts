@@ -64,6 +64,7 @@ const LAYERS: Layer[] = [
   { name: 'ledger', root: '#kir-hud .ledgercard', back: 'button' },
   { name: 'letter', root: '#kir-hud .lettercard', backTap: true },
   { name: 'call', root: '#kir-hud .callcard', back: '.no' },
+  { name: 'neighbour', root: '#kir-hud .nbrcard.on', back: 'button.no' },
   { name: 'gesture', root: '#kir-hud .gesture', back: '.x' },
   { name: 'cafe', root: '#kir-hud .cafenext, #kir-hud .cafechip.skip', back: '.cafechip.skip' },
   { name: 'replies', root: '#kir-hud .replies', back: 'button.home' },
@@ -333,6 +334,9 @@ export class PadNav {
     }
     if (L?.backTap) { this.tapAt(document.body, innerWidth / 2, innerHeight / 2); return; }
     if (this.host.back()) return;
+    // day speech bubbles up (a mate, Jess, a customer): B puts them away early, as a tap on them does
+    const bubbles = Array.from(document.querySelectorAll<HTMLElement>('#kir-hud .talk.tappable')).filter(visible);
+    if (bubbles.length) { for (const b of bubbles) { const c = centre(b); this.tapAt(b, c.x, c.y); } return; }
     // in the shed, B with nothing up: the pause menu (Esc on a keyboard does the same)
     if (this.host.inWorld() && this.input.kind === 'keyboard') this.host.pause();
   }

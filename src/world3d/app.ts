@@ -143,6 +143,8 @@ export class World3D {
   /** The pad's focus ring over the DOM (cards, menus, prompts); public for tests. */
   padNav!: PadNav;
   /** What's rumbled already (a fire's id, a fault, the ute clip), so each rumbles once. */
+  /** The wall extinguisher's lent to a neighbour (last frame). */
+  private extLent = false;
   private rumbled: { fire: number; fault: object | null; ute: boolean } = { fire: -1, fault: null, ute: false };
   private ptr: { id: number; x0: number; y0: number; t0: number; stickable: boolean; active: boolean } | null = null;
   private stickVec = { x: 0, y: 0 };
@@ -323,7 +325,7 @@ export class World3D {
     this.gesture = new GesturePad(this.hud.labels.parentElement!);
     this.callCard = new CallCard(this.hud.labels.parentElement!);
     this.neighbourCard = new NeighbourCard(this.hud.labels.parentElement!);
-    uiHooks.neighbourCard = () => this.neighbourCard.sync(this.g, i => { this.g.neighbourPick(i); this.neighbourCard.sync(this.g, j => this.g.neighbourPick(j)); this.save(); });
+    uiHooks.neighbourCard = () => this.neighbourCard.sync(this.g, i => { this.g.neighbourPick(i); this.save(); });
     // answered: the call is a job card (who, the sketch, the details as they tell you, due bottom-right), then Accept /
     // Decline inside it. The job card stays quiet when those sheets land (the call already showed them).
     uiHooks.orderCard = (d, offer, take, decline) => {
@@ -850,10 +852,16 @@ export class World3D {
       this.save();
     }
     this.gratitude.update(people(this.w), this.g.dayIndex, this.planNow);
-    w.atNeighbour = this.g.neighbourSite;
-    if (this.g.lentExtinguisherTo === 'sal') w.hooks.wall = false;
-    if (this.g.neighbourTalk) this.neighbourCard.sync(this.g, i => { this.g.neighbourPick(i); this.neighbourCard.sync(this.g, j => this.g.neighbourPick(j)); this.save(); });
-    else this.neighbourCard.close();
+    // the wall extinguisher next door: off its bracket while Sal has it, back on it when he returns it
+    const lent = this.g.lentExtinguisherTo !== null;
+    if (lent !== this.extLent) {
+      this.extLent = lent;
+      if (lent) w.hooks.wall = false;
+      else if (!w.hooks.wall && !w.extAt?.wall && !(w.carrying === 'extinguisher' && w.extinguisherFrom === 'wall')) w.hooks.wall = true;
+      this.save();
+    }
+    // a neighbour on the phone or over the fence: their card (drawn only when what it says changes)
+    this.neighbourCard.sync(this.g, i => { this.g.neighbourPick(i); this.save(); });
     this.updateVisuals(dt);
     // a gesture card closes if you walk off from what it's for, or the day stops
     if (this.gesture.active && (this.paused || this.g.phase !== 'day'

@@ -2,7 +2,7 @@
 import { CONFIG } from '../config.js';
 import { say } from '../input/prompts.js';
 import type { Game } from '../sim/Game.js';
-import { favourText, neighboursActive } from '../sim/neighbours.js';
+import { favourText, salOwed } from '../sim/neighbours.js';
 import type { NeighbourId } from '../sim/types.js';
 import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
@@ -153,10 +153,14 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
 
   // favour ledger with the neighbours (one line each)
   if (CONFIG.neighbours.enabled) {
+    const front = (id: NeighbourId) => `neighbour${id[0].toUpperCase()}${id.slice(1)}` as ObjectId;
+    if (g.mickComplaintUntil) add(true, 'mick-dust', `Mick wants the extractor bag emptied by ${g.formatTime(g.mickComplaintUntil)}`, 'extractor');
+    const owed = salOwed(g);
+    if (owed.sheets) add(owed.due !== null && owed.due <= g.dayIndex, 'sal-debt', `You owe Sal ${owed.sheets} sheets or $${owed.cash} (by day ${owed.due})`, front('sal'));
+    if (g.lentExtinguisherTo === 'sal') add(!!g.fire, 'sal-ext', `Sal has the wall extinguisher (back ${g.formatTime(Math.max(g.minute, g.extBackAt))})`, front('sal'));
     for (const id of ['sal', 'mick', 'priya'] as NeighbourId[]) {
-      if (neighboursActive(g, id)) add(false, `nb-${id}`, favourText(id, g.neighbours[id].favour), `neighbour${id[0].toUpperCase()}${id.slice(1)}` as ObjectId);
+      if (g.dayIndex >= CONFIG.neighbours.fromDay[id]) add(false, `nb-${id}`, favourText(g, id), front(id));
     }
-    if (g.mickComplaintUntil) add(true, 'mick-dust', 'Mick\'s on about the dust — empty the bag or go see him', ['extractor', 'neighbourMick']);
     for (const d of g.distractions) {
       if (d.neighbour) add(true, `nbphone-${d.id}`, `${d.title}: ${d.line}`, 'phone');
     }
