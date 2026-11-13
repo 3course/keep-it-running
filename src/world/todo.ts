@@ -1,5 +1,6 @@
 // The notepad: what needs doing now, what can wait, and today's sheets.
 import { CONFIG } from '../config.js';
+import { say } from '../input/prompts.js';
 import type { Game } from '../sim/Game.js';
 import { faultTarget, fixStep } from './fixes.js';
 import type { ObjectId } from './layout.js';
@@ -53,7 +54,7 @@ export function todoItems(g: Game, w: WorldState): TodoItem[] {
   const cans = w.people?.cans ?? [];
   if (cans.some(c => c.spot === 'bed')) add(true, 'bedcan', 'Can on the router bed from last night', 'machine');
   if (w.carrying === 'cans') add(true, 'cans-bag', `Cans in the refund bag by the roller door (${w.canCount ?? 0} in hand)`, 'fridge');
-  else if (cans.length) add(false, 'cans', `Last night's empties: ${cans.length} about the place (tap one)`, 'fridge');
+  else if (cans.length) add(false, 'cans', `Last night's empties: ${cans.length} about the place (${say('canTap')})`, 'fridge');
 
   // first day: the walk-round comes first, in order
   if (tourActive(w)) for (const t of TOUR) if (!w.tour!.visited.includes(t.id)) add(true, `tour-${t.id}`, t.text, t.id);

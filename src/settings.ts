@@ -8,22 +8,26 @@ import { getJson, isObject, KEYS, setItem } from './storage.js';
 export type TextSpeed = 'slow' | 'normal' | 'fast';
 /** auto: whatever the GPU probe says. low: the plain pipeline (?safe=1). bare: and no shadows (?safe=2). */
 export type Graphics = 'auto' | 'low' | 'bare';
-export interface Settings { sound: number; music: number; textSpeed: TextSpeed; graphics: Graphics; reduceMotion: boolean }
+export interface Settings { sound: number; music: number; textSpeed: TextSpeed; graphics: Graphics; reduceMotion: boolean; rumble: boolean }
 
-export const DEFAULT_SETTINGS: Settings = { sound: 1, music: 1, textSpeed: 'normal', graphics: 'auto', reduceMotion: false };
+export const DEFAULT_SETTINGS: Settings = { sound: 1, music: 1, textSpeed: 'normal', graphics: 'auto', reduceMotion: false, rumble: true };
 
-function load(): Settings {
+/** Settings from whatever's stored (junk, a wrong type or out of range: that one setting's default). */
+export function parseSettings(stored: unknown): Settings {
   try {
-    const raw = (getJson(KEYS.settings, isObject) ?? {}) as Partial<Settings>;
+    const raw = (isObject(stored) ? stored : {}) as Partial<Settings>;
     const num = (v: unknown, d: number) => (typeof v === 'number' && v >= 0 && v <= 1 ? v : d);
     return {
       sound: num(raw.sound, DEFAULT_SETTINGS.sound), music: num(raw.music, DEFAULT_SETTINGS.music),
       textSpeed: raw.textSpeed === 'slow' || raw.textSpeed === 'fast' ? raw.textSpeed : 'normal',
       graphics: raw.graphics === 'low' || raw.graphics === 'bare' ? raw.graphics : 'auto',
       reduceMotion: raw.reduceMotion === true,
+      rumble: raw.rumble !== false, // on unless it's been turned off
     };
   } catch { return { ...DEFAULT_SETTINGS }; }
 }
+
+function load(): Settings { return parseSettings(getJson(KEYS.settings, isObject)); }
 
 /** The live settings (read them where you need them; change them with setSetting). */
 export const SETTINGS: Settings = load();

@@ -23,10 +23,10 @@ const money = (n: number) => `${n < 0 ? '-' : ''}$${Math.abs(Math.round(n)).toLo
 const pick = <T,>(xs: readonly T[], n: number) => xs[Math.abs(Math.floor(n)) % xs.length];
 const CSS = `
 #kir-hud .ledgercard { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(92%, 380px); max-height: 70%; overflow-y: auto; z-index: 8;
-  background: #fbfaf4; border: 3px solid #14110f; border-radius: 10px; padding: 10px 12px; font: 13px/1.35 'Courier New', monospace; color: #14110f; pointer-events: auto; }
+  background: #fbfaf4; border: 3px solid #14110f; border-radius: 10px; padding: 10px 12px; font: calc(max(13px, var(--fmin, 0px)) * var(--s, 1))/1.35 'Courier New', monospace; color: #14110f; pointer-events: auto; }
 #kir-hud .ledgercard h3 { margin: 0 0 6px; } #kir-hud .ledgercard .row { display: flex; justify-content: space-between; gap: 8px; border-top: 1px dashed #a2937f; padding: 3px 0; }
 #kir-hud .ledgercard .won { color: #2f7a2a; } #kir-hud .ledgercard .lost { color: #c0281e; } #kir-hud .ledgercard .dim { color: #7a6f60; }
-#kir-hud .ledgercard button { margin-top: 8px; width: 100%; padding: 8px; font: 15px 'Courier New', monospace; border: 2px solid #14110f; border-radius: 8px; background: #efe6d8; }
+#kir-hud .ledgercard button { margin-top: 8px; width: 100%; padding: 8px; font: calc(max(15px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace; border: 2px solid #14110f; border-radius: 8px; background: #efe6d8; }
 `;
 
 const TITLE: Record<Bet['kind'], string> = {

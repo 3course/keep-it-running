@@ -14,7 +14,7 @@ const CSS = `
 #kir-hud .talk.phone { background: #dff1ff; border-style: dashed; }
 #kir-hud .talk.dim { opacity: .55; }
 #kir-hud .talk .pic { display: block; width: ${F(150)}; height: auto; margin: 2px auto 4px; border-radius: 6px; background: radial-gradient(circle at 50% 40%, #5a4632, #241f1a 75%); }
-#kir-hud .replies { position: absolute; left: 50%; bottom: calc(${F(18)} + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(92%, ${F(380)});
+#kir-hud .replies { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); bottom: calc(${F(18)} + max(env(safe-area-inset-bottom, 0px), var(--tvy, 0px))); transform: translateX(-50%); width: min(92%, ${F(380)});
   display: flex; flex-direction: column; gap: ${F(8)}; z-index: 7; pointer-events: auto; }
 #kir-hud .replies button { position: relative; text-align: left; font: ${F(17)}/1.25 'Courier New', monospace; color: #14110f; background: #fff1c9;
   border: 3px solid #14110f; border-radius: 16px; padding: ${F(9)} ${F(12)}; box-shadow: 0 4px 0 #14110f; }

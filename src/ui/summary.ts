@@ -1,4 +1,5 @@
 // End-of-day and end-of-week screens as DOM: same P&L, shop floor, upgrade shop and verdicts as before.
+import { say } from '../input/prompts.js';
 import { CONFIG, type UpgradeId } from '../config.js';
 import type { Game } from '../sim/Game.js';
 import type { DayStats } from '../sim/types.js';
@@ -29,7 +30,7 @@ const GALLERY_CSS = `
 #kir-hud .summary .pair .after { background: radial-gradient(circle at 50% 40%, #5a4632, #241f1a 75%); }
 #kir-hud .summary .pair .after img { width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
 #kir-hud .summary .pair .cap { grid-column: 1 / -1; display: flex; justify-content: space-between; gap: 8px; }
-#kir-hud .summary .pair .tagline { position: absolute; left: 4px; bottom: 3px; font-size: 10px; padding: 1px 5px; border-radius: 3px; background: rgba(20,17,15,.75); color: #efe6d8; text-transform: uppercase; letter-spacing: 1px; }
+#kir-hud .summary .pair .tagline { position: absolute; left: 4px; bottom: 3px; font-size: calc(max(10px, var(--fmin, 0px)) * var(--s, 1)); padding: 1px 5px; border-radius: 3px; background: rgba(20,17,15,.75); color: #efe6d8; text-transform: uppercase; letter-spacing: 1px; }
 ${SKETCH_CSS.replace('.sketch', '#kir-hud .summary .sketch')}
 `;
 
@@ -59,7 +60,7 @@ function wireStartOver(el: HTMLElement, g: Game) {
   let armed: number | undefined;
   btn.addEventListener('click', () => {
     if (armed === undefined) {
-      btn.textContent = 'Tap again to wipe this game and start fresh';
+      btn.textContent = say('wipeAgain');
       btn.classList.add('armed');
       armed = window.setTimeout(() => { armed = undefined; btn.textContent = label; btn.classList.remove('armed'); }, 4000);
       return;
