@@ -12,7 +12,7 @@ export function renderDailyCard(el: HTMLElement, r: DailyResult) {
     <h1>Today's daily</h1>
     <p class="sub">${r.date} · the same day for everyone</p>
     <section class="dailycard">
-      <p class="emoji" style="font-size: 36px; letter-spacing: 6px; margin: 4px 0 8px">${r.emoji}</p>
+      <p class="emoji" style="font-size: calc(max(36px, var(--fmin, 0px)) * var(--s, 1)); letter-spacing: 6px; margin: 4px 0 8px">${r.emoji}</p>
       <div class="row"><span>Margin</span><span class="${r.margin >= 0.15 ? 'good' : r.margin >= 0 ? 'money' : 'bad'}">${Math.round(r.margin * 100)}%</span></div>
       <div class="row"><span>Sheets out the door</span><span>${r.sheets}</span></div>
       <div class="row"><span>Walked</span><span>${km}</span></div>

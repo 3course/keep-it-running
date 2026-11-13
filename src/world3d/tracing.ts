@@ -79,6 +79,8 @@ export class Tracing {
   constructor(private d: TracingDeps) {}
 
   get active() { return this.mode !== 'off'; }
+  /** The pencil's out (not the reveal after): a pad steers a cursor over the sheet. */
+  get drawing() { return this.mode === 'trace'; }
   /** The board on the bed: the whole sheet shows only for a full sheet (an offcut is its own little piece). */
   get showSheet() { return this.mode !== 'off' && this.mode !== 'choose' && this.sheetKind === 'sheet'; }
   get sheetType(): JobTypeId { return JOB_FOR[this.design?.kind ?? 'mdf']; }

@@ -98,7 +98,7 @@ describe('the production build and its service worker', () => {
       const boot = [...requested];
       assert.ok(!boot.some(p => /\/assets\/summary-/.test(p)), 'no summary chunk at boot');
       await page.evaluate(() => { window.kirScene.w.tour = null; window.kir.phase = 'daySummary'; });
-      await page.waitForFunction(() => getComputedStyle(document.querySelector('#kir-hud .summary')).display === 'block', null, { timeout: 30_000 });
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('#kir-hud .summary')).display !== 'none', null, { timeout: 30_000 }); // (block on a phone, a grid in landscape)
       assert.ok(requested.some(p => /\/assets\/summary-/.test(p)), 'fetched when the day summary shows');
       // the worker's precache has them too, so the end of the day works offline
       await page.waitForFunction(() => navigator.serviceWorker.controller, null, { timeout: 30_000 });
