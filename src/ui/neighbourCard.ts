@@ -36,10 +36,13 @@ export class NeighbourCard {
     this.el.className = 'nbrcard';
     // the shed under it doesn't take the touches
     for (const t of ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'click'] as const) this.el.addEventListener(t, e => e.stopPropagation());
-    // answers act on the click (a finger's lift, or A coming up): the press that opened the card can't also answer it
+    // an answer is a press that starts and ends on it (a finger, or A down and up): the tap that opened the card (on the
+    // prompt underneath) lands its click here too, and mustn't answer for you
+    let armed: HTMLButtonElement | null = null;
+    this.el.addEventListener('pointerdown', e => { armed = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-i]'); });
     this.el.addEventListener('click', e => {
       const b = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-i]');
-      if (b) { e.preventDefault(); this.pick(Number(b.dataset.i)); }
+      if (b && b === armed) { e.preventDefault(); armed = null; this.pick(Number(b.dataset.i)); }
     });
     parent.appendChild(this.el);
   }

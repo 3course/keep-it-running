@@ -100,10 +100,11 @@ export function salBorrow(g: Game, type: JobTypeId) {
   g.neighbourSay(`Sal lent you ${sheets} sheets of ${type}. Back by day ${debt.dueDay}: sheets, or $${debt.cashOwe}.`, 'info');
 }
 
-/** Pay a debt back: in sheets if they're on the pallet (and `sheets`), else in cash. True if it was paid. */
-function repay(g: Game, d: BorrowedPly, sheets: boolean): boolean {
-  if (sheets && g.stock[d.type] >= d.sheets) g.stock[d.type] -= d.sheets;
-  else if (g.cash - d.cashOwe >= -CONFIG.economy.overdraftLimit) g.neighbourSpend(d.cashOwe, 'materials', 'paid Sal back');
+/** Pay a debt back: 'sheets' off the pallet, 'cash' (within the overdraft), or 'either' (sheets if they're there).
+ * True if it was paid. */
+function repay(g: Game, d: BorrowedPly, how: 'sheets' | 'cash' | 'either'): boolean {
+  if (how !== 'cash' && g.stock[d.type] >= d.sheets) g.stock[d.type] -= d.sheets;
+  else if (how !== 'sheets' && g.cash - d.cashOwe >= -CONFIG.economy.overdraftLimit) g.neighbourSpend(d.cashOwe, 'materials', 'paid Sal back');
   else return false;
   g.salDebts = g.salDebts.filter(x => x !== d);
   return true;
@@ -112,7 +113,7 @@ function repay(g: Game, d: BorrowedPly, sheets: boolean): boolean {
 /** Pay Sal everything you can (sheets first, then cash). How many debts were cleared. */
 export function salRepayAll(g: Game, sheets = true): number {
   let n = 0;
-  for (const d of [...g.salDebts]) if (repay(g, d, sheets)) n++;
+  for (const d of [...g.salDebts]) if (repay(g, d, sheets ? 'either' : 'cash')) n++;
   if (n) { adjustFavour(g, 'sal', 1); g.neighbourSay(sheets ? 'Squared up with Sal.' : 'Paid Sal back in cash.', 'good'); }
   return n;
 }
@@ -322,10 +323,11 @@ export function tickNeighbours(g: Game) {
   // the extinguisher comes home on time
   if (g.lentExtinguisherTo && g.extBackAt >= 0 && m >= g.extBackAt) returnExtinguisher(g, 'Sal brought your extinguisher back. Back on its bracket.');
 
-  // a debt past its due day: taken back from the pallet if the sheets are there, else in cash; past the grace, a bill
+  // a debt past its due day: Sal comes for his sheets; not there, it's overdue (pay him at his place); past the grace, a
+  // bill (cash, overdraft or not) and he's done with you
   for (const d of [...g.salDebts]) {
     if (g.dayIndex <= d.dueDay) continue;
-    if (repay(g, d, true)) { g.neighbourSay('Sal came and took back what you owed him.', 'info'); continue; }
+    if (repay(g, d, 'sheets')) { g.neighbourSay('Sal came and took back the sheets you owed him.', 'info'); continue; }
     if (g.dayIndex > d.dueDay + c.sal.graceDays) {
       g.neighbourSpend(d.cashOwe, 'materials', 'Sal\'s bill');
       g.salDebts = g.salDebts.filter(x => x !== d);
@@ -395,9 +397,9 @@ export function startNeighbourDay(g: Game) {
  * out and ignores Mick, who rings the council.
  */
 export const NEIGHBOUR_PROFILES = {
-  competent: { answer: 1, borrow: 1, overflow: 1, sell: 1, skip: 1, fixBag: 1, visitWhenShort: 1 },
-  average: { answer: 0.6, borrow: 0.5, overflow: 0.4, sell: 0.5, skip: 0.5, fixBag: 0.6, visitWhenShort: 0.25 },
-  sloppy: { answer: 0, borrow: 0, overflow: 0, sell: 0, skip: 0, fixBag: 0, visitWhenShort: 0 },
+  competent: { answer: 1, borrow: 1, overflow: 1, sell: 1, skip: 1, fixBag: 1, visitWhenShort: 1, repay: 1 },
+  average: { answer: 0.6, borrow: 0.5, overflow: 0.4, sell: 0.5, skip: 0.5, fixBag: 0.6, visitWhenShort: 0.25, repay: 0.5 },
+  sloppy: { answer: 0, borrow: 0, overflow: 0, sell: 0, skip: 0, fixBag: 0, visitWhenShort: 0, repay: 0 },
 } as const;
 export type NeighbourProfile = keyof typeof NEIGHBOUR_PROFILES;
 
@@ -413,7 +415,7 @@ export function neighbourPolicy(g: Game, profile: NeighbourProfile, roomForMore:
     let pick = no;
     switch (t.scene) {
       case 'sal_borrow': pick = coin('borrow', P.borrow) ? yes : no; break;
-      case 'sal_repay': pick = yes; break;
+      case 'sal_repay': pick = choices.findIndex(x => /^Pay \$/.test(x.label)); break;
       case 'sal_overflow': pick = roomForMore && coin('overflow', P.overflow) ? yes : no; break;
       case 'mick_skip': pick = coin('skip', P.skip) ? yes : no; break;
       case 'priya_offcuts': pick = coin('sell', P.sell) ? yes : no; break;
@@ -430,6 +432,8 @@ export function neighbourPolicy(g: Game, profile: NeighbourProfile, roomForMore:
     if (!coin('answer', P.answer, d.id)) continue;
     if (g.respond(d.id, 'answer')) return true;
   }
+  // owing Sal past the due day (his sheets weren't on the pallet): go round and pay him
+  if (g.salDebts.some(d => d.dueDay < g.dayIndex) && neighboursActive(g, 'sal') && coin('repay', P.repay, g.dayIndex) && visit(g, 'sal', 'sal_repay')) return true;
   // Mick's waiting on the bag: empty it
   if (g.mickComplaintUntil && coin('fixBag', P.fixBag, g.dayIndex) && g.replaceConsumable('filter')) return true;
   // out of a type with no truck coming and Sal hasn't rung: go round

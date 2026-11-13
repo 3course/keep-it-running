@@ -418,3 +418,84 @@ describe('a whole day, pad only', () => {
     } finally { await game.close(); }
   });
 });
+
+// ---------- next door, on the pad ----------
+
+describe('the neighbours, pad only', () => {
+  /** To a neighbour's front on the pad: Y, the d-pad to their line on the notepad, A (walks you there). */
+  async function padTo(game, name) {
+    await padPress(game, 'notepad');
+    for (let i = 0; i < 20 && !(await padFocus(game)).text.startsWith(`${name}:`); i++) await padPress(game, 'down', { hold: 1, after: 1 });
+    assert.match((await padFocus(game)).text, new RegExp(`^${name}:`), `${name}'s line on the notepad`);
+    await padPress(game, 'confirm');
+    await stepUntil(game, (g, w, s) => !s.walking, null, { frames: 2400, what: `walking to ${name}` });
+  }
+  /** On the card: the d-pad to the answer, A. */
+  async function padAnswer(game, re) {
+    await stepUntil(game, () => !!document.querySelector('#kir-hud .nbrcard.on button'), null, { frames: 40, what: 'the card' });
+    assert.equal((await padFocus(game)).layer, 'neighbour');
+    for (let i = 0; i < 6 && !re.test((await padFocus(game)).text); i++) await padPress(game, 'down', { hold: 1, after: 1 });
+    assert.match((await padFocus(game)).text, re);
+    await padPress(game, 'confirm');
+    await stepUntil(game, () => !document.querySelector('#kir-hud .nbrcard.on'), null, { frames: 40, what: 'the card put away' });
+  }
+  const setUp = (game, edit) => game.eval((g, w, s, src) => {
+    w.tour = null; s.jobCard.hide(); document.querySelectorAll('#kir-hud .lettercard').forEach(e => e.remove());
+    g.dayIndex = 6; new Function('g', src)(g);
+  }, `(${edit})(g)`);
+
+  it('Sal: short of a board, walk round and borrow two sheets', async () => {
+    const game = await padGame();
+    try {
+      const type = await game.eval(g => { const j = g.jobs.find(x => x.status === 'queued'); return j.type; });
+      await setUp(game, g => { const j = g.jobs.find(x => x.status === 'queued'); g.stock[j.type] = 0; });
+      await padTo(game, 'Sal'); // (arriving from the notepad line opens the talk: its action is "Talk to Sal")
+      await shot(game, '23-neighbour-sal');
+      await padAnswer(game, /^Borrow/);
+      assert.deepEqual(await game.eval((g, w, s, t) => [g.stock[t], g.salDebts.length], type), [env.config.neighbours.sal.borrowSheets, 1]);
+    } finally { await game.close(); }
+  });
+
+  it('Mick: his skip takes the offcut bin', async () => {
+    const game = await padGame();
+    try {
+      await setUp(game, g => { g.offcutBin = 0.8; });
+      await padTo(game, 'Mick'); // (arriving from the notepad line opens the talk: its action is "Talk to Mick")
+      await padAnswer(game, /^Cheers/);
+      assert.deepEqual(await game.eval(g => [g.offcutBin, g.neighbours.mick.favour]), [0, -1]);
+    } finally { await game.close(); }
+  });
+
+  it('Priya: she buys the bin; and on the phone to Sal, B is the polite no (nothing lost)', async () => {
+    const game = await padGame();
+    try {
+      await setUp(game, g => { g.offcutBin = 0.6; });
+      const cash = await game.eval(g => g.cash);
+      await padTo(game, 'Priya'); // (arriving from the notepad line opens the talk: its action is "Talk to Priya")
+      await padAnswer(game, /^Sell/);
+      assert.ok(await game.eval(g => g.cash) > cash, 'paid');
+      await game.eval(g => { g.busy = null; }); // (the chat's few minutes: the test's clock is stopped)
+      // Sal rings with an overflow job: answered at the phone, then B (no, thanks) and he's no less friendly
+      await game.eval(g => { g.distractions.push({ id: 501, kind: 'phone', title: 'Sal Fletcher', line: 'Want a job?', remaining: 10, engaged: false, neighbour: 'sal', neighbourScene: 'sal_overflow' }); });
+      await walkTo(game, 'phone');
+      await padLabel(game, 'Answer');
+      await stepUntil(game, () => !!document.querySelector('#kir-hud .nbrcard.on'), null, { frames: 40, what: "Sal's card" });
+      await shot(game, '24-neighbour-phone');
+      await padPress(game, 'back');
+      assert.deepEqual(await game.eval(g => [g.neighbourTalk, g.neighbours.sal, g.salJobIds.length]), [null, { favour: 0, burnedUntil: 0 }, 0]);
+    } finally { await game.close(); }
+  });
+
+  it('B puts day speech bubbles away early', async () => {
+    const game = await padGame();
+    try {
+      await game.eval((g, w, s) => { w.tour = null; s.jobCard.hide(); document.querySelectorAll('#kir-hud .lettercard').forEach(e => e.remove()); g.distractions = g.distractions.filter(d => d.kind !== 'friend'); g.lastMate = null; g.spawnDistraction('friend'); });
+      const up = () => [...document.querySelectorAll('#kir-hud .talk.tappable, #kir-hud .stage > .bubble')].some(b => b.style.display !== 'none' && b.style.display !== '' && b.textContent);
+      await stepUntil(game, up, null, { frames: 1200, what: 'a bubble' });
+      await padPress(game, 'back');
+      await steps(game, 2);
+      assert.equal(await game.page.evaluate(`(${up})()`), false, 'put away');
+      assert.equal(await game.eval((g, w, s) => s.paused), false, "and B didn't pause");
+    } finally { await game.close(); }
+  });
+});
