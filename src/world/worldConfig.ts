@@ -28,7 +28,7 @@ export const WORLD = {
 
   // camera
   fov: 52,                             // vertical, in portrait
-  landscapeHFov: 64,                   // horizontal, in landscape (so a wide screen shows more, not smaller)
+  landscapeHFov: 80,                   // horizontal, in landscape (so a wide screen shows more of the floor, not smaller): a 16:9 TV sees ~50° vertical
   camDistance: 13,                     // m from the look-at point
   camPitchDeg: 40,                     // a little lower so the fronts of things show, not just their tops
   camLerp: 5,                          // follow smoothing (1/s)

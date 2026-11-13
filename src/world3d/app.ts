@@ -61,6 +61,7 @@ import { pruneSnapped, snapAll } from './pixelSnap.js';
 import { Input } from '../input/input.js';
 import { PadNav } from '../input/padNav.js';
 import { rumble } from '../input/pad.js';
+import { say, setPromptInput } from '../input/prompts.js';
 import { kerrScreen } from '../world/kerr.js';
 import { showLetter } from '../ui/letterCard.js';
 import { recordDaily } from '../world/daily.js';
@@ -331,9 +332,9 @@ export class World3D {
     };
     this.jobCard = new JobCard(this.hud.labels.parentElement!);
     if (resumePaused) this.jobCard.prime(g); // a resumed game: those jobs arrived last session
-    this.skipEl = document.createElement('div'); this.skipEl.className = 'revealskip'; this.skipEl.textContent = 'Tap to skip';
-    Object.assign(this.skipEl.style, { position: 'absolute', left: '50%', bottom: 'calc(110px + env(safe-area-inset-bottom, 0px))', transform: 'translateX(-50%)',
-      padding: '4px 12px', borderRadius: '14px', background: 'rgba(20,17,15,.6)', color: '#efe6d8', font: '14px sans-serif', pointerEvents: 'none', display: 'none', zIndex: '6' });
+    this.skipEl = document.createElement('div'); this.skipEl.className = 'revealskip'; this.skipEl.textContent = say('skip');
+    Object.assign(this.skipEl.style, { position: 'absolute', left: '50%', bottom: 'calc(110px + max(env(safe-area-inset-bottom, 0px), var(--tvy, 0px)))', transform: 'translateX(-50%)',
+      padding: '4px 12px', borderRadius: '14px', background: 'rgba(20,17,15,.6)', color: '#efe6d8', font: 'calc(max(14px, var(--fmin, 0px)) * var(--s, 1)) sans-serif', pointerEvents: 'none', display: 'none', zIndex: '6' });
     this.hud.labels.parentElement!.appendChild(this.skipEl);
     this.makeKnockOff();
     // the Lease: its letter on the first day (the rent's on the notepad from now on)
@@ -365,6 +366,8 @@ export class World3D {
     this.buildSigns();
     this.input = new Input();
     // a pad going away mid-game pauses it (pick it up again, or carry on by touch)
+    // prompts and hints follow the input in use (touch, keyboard or pad)
+    this.input.onKind(k => { setPromptInput(k, this.input.family); this.labelSig = ''; this.skipEl.textContent = say('skip'); });
     this.input.onDisconnect = () => { if (!this.title && this.g.phase === 'day' && !this.paused) { this.setPaused(true); this.hud.toastNow('Controller disconnected: paused'); } };
     this.padNav = new PadNav(this.input, {
       canvas,
@@ -963,7 +966,14 @@ export class World3D {
 
   private lastTracked = '';
 
-  private showSummary() { void this.showSummaryAsync(); }
+  /** The summary's being loaded (its chunk is lazy): don't start it again every frame meanwhile (each would re-render it,
+   * swapping its buttons under a press). */
+  private summaryPending = false;
+  private showSummary() {
+    if (this.summaryPending) return;
+    this.summaryPending = true;
+    void this.showSummaryAsync().finally(() => { this.summaryPending = false; });
+  }
 
   private async showSummaryAsync() {
     this.save();
@@ -1270,8 +1280,8 @@ export class World3D {
     if (open && !this.layoutChip) {
       const b = this.layoutChip = document.createElement('button');
       b.className = 'layoutchip'; b.textContent = 'Move anything round?';
-      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + env(safe-area-inset-right, 0px))', top: 'calc(118px + env(safe-area-inset-top, 0px))', zIndex: '6',
-        font: "14px 'Courier New', monospace", padding: '6px 10px', background: '#fff1c9', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
+      Object.assign(b.style, { position: 'absolute', right: 'calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px)))', top: 'calc(118px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)))', zIndex: '6',
+        font: "calc(max(14px, var(--fmin, 0px)) * var(--s, 1)) 'Courier New', monospace", padding: '6px 10px', background: '#fff1c9', color: '#14110f', border: '2px solid #14110f', borderRadius: '12px', pointerEvents: 'auto' });
       b.addEventListener('pointerdown', e => { e.stopPropagation(); e.preventDefault(); this.enterLayout(); });
       this.hud.labels.parentElement!.appendChild(b);
     } else if (!open && this.layoutChip) { this.layoutChip.remove(); this.layoutChip = null; }
@@ -1705,7 +1715,7 @@ export class World3D {
 
   private updateLabels() {
     const g = this.g, w = this.w;
-    const live = !this.paused && g.phase === 'day';
+    const live = !this.paused && g.phase === 'day' && !this.hud.plyShowing && !this.kerr.showing; // (no prompts over the ply order or Kerr)
     const near = live ? OBJECTS.filter(o => o.id !== 'duct' && this.inRange(o.id)) : [];
     const entries: { id: string; anchor: THREE.Vector3; acts: Action[]; status: string | null }[] = near.map(o => {
       const v = this.built.objects.get(o.id)!;
@@ -2050,7 +2060,7 @@ export class World3D {
     for (const z of ZONES) {
       const el = document.createElement('div');
       el.textContent = z.name;
-      Object.assign(el.style, { position: 'absolute', transform: 'translate(-50%,-50%)', font: '11px monospace', color: '#00e5ff', background: '#000a', padding: '1px 3px', display: 'none' });
+      Object.assign(el.style, { position: 'absolute', transform: 'translate(-50%,-50%)', font: 'calc(max(11px, var(--fmin, 0px)) * var(--s, 1)) monospace', color: '#00e5ff', background: '#000a', padding: '1px 3px', display: 'none' });
       this.hud.labels.appendChild(el);
       this.debugLabels.push({ el, at: new THREE.Vector3((z.rect.x + z.rect.w / 2) * C, 0.1, (z.rect.y + z.rect.h / 2) * C) });
     }
@@ -2361,12 +2371,12 @@ export class World3D {
 
   /** Signs show when they're on screen and near you; the office door glows while the phone rings. */
   private updateSigns(dt: number) {
-    const show = this.g.phase === 'day' && !this.hud.summaryShowing;
+    const show = this.g.phase === 'day' && !this.hud.summaryShowing && !this.hud.modalOpen && !this.kerr.showing && !this.callCard.showing; // (never over a card)
     this.built.doorways.forEach((d, i) => {
       const el = this.signEls[i];
       const p = this.project(d.signAt);
       const near = Math.hypot(d.signAt.x - this.pos.x, d.signAt.z - this.pos.z) < 11;
-      const vis = show && near && !p.behind && p.x > 10 && p.x < this.vw - 10 && p.y > 60 && p.y < this.vh - 10;
+      const vis = show && near && !p.behind && p.x > this.coverLeft + 40 && p.x < this.vw - 10 && p.y > 60 && p.y < this.vh - 10; // (never over the pinned notepad)
       el.style.display = vis ? 'block' : 'none';
       if (vis) { el.style.left = `${p.x.toFixed(1)}px`; el.style.top = `${p.y.toFixed(1)}px`; }
     });
@@ -2404,7 +2414,9 @@ export class World3D {
       else if (g.inspectorWaiting) problems.push({ key: 'rare', icon: '📋', pos: this.built.inspector.position.clone().setY(1.2) });
       else if (g.dockBlocked) problems.push({ key: 'rare', icon: '🚧', pos: at('rollerDoor') });
       const left = Math.max(0, this.coverLeft), u = this.hud.unit;
-      const cx = (left + this.vw) / 2, cy = this.vh / 2, minX = left + 26 * u, maxX = this.vw - 26 * u, minY = 130 * u, maxY = this.vh - 70 * u;
+      // (inside the TV safe area in landscape: 5% of each edge)
+      const tv = this.hud.tvSafe;
+      const cx = (left + this.vw) / 2, cy = this.vh / 2, minX = left + 26 * u + (left ? 0 : tv.x), maxX = this.vw - 26 * u - tv.x, minY = 130 * u + tv.y, maxY = this.vh - 70 * u - tv.y;
       for (const pb of problems) {
         const p = pb.pos.clone().project(this.camera);
         let sx = (p.x + 1) / 2 * this.vw, sy = (1 - p.y) / 2 * this.vh;

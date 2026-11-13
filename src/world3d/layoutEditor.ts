@@ -16,13 +16,13 @@ const COLOURS: Record<StationId, number> = {
   extinguisher: 0xc0281e, fridge: 0xe4e4e0, racks: 0x8a6a40, bench: 0xa07a48, crates: 0x2f6f9e, corkboard: 0xb88a5a,
 };
 const CSS = `
-#kir-hud .layoutcard { position: absolute; left: 50%; top: calc(8px + env(safe-area-inset-top, 0px)); transform: translateX(-50%); width: min(94%, 380px); z-index: 7;
-  background: #fbfaf4; border: 3px solid #14110f; border-radius: 12px; padding: 6px 10px; font: 13px/1.35 'Courier New', monospace; color: #14110f; pointer-events: none; }
-#kir-hud .layoutcard h3 { margin: 0 0 2px; font-size: 14px; }
+#kir-hud .layoutcard { position: absolute; left: 50%; top: calc(8px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px))); transform: translateX(-50%); width: min(94%, 380px); z-index: 7;
+  background: #fbfaf4; border: 3px solid #14110f; border-radius: 12px; padding: 6px 10px; font: calc(max(13px, var(--fmin, 0px)) * var(--s, 1))/1.35 'Courier New', monospace; color: #14110f; pointer-events: none; }
+#kir-hud .layoutcard h3 { margin: 0 0 2px; font-size: calc(max(14px, var(--fmin, 0px)) * var(--s, 1)); }
 #kir-hud .layoutcard .row { display: flex; justify-content: space-between; gap: 8px; }
 #kir-hud .layoutcard .better { color: #2f7a2a; font-weight: 700; } #kir-hud .layoutcard .worse { color: #c0281e; font-weight: 700; }
 #kir-hud .layoutcard .bad { color: #c0281e; }
-#kir-hud .layouttag { position: absolute; transform: translate(-50%, -50%); font: 700 10px sans-serif; color: #14110f; background: rgba(251,250,244,.85);
+#kir-hud .layouttag { position: absolute; transform: translate(-50%, -50%); font: 700 calc(max(10px, var(--fmin, 0px)) * var(--s, 1)) sans-serif; color: #14110f; background: rgba(251,250,244,.85);
   padding: 1px 4px; border-radius: 4px; pointer-events: none; z-index: 6; white-space: nowrap; }
 #kir-hud .layouttag.bad { background: #ffb3a8; }
 `;

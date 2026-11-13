@@ -8,6 +8,7 @@ import type { Game } from '../sim/Game.js';
 import type { ObjectId } from '../world/layout.js';
 import type { TodoItem } from '../world/todo.js';
 import { getItem, KEYS, setItem } from '../storage.js';
+import { applyViewLayout, hudScale, LANDSCAPE } from './viewLayout.js';
 
 const HAND = "'Segoe Print', 'Bradley Hand', 'Chalkboard SE', 'Comic Sans MS', cursive";
 const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).toLocaleString('en-AU');
@@ -17,8 +18,10 @@ const money = (n: number) => (n < 0 ? '-' : '') + '$' + Math.abs(Math.round(n)).
  * goes through this: `--s` is 1 on a phone and grows on bigger screens (see Hud.layout).
  */
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
+/** A font size that never drops under --fmin (landscape: readable from the couch at 720p); on a phone it's just F. */
+const FT = (n: number) => `calc(max(${n}px, var(--fmin, 0px)) * var(--s, 1))`;
 /** Safe-area insets (notches, home bars), so controls stay clear of them. */
-const SAT = 'env(safe-area-inset-top, 0px)', SAR = 'env(safe-area-inset-right, 0px)', SAB = 'env(safe-area-inset-bottom, 0px)', SAL = 'env(safe-area-inset-left, 0px)';
+const SAT = 'max(env(safe-area-inset-top, 0px), var(--tvy, 0px))', SAR = 'max(env(safe-area-inset-right, 0px), var(--tvx, 0px))', SAB = 'max(env(safe-area-inset-bottom, 0px), var(--tvy, 0px))', SAL = 'max(env(safe-area-inset-left, 0px), var(--tvx, 0px))';
 
 const CSS = `
 #kir-hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; overflow: hidden; }
@@ -89,7 +92,7 @@ const CSS = `
 #kir-hud .modal button { font: inherit; font-size: ${F(19)}; color: #efe6d8; border: 0; padding: 10px 14px; margin: 12px 6px 0; min-width: 130px; min-height: ${F(48)}; cursor: pointer; }
 #kir-hud .paused { cursor: pointer; }
 #kir-hud .paused .card { border-color: #a2937f; }
-#kir-hud .paused .card button { display: block; width: 100%; margin-top: 10px; padding: 10px; font: 16px 'Courier New', monospace; background: #efe6d8; color: #14110f; border: 2px solid #14110f; border-radius: 10px; }
+#kir-hud .paused .card button { display: block; width: 100%; margin-top: 10px; padding: 10px; font: ${F(16)} 'Courier New', monospace; background: #efe6d8; color: #14110f; border: 2px solid #14110f; border-radius: 10px; }
 #kir-hud .labels { position: absolute; inset: 0; pointer-events: none; z-index: 6; /* over the tappable speech bubbles (5): a prompt wins over a bubble */ }
 #kir-hud .lbl { position: absolute; transform: translate(-50%, -100%); width: max-content; display: flex; flex-direction: column-reverse; align-items: center; gap: 6px; }
 #kir-hud .lbl button { pointer-events: auto; font: 600 ${F(20)} 'Courier New', monospace; color: #14110f; background: #f2c76b; border: 2px solid #14110f;
@@ -113,10 +116,24 @@ const CSS = `
 #kir-hud .stick { position: absolute; width: ${F(96)}; height: ${F(96)}; transform: translate(-50%, -50%); border-radius: 50%; border: 2px solid rgba(255,255,255,.45);
   background: rgba(20,17,15,.15); display: none; pointer-events: none; }
 #kir-hud .stick .knob { position: absolute; left: 50%; top: 50%; width: ${F(40)}; height: ${F(40)}; margin: calc(${F(-20)}) 0 0 calc(${F(-20)}); border-radius: 50%; background: rgba(255,255,255,.6); }
-#kir-hud .tag { position: absolute; right: calc(4px + ${SAR}); bottom: calc(2px + ${SAB}); font: ${F(10)} 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
+#kir-hud .tag { position: absolute; right: calc(4px + ${SAR}); bottom: calc(2px + ${SAB}); font: ${FT(10)} 'Courier New', monospace; color: rgba(239,230,216,.6); pointer-events: none; }
 #kir-hud .summary { position: absolute; inset: 0; z-index: 50; /* over every card (gesture 30, letters, order card): only the renderer failure sits higher */ background: #14110f; color: #efe6d8; pointer-events: auto; overflow-y: auto; display: none;
   padding: calc(14px + ${SAT}) calc(14px + ${SAR}) calc(30px + ${SAB}) calc(14px + ${SAL}); box-sizing: border-box; font: ${F(17)} 'Courier New', monospace; }
-#kir-hud .summary > * { max-width: ${F(560)}; margin-left: auto; margin-right: auto; }
+#kir-hud .summary > * { max-width: ${F(560)}; margin-left: auto !important; margin-right: auto !important; } /* (headings and stories too: one centred column) */
+#kir-hud .summary { scroll-padding: calc(14px + ${SAT}) 0 calc(30px + ${SAB}); } /* the pad's ring scrolls a button clear of the TV's edge */
+#kir-hud .summary a.skip { display: block; text-align: center; padding: 12px; color: #a2937f; text-decoration: underline; cursor: pointer; }
+/* landscape: the summary's sections side by side, two to a row (a TV's wide, not tall); headings, stories and buttons
+   span the row. (The summary's shown with an inline display: block, which this overrides for the layout only.) */
+.kir-land #kir-hud .summary[style*="block"] { display: grid !important; grid-template-columns: repeat(2, minmax(0, ${F(530)})); justify-content: center;
+  column-gap: ${F(16)}; align-content: start; align-items: start; }
+.kir-land #kir-hud .summary > * { grid-column: 1 / -1; max-width: none; width: 100%; box-sizing: border-box; }
+.kir-land #kir-hud .summary > section { grid-column: auto; }
+.kir-land #kir-hud .summary > button, .kir-land #kir-hud .summary > a { justify-self: center; width: auto; }
+.kir-land #kir-hud .summary > button.next { width: 240px; }
+/* landscape: the ply order is one line a material (name, then the three sizes), so it fits a 16:9 screen */
+.kir-land #kir-hud .modal.ply .card { max-width: ${F(760)}; }
+.kir-land #kir-hud .ply .row { flex-wrap: nowrap; margin: 8px 0; }
+.kir-land #kir-hud .ply .row .name { flex: 0 0 34%; }
 #kir-hud .summary h1 { font-size: ${F(26)}; font-weight: normal; margin: 0; }
 #kir-hud .summary h2 { font-size: ${F(14)}; color: #a2937f; margin: 0 0 6px; font-weight: normal; letter-spacing: 1px; text-transform: uppercase; }
 #kir-hud .summary .sub { color: #a2937f; margin: 4px 0 10px; }
@@ -332,9 +349,10 @@ export class Hud {
    */
   layout(w: number, h: number) {
     this.vh = h;
-    this.s = Math.min(1.8, Math.max(1, Math.min(w, h) / 600));
-    this.stage.style.setProperty('--s', String(this.s));
-    const land = w > h;
+    // by the screen's shape: portrait (the phone) or landscape (a TV, a monitor, a phone on its side); --s, the TV safe
+    // area and the smallest font go on the document root (src/ui/viewLayout.ts)
+    this.s = hudScale(w, h);
+    const land = applyViewLayout(w, h) === 'landscape';
     if (land !== this.land) {
       this.land = land;
       this.root.classList.toggle('land', land);
@@ -342,14 +360,14 @@ export class Hud {
       if (land) this.pad.classList.toggle('open', this.pinned);
       else { this.isOpen = false; this.pad.classList.remove('open'); }
     }
-    this.stage.style.setProperty('--padw', `${Math.round(Math.min(w * 0.36, 360 * this.s))}px`);
+    this.stage.style.setProperty('--padw', `${Math.round(Math.min(w * (w / h > 1.5 ? 0.3 : 0.36), 360 * this.s))}px`); // (16:9: a narrower column, more floor)
     this.placeTab();
   }
 
   /** Landscape: the tab rides on the column's right edge, so it folds the notepad away and back. */
   private placeTab() {
     const padw = this.stage.style.getPropertyValue('--padw') || '0px';
-    this.tab.style.left = this.land && this.pinned ? `calc(${padw} + env(safe-area-inset-left, 0px))` : '';
+    this.tab.style.left = this.land && this.pinned ? `calc(${padw} + max(env(safe-area-inset-left, 0px), var(--tvx, 0px)))` : '';
     this.stage.style.setProperty('--cover', this.land && this.pinned ? padw : '0px');
     this.cover = this.land && this.pinned ? Math.max(0, Math.round(this.pad.getBoundingClientRect().right)) : 0;
   }
@@ -535,6 +553,8 @@ export class Hud {
     }
     for (const [k, e] of this.pointerEls) if (!seen.has(k)) { e.remove(); this.pointerEls.delete(k); }
   }
+  /** The TV safe inset in px (landscape: 5% of each edge; portrait 0). */
+  get tvSafe() { return this.land ? { x: Math.round(innerWidth * LANDSCAPE.safe), y: Math.round(this.vh * LANDSCAPE.safe) } : { x: 0, y: 0 }; }
   /** For tests: what pointers are showing. */
   get pointerKeys() { return [...this.pointerEls.keys()]; }
 

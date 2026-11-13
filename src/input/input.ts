@@ -48,6 +48,7 @@ export class Input {
   private pad: PadState | null = null;
   private repeat = new Map<Action, number>(); // seconds until a held direction steps again
   private navFired = new Set<Action>();
+  private fromStick = new Set<Action>();
   private lastPadSig = '';
   private listeners = new Set<(k: InputKind) => void>();
   /** Told when a pad goes away mid-game (the view pauses). */
@@ -90,16 +91,21 @@ export class Input {
     this.was = this.now;
     this.now = new Set();
     const p = readPad(this.virtualPad);
+    if (!p) this.fromStick.clear();
     // a virtual pad unplugged (tests): the same as a real one going
     if (this.pad && !p && this.virtualPad === null && this.padConnected) this.disconnected();
+    // a pad just turned up (switched on, plugged in): its prompts from now, before the first press
+    if (p && !this.pad) this.use('pad');
     this.pad = p;
     if (p) {
       this.padConnected = true;
       this.family = padFamily(p.id);
       for (const b of p.down) this.now.add(b);
-      // the stick as a d-pad for menus
-      if (p.ly < -NAV_STICK) this.now.add('up'); if (p.ly > NAV_STICK) this.now.add('down');
-      if (p.lx < -NAV_STICK) this.now.add('left'); if (p.lx > NAV_STICK) this.now.add('right');
+      // the stick as a d-pad for menus (remembered apart: a cursor scene wants the stick for the cursor only)
+      this.fromStick.clear();
+      const st = (a: Action) => { if (!this.now.has(a)) this.fromStick.add(a); this.now.add(a); };
+      if (p.ly < -NAV_STICK) st('up'); if (p.ly > NAV_STICK) st('down');
+      if (p.lx < -NAV_STICK) st('left'); if (p.lx > NAV_STICK) st('right');
       const sig = `${[...p.down].sort().join(',')}|${Math.round(p.lx * 4)},${Math.round(p.ly * 4)},${Math.round(p.rx * 4)},${Math.round(p.ry * 4)}`;
       if (sig !== this.lastPadSig) { if (p.down.size || p.lx || p.ly || p.rx || p.ry) this.use('pad'); this.lastPadSig = sig; }
     }
@@ -126,8 +132,8 @@ export class Input {
   /** Came up this frame. */
   released(a: Action) { return (!this.now.has(a) && this.was.has(a)) || this.edgeOnly.has(a); }
   /** A menu step this frame (pressed, or repeating while held). */
-  nav(): 'up' | 'down' | 'left' | 'right' | null {
-    for (const a of NAV) if (this.navFired.has(a)) return a as 'up' | 'down' | 'left' | 'right';
+  nav(dpadOnly = false): 'up' | 'down' | 'left' | 'right' | null {
+    for (const a of NAV) if (this.navFired.has(a) && !(dpadOnly && this.fromStick.has(a))) return a as 'up' | 'down' | 'left' | 'right';
     return null;
   }
 

@@ -65,7 +65,7 @@ const LAYERS: Layer[] = [
   { name: 'letter', root: '#kir-hud .lettercard', backTap: true },
   { name: 'call', root: '#kir-hud .callcard', back: '.no' },
   { name: 'gesture', root: '#kir-hud .gesture', back: '.x' },
-  { name: 'cafe', root: '#kir-hud .cafenext, #kir-hud .cafechip.skip' },
+  { name: 'cafe', root: '#kir-hud .cafenext, #kir-hud .cafechip.skip', back: '.cafechip.skip' },
   { name: 'replies', root: '#kir-hud .replies', back: 'button.home' },
   { name: 'notepad', root: '#kir-hud .pad' },
   { name: 'world', root: '#kir-hud .labels' },
@@ -80,8 +80,9 @@ function visible(el: Element): boolean {
   if (typeof (h as { checkVisibility?: (o: object) => boolean }).checkVisibility === 'function') {
     if (!(h as unknown as { checkVisibility: (o: object) => boolean }).checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
   }
+  // (scrolled out of a long card still counts: the ring scrolls it into view)
   const r = h.getBoundingClientRect();
-  return r.width > 0 && r.height > 0 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+  return r.width > 0 && r.height > 0;
 }
 
 const centre = (el: Element) => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
@@ -114,7 +115,7 @@ export class PadNav {
   box-sizing: border-box; border-radius: .8em; background: #14110f; color: #fff8ec; font: 700 max(14px, calc(14px * var(--s, 1))) sans-serif; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .padcursor { position: fixed; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 3px solid #fff8ec; box-shadow: 0 0 0 2px #14110f; pointer-events: none; z-index: 60; display: none; }
 .padcursor.down { background: rgba(63,167,255,.6); }
-.padlegend { position: absolute; right: calc(10px + var(--tvx, 0px) + env(safe-area-inset-right, 0px)); bottom: calc(8px + var(--tvy, 0px) + env(safe-area-inset-bottom, 0px));
+.padlegend { position: absolute; left: calc(var(--cover, 0px) + (100% - var(--cover, 0px)) / 2); transform: translateX(-50%); top: calc(8px + max(env(safe-area-inset-top, 0px), var(--tvy, 0px)));
   display: none; gap: 10px; font: max(16px, calc(14px * var(--s, 1))) 'Courier New', monospace; color: #efe6d8; background: rgba(20,17,15,.7); padding: 6px 10px; border-radius: 8px; pointer-events: none; z-index: 9; }
 .padlegend b { display: inline-block; min-width: 1.4em; padding: 0 .3em; margin-right: .3em; border-radius: .7em; background: #efe6d8; color: #14110f; text-align: center; }
 `;
@@ -135,16 +136,16 @@ export class PadNav {
   }
 
   /** The top layer with something to press, and what's on it. */
-  private top(): { layer: Layer; root: Element; items: HTMLElement[] } | null {
+  private top(): { layer: Layer; root: Element; roots: Element[]; items: HTMLElement[] } | null {
     for (const L of LAYERS) {
       if (L.name === 'notepad' && !this.notepadOn) continue;
       if (L.name === 'world' && !this.host.inWorld()) continue;
-      for (const root of Array.from(document.querySelectorAll(L.root))) {
-        if (!visible(root)) continue;
-        const items = (root.matches(FOCUSABLE) ? [root as HTMLElement] : []).concat(Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)))
-          .filter(e => visible(e) && !(e as HTMLButtonElement).disabled);
-        if (items.length || L.backTap) return { layer: L, root, items };
-      }
+      // a layer can be several pieces (the cafe's Next and its Skip chip): everything pressable in any of them
+      const roots = Array.from(document.querySelectorAll(L.root)).filter(visible);
+      if (!roots.length) continue;
+      const items = roots.flatMap(root => (root.matches(FOCUSABLE) ? [root as HTMLElement] : []).concat(Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))))
+        .filter(e => visible(e) && !(e as HTMLButtonElement).disabled);
+      if (items.length || L.backTap) return { layer: L, root: roots[0], roots, items };
     }
     return null;
   }
@@ -152,6 +153,12 @@ export class PadNav {
   /** Every frame, after Input.poll: move the ring, press, steer, go back. `dt` frame seconds. */
   update(dt: number) {
     const inp = this.input, padish = inp.kind !== 'touch';
+    // touch play: nothing to do (no ring, no legend, no DOM reads: a phone's frame is untouched)
+    if (!padish && !this.press) {
+      if (this.layer !== null || this.focus) { this.layer = null; this.setFocus(null); this.draw(); }
+      return;
+    }
+    // which layer's on top, from the DOM as it is this frame (only while a pad or keys are in use: see above)
     const t = this.top();
     this.layer = t?.layer.name ?? null;
     // the notepad focus ends when the notepad's gone (portrait: it slid away)
@@ -161,13 +168,13 @@ export class PadNav {
     const canvasMode = this.host.canvasScene();
     const s = inp.stick();
     if (canvasMode && padish && (s.x || s.y) && !this.press) this.cursor.on = true;
-    if (canvasMode && inp.nav()) this.cursor.on = false;
+    if (canvasMode && inp.nav(true)) this.cursor.on = false; // (the d-pad: the stick's the cursor's)
     if (!canvasMode) this.cursor.on = false;
 
     // a press in progress: the stick steers it (drags, strokes, the spray's aim); A up lets go
     if (this.press) {
       if (s.x || s.y) {
-        const v = 380 * (parseFloat(getComputedStyle(document.querySelector('#kir-hud .stage') ?? document.body).getPropertyValue('--s')) || 1);
+        const v = 380 * (parseFloat(document.documentElement.style.getPropertyValue('--s')) || 1); // px a second at full tilt, scaled with the HUD
         this.press.x = Math.max(0, Math.min(innerWidth, this.press.x + s.x * v * dt));
         this.press.y = Math.max(0, Math.min(innerHeight, this.press.y + s.y * v * dt));
         this.press.moved = true;
@@ -192,7 +199,7 @@ export class PadNav {
     if (this.layer === 'world') {
       if (inp.pressed('next') || inp.pressed('prev')) this.cycle(items, inp.pressed('next') ? 1 : -1);
     } else {
-      const d = inp.nav();
+      const d = inp.nav(canvasMode);
       if (d) this.step(items, d);
       if (inp.pressed('next') || inp.pressed('prev')) this.cycle(items, inp.pressed('next') ? 1 : -1);
     }
@@ -244,7 +251,8 @@ export class PadNav {
     if (this.focus === el) return;
     if (this.focus) { this.focus.classList.remove('padfocus'); delete this.focus.dataset.glyph; }
     this.focus = el;
-    if (el) el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+    // (only for a pad or keys: a touch player's page never scrolls under them)
+    if (el && this.input.kind !== 'touch') el.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
   private cycle(items: HTMLElement[], dir: 1 | -1) {
@@ -320,7 +328,7 @@ export class PadNav {
     if (this.notepadOn && this.layer === 'notepad') { this.toggleNotepad(); return; }
     const L = t?.layer;
     if (L?.back && t) {
-      const b = Array.from(t.root.querySelectorAll<HTMLElement>(L.back)).find(e => visible(e));
+      const b = t.roots.flatMap(r => (r.matches(L.back!) ? [r as HTMLElement] : []).concat(Array.from(r.querySelectorAll<HTMLElement>(L.back!)))).find(e => visible(e));
       if (b) { const c = centre(b); this.tapAt(b, c.x, c.y); return; }
     }
     if (L?.backTap) { this.tapAt(document.body, innerWidth / 2, innerHeight / 2); return; }

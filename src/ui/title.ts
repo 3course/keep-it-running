@@ -6,7 +6,7 @@ import { fitPixelText, pixelText } from './pixelText.js';
 const F = (n: number) => `calc(${n}px * var(--s, 1))`;
 const CSS = `
 .kirtitle { position: absolute; inset: 0; z-index: 55; display: flex; flex-direction: column; align-items: center; justify-content: space-between; pointer-events: auto; touch-action: none;
-  padding: calc(${F(36)} + env(safe-area-inset-top, 0px)) 16px calc(${F(28)} + env(safe-area-inset-bottom, 0px)); box-sizing: border-box;
+  padding: calc(${F(36)} + max(env(safe-area-inset-top, 0px), var(--tvy, 0px))) 16px calc(${F(28)} + max(env(safe-area-inset-bottom, 0px), var(--tvy, 0px))); box-sizing: border-box;
   background: linear-gradient(rgba(12, 9, 7, .62), rgba(12, 9, 7, .05) 42%, rgba(12, 9, 7, .72)); font-family: 'Courier New', monospace; color: #efe6d8; }
 .kirtitle .logo { display: flex; flex-direction: column; align-items: center; gap: ${F(10)}; }
 .kirtitle .logo .sub { margin: ${F(6)} 0 0; font-size: ${F(16)}; letter-spacing: 2px; color: #f4e2c4; text-shadow: 0 2px 0 #14110f; text-align: center; }
@@ -17,7 +17,7 @@ const CSS = `
 .kirtitle button.danger { background: #e8644a; color: #fff8ec; }
 .kirtitle .confirm { margin: 0; padding: ${F(12)}; text-align: center; background: rgba(36, 31, 26, .94); border: 2px solid #d48a3c; border-radius: 10px; font-size: ${F(17)}; line-height: 1.35; }
 .kirtitle .row { display: flex; gap: ${F(10)}; margin-top: ${F(12)}; } .kirtitle .row button { flex: 1; }
-.kirtitle .ver { position: absolute; right: calc(10px + env(safe-area-inset-right, 0px)); bottom: calc(6px + env(safe-area-inset-bottom, 0px)); font-size: ${F(11)}; color: rgba(239, 230, 216, .6); }
+.kirtitle .ver { position: absolute; right: calc(10px + max(env(safe-area-inset-right, 0px), var(--tvx, 0px))); bottom: calc(6px + max(env(safe-area-inset-bottom, 0px), var(--tvy, 0px))); font-size: calc(max(11px, var(--fmin, 0px)) * var(--s, 1)); color: rgba(239, 230, 216, .6); }
 .kirtitle [hidden] { display: none !important; }
 `;
 
@@ -67,7 +67,9 @@ export class TitleScreen {
 
   /** The title's lettering, as big as fits (whole-number scale, so it stays crisp). */
   private fit() {
-    const w = Math.min(this.parent.clientWidth || window.innerWidth, 640) - 40;
+    // (landscape: as big as the height allows, so the lettering and the menu both fit a 16:9 screen)
+    const W = this.parent.clientWidth || window.innerWidth, H = this.parent.clientHeight || window.innerHeight;
+    const w = Math.min(W, 640, W > H ? H * 0.62 : Infinity) - 40;
     this.logos.forEach(c => fitPixelText(c, w));
   }
 

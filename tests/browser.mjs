@@ -345,3 +345,24 @@ export async function padGesture(game, { choice } = {}) {
     await padPress(game, 'confirm');
   }
 }
+
+/**
+ * Use a prompt in the shed with the pad: LB/RB to ring it (if it isn't already), A. A gesture card it opens is done by
+ * pad too (padGesture). Returns the action log entry.
+ */
+export async function padLabel(game, text, opts = {}) {
+  await waitForLabel(game, text);
+  await steps(game, 2);
+  for (let i = 0; i < 12; i++) {
+    const f = await padFocus(game);
+    if (f.layer === 'world' && f.text === text) break;
+    await padPress(game, 'next', { hold: 1, after: 1 });
+  }
+  const f = await padFocus(game);
+  assert.equal(f.text, text, `the pad can ring "${text}" (on: ${JSON.stringify(f)})`);
+  const before = await game.eval((g, w, scene) => scene.actionLog.length);
+  await padPress(game, 'confirm');
+  if (await game.eval((g, w, s, n) => !s.actionLog[n] && !!s.gesture.active, before)) await padGesture(game, opts);
+  await stepUntil(game, (g, w, s, n) => !!s.actionLog[n], before, { frames: 200, what: `"${text}" by pad` });
+  return game.eval((g, w, s, n) => s.actionLog[n], before);
+}
